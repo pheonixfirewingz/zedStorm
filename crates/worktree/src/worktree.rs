@@ -7845,6 +7845,42 @@ pub fn benchmark_snapshot_updates(
     update_count: usize,
     entry_count: usize,
 ) -> Result<SnapshotUpdateBenchmarkReport> {
+    benchmark_snapshot_updates_with_drain(update_count, entry_count, None)
+}
+
+#[cfg(any(test, feature = "bench-support"))]
+pub fn benchmark_streamed_snapshot_updates(
+    update_count: usize,
+    entry_count: usize,
+) -> Result<SnapshotUpdateBenchmarkReport> {
+    benchmark_snapshot_updates_with_drain(update_count, entry_count, Some(1))
+}
+
+#[cfg(any(test, feature = "bench-support"))]
+fn apply_benchmark_snapshot_update(
+    snapshot: LocalSnapshot,
+    changes: UpdatedEntriesSet,
+    remote: &mut Snapshot,
+    matcher: &PathMatcher,
+    delivered_updates: &mut usize,
+) {
+    let update = if *delivered_updates == 0 {
+        snapshot.build_initial_update(1, 1)
+    } else {
+        snapshot.build_update(1, 1, changes)
+    };
+    for update in proto::split_worktree_update(update) {
+        remote.apply_remote_update(update, matcher);
+    }
+    *delivered_updates += 1;
+}
+
+#[cfg(any(test, feature = "bench-support"))]
+fn benchmark_snapshot_updates_with_drain(
+    update_count: usize,
+    entry_count: usize,
+    drain_every: Option<usize>,
+) -> Result<SnapshotUpdateBenchmarkReport> {
     anyhow::ensure!(entry_count > 0, "entry count must be positive");
     let mut snapshot = LocalSnapshot {
         snapshot: Snapshot::new(
@@ -7888,6 +7924,7 @@ pub fn benchmark_snapshot_updates(
     );
     let (sender, mut receiver) = snapshot_update_channel(snapshot.clone());
     let mut retained_snapshots = receiver.retained_snapshots();
+    let mut delivered_updates = 0;
     for index in 0..update_count {
         let id = index % entry_count + 1;
         let phase = (index / entry_count) % 4;
@@ -7915,20 +7952,31 @@ pub fn benchmark_snapshot_updates(
             Arc::from([(path, ProjectEntryId::from_proto(id as u64), change)]),
         )?;
         retained_snapshots = retained_snapshots.max(receiver.retained_snapshots());
+        if drain_every.is_some_and(|interval| (index + 1) % interval == 0) {
+            while receiver.retained_snapshots() > 0 {
+                let Some((snapshot, changes)) = futures::executor::block_on(receiver.next()) else {
+                    anyhow::bail!("snapshot observer closed before delivery");
+                };
+                apply_benchmark_snapshot_update(
+                    snapshot,
+                    changes,
+                    &mut remote,
+                    &matcher,
+                    &mut delivered_updates,
+                );
+            }
+        }
     }
     drop(sender);
-    let mut delivered_updates = 0;
     futures::executor::block_on(async {
         while let Some((snapshot, changes)) = receiver.next().await {
-            let update = if delivered_updates == 0 {
-                snapshot.build_initial_update(1, 1)
-            } else {
-                snapshot.build_update(1, 1, changes)
-            };
-            for update in proto::split_worktree_update(update) {
-                remote.apply_remote_update(update, &matcher);
-            }
-            delivered_updates += 1;
+            apply_benchmark_snapshot_update(
+                snapshot,
+                changes,
+                &mut remote,
+                &matcher,
+                &mut delivered_updates,
+            );
         }
     });
     anyhow::ensure!(remote.scan_id == snapshot.scan_id, "scan ordering changed");
