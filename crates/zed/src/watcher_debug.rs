@@ -156,7 +156,6 @@ fn create_editor(
         editor.set_use_modal_editing(false);
         editor.set_show_gutter(false, cx);
         editor.hide_minimap_by_default(window, cx);
-        editor.set_show_edit_predictions(Some(false), window, cx);
         editor.set_soft_wrap_mode(SoftWrap::None, cx);
         editor.set_placeholder_text(tab.empty_message(), window, cx);
         editor

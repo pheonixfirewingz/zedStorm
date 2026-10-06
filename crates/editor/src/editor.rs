@@ -52,8 +52,6 @@ mod bookmarks;
 #[cfg(test)]
 mod code_completion_tests;
 #[cfg(test)]
-mod edit_prediction_tests;
-#[cfg(test)]
 mod editor_block_comment_tests;
 #[cfg(test)]
 mod editor_tests;
@@ -68,7 +66,6 @@ mod completions;
 mod config;
 mod cursor_animation;
 mod diagnostics;
-mod edit_prediction;
 mod input;
 mod markdown_actions;
 mod navigation;
@@ -89,17 +86,25 @@ pub use display_map::{
     ChunkRenderer, ChunkRendererContext, DisplayPoint, FoldPlaceholder, HighlightKey,
     NavigationOverlayKey, SemanticTokenHighlight,
 };
-pub use edit_prediction::make_suggestion_styles;
-pub(crate) use edit_prediction::{
-    EditDisplayMode, EditPrediction, EditPredictionPreview, EditPredictionSettings,
-    EditPredictionState, MenuEditPredictionsPolicy, RegisteredEditPredictionDelegate,
-};
-#[cfg(test)]
-pub(crate) use edit_prediction::{
-    EditPredictionKeybindAction, EditPredictionKeybindSurface, edit_prediction_edit_text,
-};
-pub use edit_prediction_types::Direction;
-pub use edit_prediction_types::EditPredictionRequestTrigger;
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub enum Direction {
+    Prev,
+    Next,
+}
+
+pub fn make_suggestion_styles(cx: &App) -> EditPredictionStyles {
+    EditPredictionStyles {
+        insertion: HighlightStyle {
+            color: Some(cx.theme().status().predictive),
+            ..HighlightStyle::default()
+        },
+        whitespace: HighlightStyle {
+            background_color: Some(cx.theme().status().created_background),
+            ..HighlightStyle::default()
+        },
+    }
+}
+
 pub use editor_settings::{
     CompletionDetailAlignment, CompletionMenuItemKind, CurrentLineHighlight, DiffViewStyle,
     DocumentColorsRenderMode, EditorSettings, EditorSettingsScrollbarProxy, OpenResultsIn,
@@ -153,12 +158,8 @@ use dap::TelemetrySpawnLocation;
 use display_map::*;
 use document_colors::LspColorData;
 use document_links::LspDocumentLinks;
-use edit_prediction_types::{
-    EditPredictionDelegate, EditPredictionDelegateHandle, EditPredictionDiscardReason,
-    EditPredictionGranularity, SuggestionDisplayType,
-};
 use editor_settings::{GoToDefinitionFallback, Minimap as MinimapSettings};
-use element::{LineWithInvisibles, PositionMap, layout_line};
+use element::{LineWithInvisibles, PositionMap};
 use futures::{
     FutureExt,
     future::{self, Shared},
@@ -166,15 +167,14 @@ use futures::{
 use fuzzy::{StringMatch, StringMatchCandidate};
 use git::blame::GlobalBlameRenderer;
 use gpui::{
-    Action, Animation, AnimationExt, AnyElement, App, AppContext, AsyncWindowContext,
-    AvailableSpace, Background, Bounds, ClickEvent, ClipboardEntry, ClipboardItem, Context,
-    DispatchPhase, Edges, Entity, EntityId, EntityInputHandler, EventEmitter, FocusHandle,
-    FocusOutEvent, Focusable, FontId, FontStyle, FontWeight, Global, HighlightStyle, Hsla, IsZero,
-    KeyContext, Modifiers, MouseButton, MouseDownEvent, MouseMoveEvent, PaintQuad, ParentElement,
-    Pixels, PressureStage, Render, ScrollHandle, SharedString, SharedUri, Size, Stateful, Styled,
-    Subscription, Task, TextRun, TextStyle, TextStyleRefinement, UTF16Selection, UnderlineStyle,
-    UniformListScrollHandle, WeakEntity, WeakFocusHandle, Window, div, point, prelude::*,
-    pulsating_between, px, relative, size,
+    Action, AnyElement, App, AppContext, AsyncWindowContext, Background, Bounds, ClickEvent,
+    ClipboardEntry, ClipboardItem, Context, DispatchPhase, Entity, EntityId, EntityInputHandler,
+    EventEmitter, FocusHandle, FocusOutEvent, Focusable, FontId, FontStyle, FontWeight, Global,
+    HighlightStyle, Hsla, IsZero, KeyContext, Modifiers, MouseButton, MouseDownEvent,
+    MouseMoveEvent, PaintQuad, ParentElement, Pixels, PressureStage, Render, ScrollHandle,
+    SharedString, SharedUri, Size, Styled, Subscription, Task, TextRun, TextStyle,
+    TextStyleRefinement, UTF16Selection, UnderlineStyle, UniformListScrollHandle, WeakEntity,
+    WeakFocusHandle, Window, div, point, prelude::*, px, relative, size,
 };
 use hover_links::{HoverLink, HoveredLinkState, find_file};
 use hover_popover::{HoverState, hide_hover};
@@ -184,13 +184,13 @@ use itertools::{Either, Itertools};
 use language::{
     AutoindentMode, BlockCommentConfig, BracketMatch, BracketPair, Buffer, BufferRow,
     BufferSnapshot, Capability, CharClassifier, CharKind, CharScopeContext, CodeLabel, CursorShape,
-    DiagnosticEntryRef, DiffOptions, EditPredictionsMode, EditPreview, HighlightedText, IndentKind,
-    IndentSize, Language, LanguageAwareStyling, LanguageName, LanguageRegistry, LanguageScope,
-    LocalFile, OffsetRangeExt, OutlineItem, Point, Selection, SelectionGoal, TextObject,
-    TransactionId, TreeSitterOptions, WordsQuery,
+    DiagnosticEntryRef, DiffOptions, HighlightedText, IndentKind, IndentSize, Language,
+    LanguageAwareStyling, LanguageName, LanguageRegistry, LanguageScope, LocalFile, OffsetRangeExt,
+    OutlineItem, Point, Selection, SelectionGoal, TextObject, TransactionId, TreeSitterOptions,
+    WordsQuery,
     language_settings::{
         self, AllLanguageSettings, LanguageSettings, LspInsertMode, RewrapBehavior, SoftWrapIndent,
-        WordsCompletionMode, all_language_settings,
+        WordsCompletionMode,
     },
     point_to_lsp, text_diff_with_options,
 };
@@ -211,9 +211,9 @@ use parking_lot::Mutex;
 use persistence::EditorDb;
 use project::{
     BreakpointWithPosition, CodeAction, Completion, CompletionDisplayOptions, CompletionIntent,
-    CompletionResponse, CompletionSource, DisableAiSettings, DocumentHighlight, InlayHint, InlayId,
-    InvalidationStrategy, Location, LocationLink, LspAction, PrepareRenameResponse, Project,
-    ProjectItem, ProjectPath, ProjectTransaction,
+    CompletionResponse, CompletionSource, DocumentHighlight, InlayHint, InvalidationStrategy,
+    Location, LocationLink, LspAction, PrepareRenameResponse, Project, ProjectItem, ProjectPath,
+    ProjectTransaction,
     bookmark_store::BookmarkStore,
     debugger::{
         breakpoint_store::{
@@ -250,7 +250,7 @@ use std::{
     iter::{self, Peekable},
     mem,
     num::NonZeroU32,
-    ops::{ControlFlow, Deref, DerefMut, Not, Range, RangeInclusive},
+    ops::{Deref, DerefMut, Not, Range, RangeInclusive},
     path::{Path, PathBuf},
     rc::Rc,
     sync::Arc,
@@ -263,8 +263,8 @@ use theme::{
 };
 use theme_settings::{ThemeSettings, observe_buffer_font_size_adjustment};
 use ui::{
-    Avatar, ContextMenu, Disclosure, IconButtonShape, Indicator, Key, KeyBinding, Tooltip,
-    prelude::*, scrollbars::ScrollbarAutoHide, tooltip_container, utils::WithRemSize,
+    Avatar, ContextMenu, Disclosure, IconButtonShape, Indicator, KeyBinding, Tooltip, prelude::*,
+    scrollbars::ScrollbarAutoHide, tooltip_container, utils::WithRemSize,
 };
 use ui_input::ErasedEditor;
 use util::{RangeExt, ResultExt, TryFutureExt, maybe, post_inc};
@@ -289,7 +289,7 @@ use crate::{
         inlay_hints::{LspInlayHintData, inlay_hint_settings},
     },
     runnables::{ResolvedTasks, RunnableData, RunnableTaskStatus, RunnableTasks},
-    scroll::{ScrollOffset, ScrollPixelOffset},
+    scroll::ScrollOffset,
     selections_collection::resolve_selections_wrapping_blocks,
     semantic_tokens::SemanticTokenState,
     signature_help::{SignatureHelpHiddenBy, SignatureHelpState},
@@ -314,7 +314,6 @@ pub(crate) const FORMAT_TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) const SCROLL_CENTER_TOP_BOTTOM_DEBOUNCE_TIMEOUT: Duration = Duration::from_secs(1);
 pub const LSP_REQUEST_DEBOUNCE_TIMEOUT: Duration = Duration::from_millis(50);
 
-pub(crate) const EDIT_PREDICTION_KEY_CONTEXT: &str = "edit_prediction";
 pub(crate) const MINIMAP_FONT_SIZE: AbsoluteLength = AbsoluteLength::Pixels(px(2.));
 
 enum ReportEditorEvent {
@@ -1091,17 +1090,11 @@ pub struct Editor {
     prev_pressure_stage: Option<PressureStage>,
     gutter_hovered: bool,
     hovered_link_state: Option<HoveredLinkState>,
-    edit_prediction_provider: Option<RegisteredEditPredictionDelegate>,
+
     code_action_providers: Vec<Rc<dyn CodeActionProvider>>,
-    active_edit_prediction: Option<EditPredictionState>,
-    /// Used to prevent flickering as the user types while the menu is open
-    stale_edit_prediction_in_menu: Option<EditPredictionState>,
-    edit_prediction_settings: EditPredictionSettings,
-    edit_predictions_hidden_for_vim_mode: bool,
-    show_edit_predictions_override: Option<bool>,
+
     show_completions_on_input_override: Option<bool>,
-    menu_edit_predictions_policy: MenuEditPredictionsPolicy,
-    edit_prediction_preview: EditPredictionPreview,
+
     in_leading_whitespace: bool,
     next_inlay_id: usize,
     next_color_inlay_id: usize,
@@ -2469,12 +2462,7 @@ impl Editor {
             pending_mouse_down: None,
             prev_pressure_stage: None,
             hovered_link_state: None,
-            edit_prediction_provider: None,
-            active_edit_prediction: None,
-            stale_edit_prediction_in_menu: None,
-            edit_prediction_preview: EditPredictionPreview::Inactive {
-                released_too_fast: false,
-            },
+
             inline_diagnostics_enabled: full_mode,
             diagnostics_enabled: full_mode,
             word_completions_enabled: full_mode,
@@ -2492,11 +2480,9 @@ impl Editor {
             hovered_cursors: HashMap::default(),
             next_editor_action_id: EditorActionId::default(),
             editor_actions: Rc::default(),
-            edit_predictions_hidden_for_vim_mode: false,
-            show_edit_predictions_override: None,
+
             show_completions_on_input_override: None,
-            menu_edit_predictions_policy: MenuEditPredictionsPolicy::ByProvider,
-            edit_prediction_settings: EditPredictionSettings::Disabled,
+
             in_leading_whitespace: false,
             custom_context_menu: None,
             show_git_blame_gutter: false,
@@ -2646,31 +2632,26 @@ impl Editor {
                     editor.refresh_sticky_headers(&editor.snapshot(window, cx), cx);
                 }
                 EditorEvent::Edited { .. } => {
-                    let vim_mode = vim_mode_setting::VimModeSetting::try_get(cx)
-                        .map(|vim_mode| vim_mode.0)
+                    let display_map = editor.display_snapshot(cx);
+                    let selections = editor.selections.all_adjusted_display(&display_map);
+                    let pop_state = editor
+                        .change_list
+                        .last()
+                        .map(|previous| {
+                            previous.len() == selections.len()
+                                && previous.iter().enumerate().all(|(ix, p)| {
+                                    p.to_display_point(&display_map).row()
+                                        == selections[ix].head().row()
+                                })
+                        })
                         .unwrap_or(false);
-                    if !vim_mode {
-                        let display_map = editor.display_snapshot(cx);
-                        let selections = editor.selections.all_adjusted_display(&display_map);
-                        let pop_state = editor
-                            .change_list
-                            .last()
-                            .map(|previous| {
-                                previous.len() == selections.len()
-                                    && previous.iter().enumerate().all(|(ix, p)| {
-                                        p.to_display_point(&display_map).row()
-                                            == selections[ix].head().row()
-                                    })
-                            })
-                            .unwrap_or(false);
-                        let new_positions = selections
-                            .into_iter()
-                            .map(|s| display_map.display_point_to_anchor(s.head(), Bias::Left))
-                            .collect();
-                        editor
-                            .change_list
-                            .push_to_change_list(pop_state, new_positions);
-                    }
+                    let new_positions = selections
+                        .into_iter()
+                        .map(|s| display_map.display_point_to_anchor(s.head(), Bias::Left))
+                        .collect();
+                    editor
+                        .change_list
+                        .push_to_change_list(pop_state, new_positions);
                 }
                 _ => (),
             },
@@ -2768,15 +2749,10 @@ impl Editor {
     }
 
     pub fn key_context(&self, window: &mut Window, cx: &mut App) -> KeyContext {
-        self.key_context_internal(self.has_active_edit_prediction(), window, cx)
+        self.key_context_internal(window, cx)
     }
 
-    fn key_context_internal(
-        &self,
-        has_active_edit_prediction: bool,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> KeyContext {
+    fn key_context_internal(&self, window: &mut Window, cx: &mut App) -> KeyContext {
         let mut key_context = KeyContext::new_with_defaults();
         key_context.add("Editor");
         let mode = match self.mode {
@@ -2857,18 +2833,8 @@ impl Editor {
             key_context.add("multibuffer");
         }
 
-        if has_active_edit_prediction {
-            key_context.add(EDIT_PREDICTION_KEY_CONTEXT);
-            key_context.add("copilot_suggestion");
-        }
-
         if self.in_leading_whitespace {
             key_context.add("in_leading_whitespace");
-        }
-        if self.edit_prediction_requires_modifier() {
-            key_context.set("edit_prediction_mode", "subtle")
-        } else {
-            key_context.set("edit_prediction_mode", "eager");
         }
 
         if self.selection_mark_mode {
@@ -3560,7 +3526,7 @@ impl Editor {
 
     pub fn dismiss_menus_and_popups(
         &mut self,
-        is_user_requested: bool,
+        _is_user_requested: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
@@ -3573,8 +3539,6 @@ impl Editor {
         dismissed |= self.hide_signature_help(cx, SignatureHelpHiddenBy::Escape);
         dismissed |= self.hide_context_menu(window, cx).is_some();
         dismissed |= self.mouse_context_menu.take().is_some();
-        dismissed |= is_user_requested
-            && self.discard_edit_prediction(EditPredictionDiscardReason::Rejected, cx);
         dismissed |= self.snippet_stack.pop().is_some();
         if self.diff_review_drag_state.is_some() {
             self.cancel_diff_review_drag(cx);
@@ -4143,20 +4107,6 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.update_edit_prediction_settings(cx);
-
-        // Ensure that the edit prediction preview is updated, even when not
-        // enabled, if there's an active edit prediction preview.
-        if self.show_edit_predictions_in_menu()
-            || self.edit_prediction_requires_modifier()
-            || matches!(
-                self.edit_prediction_preview,
-                EditPredictionPreview::Active { .. }
-            )
-        {
-            self.update_edit_prediction_preview(&modifiers, window, cx);
-        }
-
         self.update_selection_mode(&modifiers, position_map, window, cx);
 
         let mouse_position = window.mouse_position();
@@ -4885,12 +4835,10 @@ impl Editor {
     }
 
     pub fn context_menu_visible(&self) -> bool {
-        !self.edit_prediction_preview_is_active()
-            && self
-                .context_menu
-                .borrow()
-                .as_ref()
-                .is_some_and(|menu| menu.visible())
+        self.context_menu
+            .borrow()
+            .as_ref()
+            .is_some_and(|menu| menu.visible())
     }
 
     pub fn context_menu_origin(&self) -> Option<ContextMenuOrigin> {
@@ -4951,8 +4899,7 @@ impl Editor {
         cx.notify();
         self.completion_tasks.clear();
         let context_menu = self.context_menu.borrow_mut().take();
-        self.stale_edit_prediction_in_menu.take();
-        self.update_visible_edit_prediction(window, cx);
+
         if let Some(CodeContextMenu::Completions(_)) = &context_menu
             && let Some(completion_provider) = &self.completion_provider
         {
@@ -5285,13 +5232,7 @@ impl Editor {
             this.change_selections(Default::default(), window, cx, |s| s.select(selections));
             this.insert("", window, cx);
             linked_edits.apply_with_left_expansion(cx);
-            this.refresh_edit_prediction(
-                true,
-                false,
-                EditPredictionRequestTrigger::BufferEdit,
-                window,
-                cx,
-            );
+
             refresh_linked_ranges(this, window, cx);
         });
     }
@@ -5314,13 +5255,7 @@ impl Editor {
             let linked_edits = this.linked_edits_for_selections(Arc::from(""), cx);
             this.insert("", window, cx);
             linked_edits.apply(cx);
-            this.refresh_edit_prediction(
-                true,
-                false,
-                EditPredictionRequestTrigger::BufferEdit,
-                window,
-                cx,
-            );
+
             refresh_linked_ranges(this, window, cx);
         });
     }
@@ -5505,13 +5440,6 @@ impl Editor {
         self.transact(window, cx, |this, window, cx| {
             this.buffer.update(cx, |b, cx| b.edit(edits, None, cx));
             this.change_selections(Default::default(), window, cx, |s| s.select(selections));
-            this.refresh_edit_prediction(
-                true,
-                false,
-                EditPredictionRequestTrigger::BufferEdit,
-                window,
-                cx,
-            );
         });
     }
 
@@ -7977,13 +7905,7 @@ impl Editor {
             self.restore_selections(selections, window, cx);
             self.request_autoscroll(Autoscroll::fit(), cx);
             self.unmark_text(window, cx);
-            self.refresh_edit_prediction(
-                true,
-                false,
-                EditPredictionRequestTrigger::BufferEdit,
-                window,
-                cx,
-            );
+
             cx.emit(EditorEvent::Edited { transaction_id });
             cx.emit(EditorEvent::TransactionUndone { transaction_id });
         }
@@ -8006,13 +7928,7 @@ impl Editor {
             self.restore_selections(selections, window, cx);
             self.request_autoscroll(Autoscroll::fit(), cx);
             self.unmark_text(window, cx);
-            self.refresh_edit_prediction(
-                true,
-                false,
-                EditPredictionRequestTrigger::BufferEdit,
-                window,
-                cx,
-            );
+
             cx.emit(EditorEvent::Edited { transaction_id });
         }
     }
@@ -9171,7 +9087,7 @@ impl Editor {
         if self.read_only(cx) {
             return;
         }
-        self.transact(window, cx, |this, window, cx| {
+        self.transact(window, cx, |this, _window, cx| {
             let edits = this
                 .selections
                 .all::<Point>(&this.display_snapshot(cx))
@@ -9185,13 +9101,6 @@ impl Editor {
                     (selection.range(), uuid.to_string())
                 });
             this.edit(edits, cx);
-            this.refresh_edit_prediction(
-                true,
-                false,
-                EditPredictionRequestTrigger::BufferEdit,
-                window,
-                cx,
-            );
         });
     }
 
@@ -10057,7 +9966,7 @@ impl Editor {
         match event {
             multi_buffer::Event::Edited {
                 edited_buffer,
-                source,
+                source: _,
             } => {
                 self.scrollbar_marker_state.dirty = true;
                 self.active_indent_guides_state.dirty = true;
@@ -10069,9 +9978,6 @@ impl Editor {
                 self.refresh_matching_bracket_highlights(&snapshot, cx);
                 self.refresh_outline_symbols_at_cursor(cx);
                 self.refresh_sticky_headers(&snapshot, cx);
-                if source.is_local() && self.has_active_edit_prediction() {
-                    self.update_visible_edit_prediction(window, cx);
-                }
 
                 // Clean up orphaned review comments after edits
                 self.cleanup_orphaned_review_comments(cx);
@@ -10204,7 +10110,7 @@ impl Editor {
                 }
                 jsx_tag_auto_close::refresh_enabled_in_any_buffer(self, multibuffer, cx);
                 cx.emit(EditorEvent::Reparsed(*buffer_id));
-                self.update_edit_prediction_settings(cx);
+
                 cx.notify();
             }
             multi_buffer::Event::SettingsChanged => {
@@ -10320,14 +10226,7 @@ impl Editor {
             self.set_max_diagnostics_severity(new_severity, cx);
         }
         self.refresh_runnables(None, window, cx);
-        self.update_edit_prediction_settings(cx);
-        self.refresh_edit_prediction(
-            true,
-            false,
-            EditPredictionRequestTrigger::SettingsChanged,
-            window,
-            cx,
-        );
+
         self.refresh_inline_values(cx);
 
         let old_cursor_shape = self.cursor_shape;
@@ -10786,18 +10685,7 @@ impl Editor {
             .and_then(|e| e.to_str())
             .map(|a| a.to_string()));
 
-        let vim_mode = vim_mode_setting::VimModeSetting::try_get(cx)
-            .map(|vim_mode| vim_mode.0)
-            .unwrap_or(false);
-
-        let edit_predictions_provider = all_language_settings(file, cx).edit_predictions.provider;
-        let copilot_enabled = edit_predictions_provider
-            == language::language_settings::EditPredictionProvider::Copilot;
-        let copilot_enabled_for_language = self
-            .buffer
-            .read(cx)
-            .language_settings(cx)
-            .show_edit_predictions;
+        let vim_mode = false;
 
         let project = project.read(cx);
         let event_type = reported_event.event_type();
@@ -10808,9 +10696,6 @@ impl Editor {
                 type = if auto_saved {"autosave"} else {"manual"},
                 file_extension,
                 vim_mode,
-                copilot_enabled,
-                copilot_enabled_for_language,
-                edit_predictions_provider,
                 is_via_ssh = project.is_via_remote_server(),
             );
         } else {
@@ -10818,9 +10703,6 @@ impl Editor {
                 event_type,
                 file_extension,
                 vim_mode,
-                copilot_enabled,
-                copilot_enabled_for_language,
-                edit_predictions_provider,
                 is_via_ssh = project.is_via_remote_server(),
             );
         };
@@ -11019,7 +10901,7 @@ impl Editor {
         {
             self.hide_context_menu(window, cx);
         }
-        self.take_active_edit_prediction(true, cx);
+
         cx.emit(EditorEvent::Blurred);
         cx.notify();
     }

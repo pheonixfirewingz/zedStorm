@@ -30,8 +30,7 @@ use futures::{FutureExt, StreamExt, channel::oneshot, future};
 use git::GitHostingProviderRegistry;
 use git_ui::clone::clone_and_open;
 use gpui::{
-    Action, App, AppContext, Application, AsyncApp, QuitMode, Task, TaskExt, UpdateGlobal as _,
-    block_on,
+    App, AppContext, Application, AsyncApp, QuitMode, Task, TaskExt, UpdateGlobal as _, block_on,
 };
 use gpui_platform;
 
@@ -198,12 +197,6 @@ static STARTUP_TIME: OnceLock<Instant> = OnceLock::new();
 
 fn main() {
     STARTUP_TIME.get_or_init(|| Instant::now());
-
-    // If this process was re-executed as a Linux sandbox helper, run that mode
-    // without returning. Must run before argument parsing: the wrapped command's
-    // args are appended verbatim and would otherwise be misinterpreted as Zed's
-    // own arguments.
-    sandbox::run_sandbox_launcher_if_invoked();
 
     #[cfg(unix)]
     util::prevent_root_execution();
@@ -973,27 +966,6 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut 
                     })
                 })
                 .detach_and_log_err(cx);
-            }
-            OpenRequestKind::AgentPanel { .. } => {
-                cx.spawn(async move |cx| {
-                    let multi_workspace =
-                        workspace::get_any_active_multi_workspace(app_state, cx.clone()).await?;
-                    multi_workspace.update(cx, |_, window, cx| {
-                        window.dispatch_action(zed_actions::OpenCodex.boxed_clone(), cx);
-                    })
-                })
-                .detach_and_log_err(cx);
-            }
-            OpenRequestKind::InstallSkill { .. } => {
-                workspace::with_active_or_new_workspace(cx, |workspace, _, cx| {
-                    workspace.show_toast(
-                        Toast::new(
-                            NotificationId::unique::<zed_actions::OpenCodex>(),
-                            "Install skills through Codex CLI.",
-                        ),
-                        cx,
-                    );
-                });
             }
             OpenRequestKind::DockMenuAction { index } => {
                 cx.perform_dock_menu_action(index);

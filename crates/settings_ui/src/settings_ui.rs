@@ -51,8 +51,7 @@ use zed_actions::{
 
 use crate::components::{
     EnumVariantDropdown, NumberField, NumberFieldMode, NumberFieldType, SettingsInputField,
-    SettingsSectionHeader, font_picker, icon_theme_picker, render_ollama_model_picker,
-    text_field_a11y_state, theme_picker,
+    SettingsSectionHeader, font_picker, icon_theme_picker, text_field_a11y_state, theme_picker,
 };
 use crate::pages::{render_input_audio_device_dropdown, render_output_audio_device_dropdown};
 
@@ -545,7 +544,6 @@ fn init_renderers(cx: &mut App) {
         .add_basic_renderer::<settings::DockSide>(render_dropdown)
         .add_basic_renderer::<settings::TerminalDockPosition>(render_dropdown)
         .add_basic_renderer::<settings::DockPosition>(render_dropdown)
-        .add_basic_renderer::<settings::SidebarDockPosition>(render_dropdown)
         .add_basic_renderer::<settings::GitGutterSetting>(render_dropdown)
         .add_basic_renderer::<settings::GitHunkStyleSetting>(render_dropdown)
         .add_basic_renderer::<settings::GitDiffBaseSetting>(render_dropdown)
@@ -581,7 +579,6 @@ fn init_renderers(cx: &mut App) {
         .add_basic_renderer::<settings::EditPredictionPromptFormatContent>(render_dropdown)
         .add_basic_renderer::<settings::EditPredictionDataCollectionChoice>(render_dropdown)
         .add_basic_renderer::<f32>(render_editable_number_field)
-        .add_basic_renderer::<settings::AutoCompactThreshold>(render_text_field)
         .add_basic_renderer::<u32>(render_editable_number_field)
         .add_basic_renderer::<u64>(render_editable_number_field)
         .add_basic_renderer::<usize>(render_editable_number_field)
@@ -602,11 +599,7 @@ fn init_renderers(cx: &mut App) {
         .add_basic_renderer::<settings::MinimapThumbBorder>(render_dropdown)
         .add_basic_renderer::<settings::ModeContent>(render_dropdown)
         .add_basic_renderer::<settings::UseSystemClipboard>(render_dropdown)
-        .add_basic_renderer::<settings::VimInsertModeCursorShape>(render_dropdown)
         .add_basic_renderer::<settings::SteppingGranularity>(render_dropdown)
-        .add_basic_renderer::<settings::NotifyWhenAgentWaiting>(render_dropdown)
-        .add_basic_renderer::<settings::PlaySoundWhenAgentDone>(render_dropdown)
-        .add_basic_renderer::<settings::ThinkingBlockDisplay>(render_dropdown)
         .add_basic_renderer::<settings::ImageFileSizeUnit>(render_dropdown)
         .add_basic_renderer::<settings::StatusStyle>(render_dropdown)
         .add_basic_renderer::<settings::GitPanelClickBehavior>(render_dropdown)
@@ -639,7 +632,6 @@ fn init_renderers(cx: &mut App) {
         .add_basic_renderer::<settings::WindowButtonLayoutContentDiscriminants>(render_dropdown)
         .add_basic_renderer::<settings::ScanSymlinksSetting>(render_dropdown)
         .add_basic_renderer::<settings::FontSize>(render_editable_number_field)
-        .add_basic_renderer::<settings::OllamaModelName>(render_ollama_model_picker)
         .add_basic_renderer::<settings::SemanticTokens>(render_dropdown)
         .add_basic_renderer::<settings::DocumentFoldingRanges>(render_dropdown)
         .add_basic_renderer::<settings::DocumentSymbols>(render_dropdown)
@@ -5129,7 +5121,6 @@ pub mod test {
         theme_settings::init(theme::LoadThemes::JustBase, cx);
         editor::init(cx);
         menu::init();
-        language_model::init(cx);
     }
 
     fn parse(input: &'static str, window: &mut Window, cx: &mut App) -> SettingsWindow {

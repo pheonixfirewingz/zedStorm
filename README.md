@@ -9,7 +9,7 @@ Install [Codex CLI](https://learn.chatgpt.com/docs/codex/cli) separately and mak
 
 The Codex button opens a native chat panel in the right dock. Send prompts with **Enter** and add new lines with **Shift+Enter**. Replies stream with Markdown and code blocks; command activity, file changes, approvals, and errors appear in the panel. **Stop** interrupts a turn, **New Chat** starts a fresh conversation, and **Reconnect** resumes the current chat after a connection failure. The panel uses the installed CLI's `codex app-server` process and existing authentication/configuration. If needed, **Sign in to Codex** opens Codex's browser sign-in. Local projects are supported; remote projects currently show an explicit message.
 
-The upstream shared AI and collaboration crates remain in the source tree where editor libraries depend on their types. Their app startup hooks and UI entry points are removed, and the legacy `disable_ai: false` setting cannot re-enable them.
+The upstream AI crates and provider SDK dependencies are removed from the workspace and application dependency graph. This includes Zed agents, edit predictions, model providers, web search, sandbox launchers, and editor-managed MCP/ACP servers. Codex CLI owns the AI runtime, authentication, tools, and server configuration. Shared collaboration libraries remain for editor infrastructure, with their account and collaboration UI disabled.
 
 ### Developing Zed
 

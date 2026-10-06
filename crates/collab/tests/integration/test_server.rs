@@ -365,7 +365,6 @@ impl TestServer {
             file_finder::init(cx);
             menu::init();
             cx.bind_keys(settings::KeymapFile::load_asset_cached(os_keymap, cx).unwrap());
-            language_model::LanguageModelRegistry::test(cx);
         });
 
         client

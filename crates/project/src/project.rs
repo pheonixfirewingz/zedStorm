@@ -1,10 +1,7 @@
-pub mod agent_registry_store;
-pub mod agent_server_store;
 pub mod bookmark_store;
 pub mod buffer_store;
 pub mod color_extractor;
 pub mod connection_manager;
-pub mod context_server_store;
 pub mod debounced_delay;
 pub mod debugger;
 pub mod git_store;
@@ -26,7 +23,6 @@ pub mod worktree_store;
 
 mod environment;
 use buffer_diff::BufferDiff;
-use context_server_store::ContextServerStore;
 pub use environment::ProjectEnvironmentEvent;
 use git::repository::get_git_committer;
 use git_store::{Repository, RepositoryId};
@@ -44,8 +40,6 @@ use crate::{
     trusted_worktrees::{PathTrust, RemoteHostLocation, TrustedWorktrees},
     worktree_store::WorktreeIdCounter,
 };
-pub use agent_registry_store::{AgentRegistryStore, RegistryAgent};
-pub use agent_server_store::{AgentId, AgentServerStore, AgentServersUpdated, ExternalAgentSource};
 pub use git_store::{
     ConflictRegion, ConflictSet, ConflictSetSnapshot, ConflictSetUpdate,
     git_traversal::{ChildEntriesGitIter, GitEntry, GitEntryRef, GitTraversal},
@@ -219,7 +213,6 @@ pub struct Project {
     buffer_ordered_messages_tx: mpsc::UnboundedSender<BufferOrderedMessage>,
     languages: Arc<LanguageRegistry>,
     dap_store: Entity<DapStore>,
-    agent_server_store: Entity<AgentServerStore>,
 
     bookmark_store: Entity<BookmarkStore>,
     breakpoint_store: Entity<BreakpointStore>,
@@ -236,7 +229,7 @@ pub struct Project {
     client_subscriptions: Vec<client::Subscription>,
     worktree_store: Entity<WorktreeStore>,
     buffer_store: Entity<BufferStore>,
-    context_server_store: Entity<ContextServerStore>,
+
     image_store: Entity<ImageStore>,
     lsp_store: Entity<LspStore>,
     _subscriptions: Vec<gpui::Subscription>,
@@ -1211,7 +1204,6 @@ impl Project {
         ToolchainStore::init(&client);
         DapStore::init(&client, cx);
         BreakpointStore::init(&client);
-        context_server_store::init(cx);
     }
 
     pub fn local(
@@ -1244,14 +1236,6 @@ impl Project {
                 .detach();
 
             let weak_self = cx.weak_entity();
-            let context_server_store = cx.new(|cx| {
-                ContextServerStore::local(
-                    worktree_store.clone(),
-                    Some(weak_self.clone()),
-                    false,
-                    cx,
-                )
-            });
 
             let environment = cx.new(|cx| {
                 ProjectEnvironment::new(env, worktree_store.downgrade(), None, false, cx)
@@ -1359,16 +1343,6 @@ impl Project {
                 )
             });
 
-            let agent_server_store = cx.new(|cx| {
-                AgentServerStore::local(
-                    node.clone(),
-                    fs.clone(),
-                    environment.clone(),
-                    client.http_client(),
-                    cx,
-                )
-            });
-
             cx.subscribe(&lsp_store, Self::on_lsp_store_event).detach();
 
             Self {
@@ -1378,7 +1352,7 @@ impl Project {
                 buffer_store,
                 image_store,
                 lsp_store,
-                context_server_store,
+
                 join_project_response_message_id: 0,
                 client_state: ProjectClientState::Local,
                 git_store,
@@ -1396,7 +1370,6 @@ impl Project {
                 bookmark_store,
                 breakpoint_store,
                 dap_store,
-                agent_server_store,
 
                 buffers_needing_diff: Default::default(),
                 git_diff_debouncer: DebouncedDelay::new(),
@@ -1495,16 +1468,6 @@ impl Project {
                 )
             });
 
-            let context_server_store = cx.new(|cx| {
-                ContextServerStore::remote(
-                    rpc::proto::REMOTE_SERVER_PROJECT_ID,
-                    remote.clone(),
-                    worktree_store.clone(),
-                    Some(weak_self.clone()),
-                    cx,
-                )
-            });
-
             let environment = cx.new(|cx| {
                 ProjectEnvironment::new(
                     None,
@@ -1588,14 +1551,6 @@ impl Project {
             cx.subscribe(&settings_observer, Self::on_settings_observer_event)
                 .detach();
 
-            let agent_server_store = cx.new(|_| {
-                AgentServerStore::remote(
-                    REMOTE_SERVER_PROJECT_ID,
-                    remote.clone(),
-                    worktree_store.clone(),
-                )
-            });
-
             cx.subscribe(&remote, Self::on_remote_client_event).detach();
 
             let this = Self {
@@ -1605,14 +1560,14 @@ impl Project {
                 buffer_store,
                 image_store,
                 lsp_store,
-                context_server_store,
+
                 bookmark_store,
                 breakpoint_store,
                 dap_store,
                 join_project_response_message_id: 0,
                 client_state: ProjectClientState::Local,
                 git_store,
-                agent_server_store,
+
                 client_subscriptions: Vec::new(),
                 _subscriptions: vec![
                     cx.on_release(Self::release),
@@ -1670,7 +1625,6 @@ impl Project {
             remote_proto.subscribe_to_entity(REMOTE_SERVER_PROJECT_ID, &this.breakpoint_store);
             remote_proto.subscribe_to_entity(REMOTE_SERVER_PROJECT_ID, &this.settings_observer);
             remote_proto.subscribe_to_entity(REMOTE_SERVER_PROJECT_ID, &this.git_store);
-            remote_proto.subscribe_to_entity(REMOTE_SERVER_PROJECT_ID, &this.agent_server_store);
 
             remote_proto.add_entity_message_handler(Self::handle_create_buffer_for_peer);
             remote_proto.add_entity_message_handler(Self::handle_create_image_for_peer);
@@ -1698,7 +1652,6 @@ impl Project {
             DapStore::init(&remote_proto, cx);
             BreakpointStore::init(&remote_proto);
             GitStore::init(&remote_proto);
-            AgentServerStore::init_remote(&remote_proto);
 
             this
         })
@@ -1864,7 +1817,6 @@ impl Project {
             )
         });
 
-        let agent_server_store = cx.new(|_cx| AgentServerStore::collab());
         let replica_id = ReplicaId::new(response.payload.replica_id as u16);
 
         let project = cx.new(|cx| {
@@ -1872,9 +1824,6 @@ impl Project {
 
             let weak_self = cx.weak_entity();
             git_store.update(cx, |git_store, _| git_store.set_project(weak_self.clone()));
-            let context_server_store = cx.new(|cx| {
-                ContextServerStore::local(worktree_store.clone(), Some(weak_self), false, cx)
-            });
 
             let mut worktrees = Vec::new();
             for worktree in response.payload.worktrees {
@@ -1910,7 +1859,7 @@ impl Project {
                 image_store,
                 worktree_store: worktree_store.clone(),
                 lsp_store: lsp_store.clone(),
-                context_server_store,
+
                 active_entry: None,
                 collaborators: Default::default(),
                 join_project_response_message_id: response.message_id,
@@ -1934,7 +1883,7 @@ impl Project {
                 breakpoint_store: breakpoint_store.clone(),
                 dap_store: dap_store.clone(),
                 git_store: git_store.clone(),
-                agent_server_store,
+
                 buffers_needing_diff: Default::default(),
                 git_diff_debouncer: DebouncedDelay::new(),
                 terminals: Terminals {
@@ -2245,11 +2194,6 @@ impl Project {
     /// their initial scan.
     pub fn wait_for_initial_scan(&self, cx: &App) -> impl Future<Output = ()> + use<> {
         self.worktree_store.read(cx).wait_for_initial_scan()
-    }
-
-    #[inline]
-    pub fn context_server_store(&self) -> Entity<ContextServerStore> {
-        self.context_server_store.clone()
     }
 
     #[inline]
@@ -6474,10 +6418,6 @@ impl Project {
 
     pub fn git_store(&self) -> &Entity<GitStore> {
         &self.git_store
-    }
-
-    pub fn agent_server_store(&self) -> &Entity<AgentServerStore> {
-        &self.agent_server_store
     }
 
     #[cfg(feature = "test-support")]

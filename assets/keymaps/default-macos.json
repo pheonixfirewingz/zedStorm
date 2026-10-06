@@ -200,7 +200,7 @@
     },
   },
   {
-    "context": "Editor && !agent_diff && !AgentPanel",
+    "context": "Editor",
     "use_key_equivalents": true,
     "bindings": {
       "cmd-alt-z": "git::Restore",
@@ -210,80 +210,12 @@
     },
   },
   {
-    "context": "AgentPanel",
-    "use_key_equivalents": true,
-    "bindings": {
-      "cmd-shift-e": "project_panel::ToggleFocus",
-      "ctrl-tab": "agents_sidebar::ToggleThreadSwitcher",
-      "ctrl-shift-tab": ["agents_sidebar::ToggleThreadSwitcher", { "select_last": true }],
-    },
-  },
-  {
-    "context": "AgentFeedbackMessageEditor > Editor",
-    "use_key_equivalents": true,
-    "bindings": {
-      "escape": "menu::Cancel",
-      "enter": "menu::Confirm",
-      "alt-enter": "editor::Newline",
-    },
-  },
-  {
-    "context": "AcpThread > ModeSelector",
-    "bindings": {
-      "cmd-enter": "menu::Confirm",
-    },
-  },
-  {
-    "context": "AcpThread",
-    "use_key_equivalents": true,
-    "bindings": {
-      "ctrl--": "pane::GoBack",
-      "alt-cmd-c": "search::ToggleCaseSensitive",
-      "alt-cmd-w": "search::ToggleWholeWord",
-      "alt-cmd-x": "search::ToggleRegex",
-    },
-  },
-  {
-    "context": "AcpThreadSearchBar",
-    "use_key_equivalents": true,
-    "bindings": {
-      "cmd-f": "search::FocusSearch",
-    },
-  },
-  {
-    "context": "AcpThread > Editor",
-    "use_key_equivalents": true,
-    "bindings": {
-      "shift-ctrl-d": "git::Diff",
-    },
-  },
-  {
-    "context": "AcpThread > Editor && mode == full",
-    "use_key_equivalents": true,
-    "bindings": {
-      "alt-enter": "editor::OpenExcerpts",
-    },
-  },
-  {
-    "context": "AcpThread > Editor && use_modifier_to_send",
-    "use_key_equivalents": true,
-    "bindings": {
-      "enter": "editor::Newline",
-    },
-  },
-  {
     "context": "Elicitation || (Elicitation > Editor)",
     "use_key_equivalents": true,
     "bindings": {
       "enter": "menu::Confirm",
       "tab": "menu::SelectNext",
       "shift-tab": "menu::SelectPrevious",
-    },
-  },
-  {
-    "context": "ThreadHistory",
-    "bindings": {
-      "ctrl--": "pane::GoBack",
     },
   },
   {
@@ -642,34 +574,6 @@
     },
   },
   {
-    "context": "ThreadsSidebar",
-    "use_key_equivalents": true,
-    "bindings": {
-      "cmd-n": "agents_sidebar::NewThreadInGroup",
-      "left": "menu::SelectParent",
-      "right": "menu::SelectChild",
-      "enter": "menu::Confirm",
-      "cmd-f": "agents_sidebar::FocusSidebarFilter",
-      "cmd-g": "agents_sidebar::ToggleThreadHistory",
-      "ctrl-tab": "agents_sidebar::ToggleThreadSwitcher",
-      "ctrl-shift-tab": ["agents_sidebar::ToggleThreadSwitcher", { "select_last": true }],
-    },
-  },
-  {
-    "context": "ThreadsSidebar && not_searching",
-    "use_key_equivalents": true,
-    "bindings": {
-      "space": "menu::Confirm",
-    },
-  },
-  {
-    "context": "ThreadSwitcher",
-    "bindings": {
-      "ctrl-tab": "agents_sidebar::ToggleThreadSwitcher",
-      "ctrl-shift-tab": ["agents_sidebar::ToggleThreadSwitcher", { "select_last": true }],
-    },
-  },
-  {
     "context": "Workspace && debugger_running",
     "use_key_equivalents": true,
     "bindings": {
@@ -803,7 +707,7 @@
     },
   },
   {
-    "context": "!AcpThread > Editor && mode == full",
+    "context": "Editor && mode == full",
     "use_key_equivalents": true,
     "bindings": {
       "alt-enter": "editor::OpenExcerpts",

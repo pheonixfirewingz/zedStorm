@@ -1,8 +1,6 @@
 mod app_menus;
 mod codex_panel;
 mod codex_protocol;
-#[cfg(test)]
-pub mod edit_prediction_registry;
 #[cfg(target_os = "macos")]
 pub(crate) mod mac_only_instance;
 mod migrate;
@@ -559,15 +557,12 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
         let line_ending_indicator =
             cx.new(|_| line_ending_selector::LineEndingIndicator::default());
         let git_blame_status = cx.new(|_| git_ui::GitBlameStatus::default());
-        let merge_conflict_indicator =
-            cx.new(|cx| git_ui::MergeConflictIndicator::new(workspace, cx));
         workspace.status_bar().update(cx, |status_bar, cx| {
             status_bar.add_left_item(search_button, window, cx);
             status_bar.add_left_item(lsp_button, window, cx);
             status_bar.add_left_item(diagnostic_summary, window, cx);
             status_bar.add_left_item(active_file_name, window, cx);
             status_bar.add_left_item(git_blame_status, window, cx);
-            status_bar.add_left_item(merge_conflict_indicator, window, cx);
             status_bar.add_left_item(activity_indicator, window, cx);
             status_bar.add_right_item(active_buffer_encoding, window, cx);
             status_bar.add_right_item(active_buffer_language, window, cx);
@@ -753,7 +748,11 @@ pub fn init_codex_commands(cx: &mut App) {
             "acp",
             "agent",
             "agents",
+            "agents_sidebar",
             "assistant",
+            "assistant2",
+            "bedrock",
+            "context_server",
             "copilot",
             "edit_prediction",
             "inline_assistant",
@@ -1299,8 +1298,6 @@ fn register_actions(
             }
         });
     }
-
-    workspace.register_action(sidebar::dump_workspace_info);
 
     #[cfg(debug_assertions)]
     workspace.register_action(|workspace, _: &ShowWorkspaceError, _, cx| {
@@ -2214,6 +2211,10 @@ const REMOVED_ACTION_NAMESPACES: &[&str] = &[
     "acp::",
     "agent::",
     "agents::",
+    "agents_sidebar::",
+    "assistant2::",
+    "bedrock::",
+    "context_server::",
     "copilot::",
     "client::",
     "collab::",
@@ -2729,7 +2730,6 @@ mod tests {
     use node_runtime::NodeRuntime;
     use pretty_assertions::{assert_eq, assert_ne};
     use project::{Project, ProjectPath};
-    use prompt_store::PromptBuilder;
     use remote::RemoteClient;
     use remote_server::{HeadlessAppState, HeadlessProject};
     use semver::Version;
@@ -5348,7 +5348,6 @@ mod tests {
             theme_settings::init(theme::LoadThemes::JustBase, cx);
             client::init(&app_state.client, cx);
             workspace::init(app_state.clone(), cx);
-            onboarding::init(cx);
             app_state
         })
     }
@@ -5568,7 +5567,6 @@ mod tests {
                 "assistant2",
                 "auto_update",
                 "branch_picker",
-                "bedrock",
                 "branches",
                 "buffer_search",
                 "call_hierarchy",
@@ -5579,14 +5577,11 @@ mod tests {
                 "collab_panel",
                 "command_palette",
                 "console",
-                "context_server",
-                "copilot",
-                "copilot_edit_predictions",
+                "codex_chat",
                 "debug_panel",
                 "debugger",
                 "dev",
                 "diagnostics",
-                "edit_prediction",
                 "editor",
                 "encoding_selector",
                 "feedback",
@@ -5600,7 +5595,6 @@ mod tests {
                 "highlights_tree_view",
                 "icon_theme_selector",
                 "image_viewer",
-                "inline_assistant",
                 "journal",
                 "keymap_editor",
                 "keystroke_input",
@@ -5614,7 +5608,6 @@ mod tests {
                 "multi_workspace",
                 "new_process_modal",
                 "notebook",
-                "onboarding",
                 "outline",
                 "outline_panel",
                 "pane",
@@ -5629,7 +5622,6 @@ mod tests {
                 "search",
                 "settings_editor",
                 "settings_profile_selector",
-                "skill_creator",
                 "snippets",
                 "stash_picker",
                 "svg",
@@ -5645,7 +5637,6 @@ mod tests {
                 "toast",
                 "toolchain",
                 "variable_list",
-                "vim",
                 "which_key",
                 "window",
                 "workspace",
@@ -5653,7 +5644,6 @@ mod tests {
                 "zed",
                 "zed_actions",
                 "zed_predict_onboarding",
-                "zeta",
             ];
             assert_eq!(
                 all_namespaces,
@@ -5845,38 +5835,7 @@ mod tests {
             project_panel::init(cx);
             outline_panel::init(cx);
             terminal_view::init(cx);
-            let credentials_provider = zed_credentials_provider::global(cx);
-            copilot_chat::init(
-                app_state.client.http_client(),
-                credentials_provider,
-                copilot_chat::CopilotChatConfiguration::default(),
-                cx,
-            );
             image_viewer::init(cx);
-            language_model::init(cx);
-            client::RefreshLlmTokenListener::register(
-                app_state.client.clone(),
-                app_state.user_store.clone(),
-                cx,
-            );
-            language_models::init(app_state.user_store.clone(), app_state.client.clone(), cx);
-            web_search::init(cx);
-            web_search_providers::init(app_state.client.clone(), app_state.user_store.clone(), cx);
-            let prompt_builder = PromptBuilder::load(app_state.fs.clone(), false, cx);
-            project::AgentRegistryStore::init_global(
-                cx,
-                app_state.fs.clone(),
-                app_state.client.http_client(),
-            );
-            agent_ui::init(
-                app_state.fs.clone(),
-                prompt_builder,
-                app_state.languages.clone(),
-                true,
-                false,
-                cx,
-            );
-
             repl::init(app_state.fs.clone(), cx);
             repl::notebook::init(cx);
             tasks_ui::init(cx);

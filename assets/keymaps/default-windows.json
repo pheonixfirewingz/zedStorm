@@ -175,70 +175,6 @@
     },
   },
   {
-    "context": "AgentPanel",
-    "use_key_equivalents": true,
-    "bindings": {
-      "ctrl-shift-e": "project_panel::ToggleFocus",
-      "ctrl-tab": "agents_sidebar::ToggleThreadSwitcher",
-      "ctrl-shift-tab": ["agents_sidebar::ToggleThreadSwitcher", { "select_last": true }],
-    },
-  },
-  {
-    "context": "AgentFeedbackMessageEditor > Editor",
-    "use_key_equivalents": true,
-    "bindings": {
-      "escape": "menu::Cancel",
-      "enter": "menu::Confirm",
-      "alt-enter": "editor::Newline",
-    },
-  },
-  {
-    "context": "AcpThread > ModeSelector",
-    "bindings": {
-      "ctrl-enter": "menu::Confirm",
-    },
-  },
-  {
-    "context": "AcpThread",
-    "use_key_equivalents": true,
-    "bindings": {
-      "ctrl--": "pane::GoBack",
-      // `alt-l` is provided as an alternative to `alt-tab` as the latter breaks on Windows under the `AcpThread` context
-      "alt-c": "search::ToggleCaseSensitive",
-      "alt-w": "search::ToggleWholeWord",
-      "alt-r": "search::ToggleRegex",
-    },
-  },
-  {
-    "context": "AcpThreadSearchBar",
-    "use_key_equivalents": true,
-    "bindings": {
-      "ctrl-f": "search::FocusSearch",
-    },
-  },
-  {
-    "context": "AcpThread > Editor",
-    "use_key_equivalents": true,
-    "bindings": {
-      "ctrl-shift-d": "git::Diff",
-      // `alt-l` is provided as an alternative to `alt-tab` as the latter breaks on Windows under the `AcpThread > Editor` context
-    },
-  },
-  {
-    "context": "AcpThread > Editor && mode == full",
-    "use_key_equivalents": true,
-    "bindings": {
-      "alt-enter": "editor::OpenExcerpts",
-    },
-  },
-  {
-    "context": "AcpThread > Editor && use_modifier_to_send",
-    "use_key_equivalents": true,
-    "bindings": {
-      "enter": "editor::Newline",
-    },
-  },
-  {
     "context": "Elicitation || (Elicitation > Editor)",
     "use_key_equivalents": true,
     "bindings": {
@@ -592,34 +528,6 @@
     },
   },
   {
-    "context": "ThreadsSidebar",
-    "use_key_equivalents": true,
-    "bindings": {
-      "ctrl-n": "agents_sidebar::NewThreadInGroup",
-      "left": "menu::SelectParent",
-      "right": "menu::SelectChild",
-      "enter": "menu::Confirm",
-      "ctrl-f": "agents_sidebar::FocusSidebarFilter",
-      "ctrl-g": "agents_sidebar::ToggleThreadHistory",
-      "ctrl-tab": "agents_sidebar::ToggleThreadSwitcher",
-      "ctrl-shift-tab": ["agents_sidebar::ToggleThreadSwitcher", { "select_last": true }],
-    },
-  },
-  {
-    "context": "ThreadsSidebar && not_searching",
-    "use_key_equivalents": true,
-    "bindings": {
-      "space": "menu::Confirm",
-    },
-  },
-  {
-    "context": "ThreadSwitcher",
-    "bindings": {
-      "ctrl-tab": "agents_sidebar::ToggleThreadSwitcher",
-      "ctrl-shift-tab": ["agents_sidebar::ToggleThreadSwitcher", { "select_last": true }],
-    },
-  },
-  {
     "context": "ApplicationMenu",
     "use_key_equivalents": true,
     "bindings": {
@@ -747,7 +655,7 @@
     },
   },
   {
-    "context": "!AcpThread > Editor && mode == full",
+    "context": "Editor && mode == full",
     "use_key_equivalents": true,
     "bindings": {
       "alt-enter": "editor::OpenExcerpts",
