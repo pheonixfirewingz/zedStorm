@@ -468,32 +468,92 @@ struct UpdateObservationState {
 }
 
 struct SnapshotUpdateSender {
-    sender: mpsc::UnboundedSender<(LocalSnapshot, UpdatedEntriesSet)>,
+    sender: Sender<()>,
+    pending: Arc<Mutex<VecDeque<PendingSnapshotUpdate>>>,
 }
 
 struct SnapshotUpdateReceiver {
     initial_snapshot: Option<LocalSnapshot>,
-    receiver: mpsc::UnboundedReceiver<(LocalSnapshot, UpdatedEntriesSet)>,
+    receiver: async_channel::Receiver<()>,
+    pending: Arc<Mutex<VecDeque<PendingSnapshotUpdate>>>,
+}
+
+struct PendingSnapshotUpdate {
+    snapshot: LocalSnapshot,
+    changes: HashMap<ProjectEntryId, (Arc<RelPath>, PathChange)>,
+}
+
+impl PendingSnapshotUpdate {
+    fn new(snapshot: LocalSnapshot, changes: UpdatedEntriesSet) -> Self {
+        Self {
+            snapshot,
+            changes: changes
+                .iter()
+                .map(|(path, id, change)| (*id, (path.clone(), *change)))
+                .collect(),
+        }
+    }
+
+    fn merge(&mut self, snapshot: LocalSnapshot, changes: UpdatedEntriesSet) {
+        self.snapshot = snapshot;
+        self.changes.extend(
+            changes
+                .iter()
+                .map(|(path, id, change)| (*id, (path.clone(), *change))),
+        );
+    }
+
+    fn is_complete(&self) -> bool {
+        self.snapshot.completed_scan_id == self.snapshot.scan_id
+    }
 }
 
 fn snapshot_update_channel(
     initial_snapshot: LocalSnapshot,
 ) -> (SnapshotUpdateSender, SnapshotUpdateReceiver) {
-    let (sender, receiver) = mpsc::unbounded();
+    let (sender, receiver) = async_channel::bounded(1);
+    let pending = Arc::new(Mutex::new(VecDeque::new()));
     (
-        SnapshotUpdateSender { sender },
+        SnapshotUpdateSender {
+            sender,
+            pending: pending.clone(),
+        },
         SnapshotUpdateReceiver {
             initial_snapshot: Some(initial_snapshot),
             receiver,
+            pending,
         },
     )
 }
 
 impl SnapshotUpdateSender {
     fn send(&self, snapshot: LocalSnapshot, changes: UpdatedEntriesSet) -> Result<()> {
-        self.sender
-            .unbounded_send((snapshot, changes))
-            .map_err(|error| anyhow!("{error}"))
+        {
+            let mut pending = self.pending.lock();
+            if let Some(last) = pending.back_mut()
+                && !(last.is_complete() && snapshot.completed_scan_id != snapshot.scan_id)
+            {
+                last.merge(snapshot, changes);
+                if last.is_complete()
+                    && pending.len() == 2
+                    && let Some(latest) = pending.pop_back()
+                    && let Some(previous) = pending.front_mut()
+                {
+                    previous.snapshot = latest.snapshot;
+                    previous.changes.extend(latest.changes);
+                }
+            } else {
+                // Keep the newest completed scan before a later incomplete scan so
+                // remote scan waiters can advance even if that later scan stalls.
+                pending.push_back(PendingSnapshotUpdate::new(snapshot, changes));
+            }
+        }
+        match self.sender.try_send(()) {
+            Ok(()) | Err(async_channel::TrySendError::Full(())) => Ok(()),
+            Err(async_channel::TrySendError::Closed(())) => {
+                Err(anyhow!("snapshot observer closed"))
+            }
+        }
     }
 }
 
@@ -502,12 +562,25 @@ impl SnapshotUpdateReceiver {
         if let Some(snapshot) = self.initial_snapshot.take() {
             return Some((snapshot, Arc::default()));
         }
-        self.receiver.next().await
+        loop {
+            let pending = self.pending.lock().pop_front();
+            if let Some(pending) = pending {
+                let changes = pending
+                    .changes
+                    .into_iter()
+                    .map(|(id, (path, change))| (path, id, change))
+                    .collect();
+                return Some((pending.snapshot, changes));
+            }
+            if self.receiver.recv().await.is_err() {
+                return None;
+            }
+        }
     }
 
     #[cfg(any(test, feature = "bench-support"))]
     fn retained_snapshots(&self) -> usize {
-        usize::from(self.initial_snapshot.is_some()) + self.receiver.size_hint().0
+        usize::from(self.initial_snapshot.is_some()) + self.pending.lock().len()
     }
 }
 
@@ -7872,4 +7945,17 @@ pub fn benchmark_snapshot_updates(
         delivered_updates,
         final_entries: remote.entry_count(),
     })
+}
+
+#[cfg(test)]
+mod snapshot_update_tests {
+    #[test]
+    fn coalescing_preserves_initial_entries_deletions_renames_and_scan_completion() {
+        for update_count in [0, 1, 64, 2048, 8192] {
+            let report = super::benchmark_snapshot_updates(update_count, 128)
+                .expect("coalesced updates must preserve remote state");
+            assert!(report.retained_snapshots <= 3);
+            assert!(report.delivered_updates <= 3);
+        }
+    }
 }
