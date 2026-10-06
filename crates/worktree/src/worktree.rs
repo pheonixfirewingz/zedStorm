@@ -568,7 +568,15 @@ impl SnapshotUpdateReceiver {
                 let changes = pending
                     .changes
                     .into_iter()
-                    .map(|(id, (path, change))| (path, id, change))
+                    // A rename can report Added and Removed for the same ID in
+                    // path order. Its final presence comes from the snapshot.
+                    .map(|(id, (path, _))| {
+                        if let Some(entry) = pending.snapshot.entry_for_id(id) {
+                            (entry.path.clone(), id, PathChange::Updated)
+                        } else {
+                            (path, id, PathChange::Removed)
+                        }
+                    })
                     .collect();
                 return Some((pending.snapshot, changes));
             }
