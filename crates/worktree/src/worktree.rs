@@ -7998,6 +7998,15 @@ fn benchmark_snapshot_updates_with_drain(
 #[cfg(test)]
 mod snapshot_update_tests {
     #[test]
+    fn coalescing_preserves_state_across_repeated_drains() {
+        for drain_every in [1, 7, 16, 127] {
+            let report = super::benchmark_snapshot_updates_with_drain(2048, 128, Some(drain_every))
+                .expect("refilling the queue must preserve remote state");
+            assert!(report.retained_snapshots <= 3);
+        }
+    }
+
+    #[test]
     fn coalescing_preserves_initial_entries_deletions_renames_and_scan_completion() {
         for update_count in [0, 1, 64, 2048, 8192] {
             let report = super::benchmark_snapshot_updates(update_count, 128)
