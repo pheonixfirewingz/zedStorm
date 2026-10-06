@@ -7,25 +7,13 @@ description: Customize Zed's keyboard shortcuts. Rebind actions, create key sequ
 
 Zed's key binding system is fully customizable. You can rebind any action, create key sequences, and define context-specific bindings.
 
-## Predefined Keymaps
+## JetBrains Keymap
 
-If you're used to a specific editor's defaults, you can change your `base_keymap` through the settings window ({#kb zed::OpenSettings}) or directly through your `settings.json` file ({#kb zed::OpenSettingsFile}).
-We currently support:
+This fork uses JetBrains key bindings exclusively. There is no preset selector or `base_keymap` setting.
 
-- Zed (default)
-- VS Code
-- Atom
-- Emacs (Beta)
-- JetBrains
-- Sublime Text
-- TextMate
-- Cursor
-- None (disables _all_ key bindings)
+On Linux and Windows, use `Ctrl+F` to find in the current file, `Ctrl+R` to replace, `Ctrl+Shift+F` to search the project or the selected directory, and `Ctrl+Shift+R` to replace across the project.
 
-This setting can also be changed via the command palette through the {#action zed::ToggleBaseKeymapSelector} action.
-
-You can also enable `vim_mode` or `helix_mode`, which add modal bindings.
-For more information, see the documentation for [Vim mode](./vim.md) and [Helix mode](./helix.md).
+To add cursors vertically, tap Ctrl, quickly press and hold Ctrl again, then press Up or Down. Repeated arrow presses add or remove cursors while Ctrl remains held. Releasing Ctrl ends this gesture.
 
 ## Keymap Editor
 

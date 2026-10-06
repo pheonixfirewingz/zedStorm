@@ -34,7 +34,8 @@
       // "ctrl-+": "editor::UnfoldLines", // TODO: `ctrl-numpad+` (numpad not implemented)
       "alt-shift-g": "editor::SplitSelectionIntoLines",
       "alt-j": ["editor::SelectNext", { "replace_newest": false }],
-      "alt-shift-j": ["editor::SelectPrevious", { "replace_newest": false }],
+      "alt-shift-j": "editor::UndoSelection",
+      "ctrl-alt-shift-j": "editor::SelectAllMatches",
       "ctrl-/": ["editor::ToggleComments", { "advance_downwards": true, "comment_empty_lines": true }],
       "ctrl-w": "editor::SelectLargerSyntaxNode",
       "ctrl-shift-w": "editor::SelectSmallerSyntaxNode",
@@ -72,7 +73,12 @@
   {
     "context": "Editor && mode == full",
     "bindings": {
+      // A complete Ctrl binding makes GPUI expire the modifier-only prefix.
+      "ctrl": "editor::MultiCursorModifierTap",
+      "ctrl ctrl-up": ["editor::StartMultiCursor", { "above": true }],
+      "ctrl ctrl-down": "editor::StartMultiCursor",
       "ctrl-f12": "outline::Toggle",
+      "ctrl-f": "buffer_search::Deploy",
       "ctrl-r": ["buffer_search::Deploy", { "replace_enabled": true }],
       "ctrl-e": "file_finder::Toggle",
       "ctrl-shift-n": "file_finder::Toggle",
@@ -84,6 +90,13 @@
       "ctrl-p": "editor::ShowSignatureHelp",
       "ctrl-\\": "assistant::InlineAssist",
       "ctrl-alt-h": "call_hierarchy::ShowIncomingCalls",
+    },
+  },
+  {
+    "context": "Editor && mode == full && multi_cursor_control_held",
+    "bindings": {
+      "ctrl-up": ["editor::AddSelectionAbove", { "skip_soft_wrap": true }],
+      "ctrl-down": ["editor::AddSelectionBelow", { "skip_soft_wrap": true }],
     },
   },
   {
@@ -118,6 +131,7 @@
     "context": "Workspace",
     "bindings": {
       "ctrl-shift-f12": "workspace::ToggleAllDocks",
+      "ctrl-shift-f": "project_search::ToggleFocus",
       "ctrl-shift-r": ["pane::DeploySearch", { "replace_enabled": true }],
       "alt-shift-f10": "task::Spawn",
       "shift-f10": "task::Spawn",

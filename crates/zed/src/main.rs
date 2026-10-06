@@ -50,7 +50,7 @@ use project::{project_settings::ProjectSettings, trusted_worktrees};
 use recent_projects::{RemoteSettings, open_remote_project};
 use release_channel::{AppCommitSha, AppVersion, ReleaseChannel};
 use session::{AppSession, Session};
-use settings::{BaseKeymap, Settings, SettingsStore, watch_config_file};
+use settings::{Settings, SettingsStore, watch_config_file};
 use smol::future::poll_once;
 use std::{
     cell::RefCell,
@@ -759,7 +759,6 @@ fn main() {
             },
             wrap_div_with_search_actions: search::buffer_search::register_pane_search_actions,
         });
-        vim::init(cx);
         terminal_view::init(cx);
         journal::init(app_state.clone(), cx);
         encoding_selector::init(cx);
@@ -838,11 +837,7 @@ fn main() {
             setting = "theme",
             value = cx.theme().name.to_string()
         );
-        telemetry::event!(
-            "Settings Changed",
-            setting = "keymap",
-            value = BaseKeymap::get_global(cx).to_string()
-        );
+        telemetry::event!("Settings Changed", setting = "keymap", value = "JetBrains");
         telemetry.flush_events().detach();
 
         let fs = app_state.fs.clone();

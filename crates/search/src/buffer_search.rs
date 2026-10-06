@@ -4519,7 +4519,7 @@ mod tests {
         let window = cx.add_window(|window, cx| {
             // Load the keymaps in the same order (and with the same sources) as
             // `load_default_keymap` does, so precedence matches a real session
-            // with `base_keymap: JetBrains`.
+            // with the JetBrains keymap.
             let mut default_bindings = settings::KeymapFile::load_asset_allow_partial_failure(
                 settings::DEFAULT_KEYMAP_PATH,
                 cx,
@@ -4530,9 +4530,7 @@ mod tests {
             }
             cx.bind_keys(default_bindings);
 
-            let jetbrains_keymap_path = settings::BaseKeymap::JetBrains
-                .asset_path()
-                .expect("JetBrains base keymap should have an asset path");
+            let jetbrains_keymap_path = settings::JETBRAINS_KEYMAP_PATH;
             let mut jetbrains_bindings =
                 settings::KeymapFile::load_asset_allow_partial_failure(jetbrains_keymap_path, cx)
                     .unwrap();

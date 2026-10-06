@@ -481,6 +481,12 @@ impl EditorElement {
         register_action(editor, window, Editor::split_selection_into_lines);
         register_action(editor, window, Editor::add_selection_above);
         register_action(editor, window, Editor::add_selection_below);
+        register_action(editor, window, Editor::start_multi_cursor);
+        register_action(
+            editor,
+            window,
+            |_, _: &crate::MultiCursorModifierTap, _, _| {},
+        );
         register_action(editor, window, Editor::insert_snippet_at_selections);
         register_action(editor, window, |editor, action, window, cx| {
             editor.select_next(action, window, cx).log_err();
@@ -867,6 +873,22 @@ impl EditorElement {
                     return;
                 }
                 editor.update(cx, |editor, cx| {
+                    if editor.multi_cursor_control_held && !event.modifiers.control {
+                        editor.multi_cursor_control_held = false;
+                        cx.notify();
+                    } else if event.modifiers.control
+                        && event.modifiers.number_of_modifiers() == 1
+                        && window.pending_input().is_some_and(|pending| {
+                            pending.keystrokes().len() == 1
+                                && pending
+                                    .keystrokes()
+                                    .first()
+                                    .is_some_and(|keystroke| keystroke.key == "control")
+                        })
+                    {
+                        editor.multi_cursor_control_held = true;
+                        cx.notify();
+                    }
                     let inlay_hint_settings = inlay_hint_settings(
                         editor.selections.newest_anchor().head(),
                         &editor.buffer.read(cx).snapshot(cx),

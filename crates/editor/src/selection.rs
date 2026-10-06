@@ -301,6 +301,17 @@ impl Editor {
         self.add_selection(false, action.skip_soft_wrap, window, cx);
     }
 
+    pub fn start_multi_cursor(
+        &mut self,
+        action: &StartMultiCursor,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.multi_cursor_control_held = window.modifiers().control;
+        self.add_selection(action.above, true, window, cx);
+        cx.notify();
+    }
+
     pub fn select_all_matches(
         &mut self,
         _action: &SelectAllMatches,

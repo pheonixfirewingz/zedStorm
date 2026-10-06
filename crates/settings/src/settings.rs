@@ -1,4 +1,3 @@
-mod base_keymap_setting;
 mod content_into_gpui;
 mod editable_setting_control;
 mod editorconfig_store;
@@ -32,7 +31,6 @@ use std::{borrow::Cow, fmt, str};
 use util::asset_str;
 
 pub use ::settings_content::*;
-pub use base_keymap_setting::*;
 pub use content_into_gpui::IntoGpui;
 pub use editable_setting_control::*;
 pub use editorconfig_store::{
@@ -165,6 +163,12 @@ pub const DEFAULT_KEYMAP_PATH: &str = "keymaps/default-windows.json";
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub const DEFAULT_KEYMAP_PATH: &str = "keymaps/default-linux.json";
+
+#[cfg(target_os = "macos")]
+pub const JETBRAINS_KEYMAP_PATH: &str = "keymaps/macos/jetbrains.json";
+
+#[cfg(not(target_os = "macos"))]
+pub const JETBRAINS_KEYMAP_PATH: &str = "keymaps/linux/jetbrains.json";
 
 pub fn default_keymap() -> Cow<'static, str> {
     asset_str::<SettingsAssets>(DEFAULT_KEYMAP_PATH)

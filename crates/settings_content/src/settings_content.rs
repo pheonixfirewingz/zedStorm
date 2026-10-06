@@ -217,13 +217,6 @@ pub struct SettingsContent {
     /// Default: true
     pub auto_update: Option<bool>,
 
-    /// This base keymap settings adjusts the default keybindings in Zed to be similar
-    /// to other common code editors. By default, Zed's keymap closely follows VSCode's
-    /// keymap, with minor adjustments, this corresponds to the "VSCode" setting.
-    ///
-    /// Default: VSCode
-    pub base_keymap: Option<BaseKeymapContent>,
-
     /// Configuration for the collab panel visual settings.
     pub collaboration_panel: Option<PanelSettingsContent>,
 
@@ -405,7 +398,7 @@ fallible_options::flattened_deserialize!(SettingsContent {
     sections: { project, theme, extension, workspace, editor, remote },
     options: {
         call_hierarchy, command_palette, file_finder, git_panel, tabs, tab_bar, status_bar, preview_tabs, agent,
-        agent_servers, audio, auto_update, base_keymap, collaboration_panel, debugger, diagnostics,
+        agent_servers, audio, auto_update, collaboration_panel, debugger, diagnostics,
         git,
         global_lsp_settings, image_viewer, markdown_preview, repl, helix_mode, hide_mouse,
         journal, log, line_indicator_format, language_models, copilot, outline_panel, project_panel,
@@ -514,49 +507,6 @@ pub struct UserSettingsContent {
 
 pub struct ExtensionsSettingsContent {
     pub all_languages: AllLanguageSettingsContent,
-}
-
-/// Base key bindings scheme. Base keymaps can be overridden with user keymaps.
-///
-/// Default: Zed
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    PartialEq,
-    Eq,
-    Default,
-    strum::VariantArray,
-)]
-pub enum BaseKeymapContent {
-    #[default]
-    Zed,
-    VSCode,
-    JetBrains,
-    SublimeText,
-    Atom,
-    TextMate,
-    Emacs,
-    Cursor,
-    None,
-}
-
-impl strum::VariantNames for BaseKeymapContent {
-    const VARIANTS: &'static [&'static str] = &[
-        "Zed",
-        "VSCode",
-        "JetBrains",
-        "Sublime Text",
-        "Atom",
-        "TextMate",
-        "Emacs",
-        "Cursor",
-        "None",
-    ];
 }
 
 /// Configuration of audio in Zed.

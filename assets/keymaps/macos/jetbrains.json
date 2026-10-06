@@ -71,7 +71,12 @@
   {
     "context": "Editor && mode == full",
     "bindings": {
+      // A complete Ctrl binding makes GPUI expire the modifier-only prefix.
+      "ctrl": "editor::MultiCursorModifierTap",
+      "ctrl ctrl-up": ["editor::StartMultiCursor", { "above": true }],
+      "ctrl ctrl-down": "editor::StartMultiCursor",
       "cmd-f12": "outline::Toggle",
+      "cmd-f": "buffer_search::Deploy",
       "cmd-r": ["buffer_search::Deploy", { "replace_enabled": true }],
       "cmd-l": "go_to_line::Toggle",
       "cmd-e": "file_finder::Toggle",
@@ -83,6 +88,13 @@
       "cmd-p": "editor::ShowSignatureHelp",
       "cmd-\\": "assistant::InlineAssist",
       "ctrl-alt-h": "call_hierarchy::ShowIncomingCalls",
+    },
+  },
+  {
+    "context": "Editor && mode == full && multi_cursor_control_held",
+    "bindings": {
+      "ctrl-up": ["editor::AddSelectionAbove", { "skip_soft_wrap": true }],
+      "ctrl-down": ["editor::AddSelectionBelow", { "skip_soft_wrap": true }],
     },
   },
   {
@@ -121,6 +133,7 @@
     "context": "Workspace",
     "bindings": {
       "cmd-shift-f12": "workspace::ToggleAllDocks",
+      "cmd-shift-f": "project_search::ToggleFocus",
       "cmd-shift-r": ["pane::DeploySearch", { "replace_enabled": true }],
       "ctrl-alt-r": "task::Spawn",
       "shift-f10": "task::Spawn",

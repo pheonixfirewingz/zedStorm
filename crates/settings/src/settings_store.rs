@@ -2222,7 +2222,6 @@ mod tests {
             .unindent(),
             r#" { "editor.tabSize": 37 } "#.to_owned(),
             r#"{
-              "base_keymap": "VSCode",
               "minimap": {
                 "show": "always"
               },
@@ -2243,7 +2242,6 @@ mod tests {
             .unindent(),
             r#"{ "editor.tabSize": 42 }"#.to_owned(),
             r#"{
-                "base_keymap": "VSCode",
                 "minimap": {
                     "show": "always"
                 },
@@ -2266,7 +2264,6 @@ mod tests {
             .unindent(),
             r#"{}"#.to_owned(),
             r#"{
-                "base_keymap": "VSCode",
                 "minimap": {
                     "show": "always"
                 },
@@ -2293,7 +2290,6 @@ mod tests {
               "outline_panel": {
                 "git_status": true
               },
-              "base_keymap": "VSCode",
               "tabs": {
                 "git_status": true
               },
@@ -2323,7 +2319,6 @@ mod tests {
                 "sort_mode": "mixed",
                 "sort_order": "lower"
               },
-              "base_keymap": "VSCode",
               "minimap": {
                 "show": "always"
               }
@@ -2342,7 +2337,6 @@ mod tests {
             .unindent(),
             r#"{ "editor.fontFamily": "Cascadia Code, 'Consolas', Courier New" }"#.to_owned(),
             r#"{
-              "base_keymap": "VSCode",
               "minimap": {
                 "show": "always"
               },
@@ -2369,7 +2363,6 @@ mod tests {
               "terminal": {
                 "bell": "system"
               },
-              "base_keymap": "VSCode",
               "minimap": {
                 "show": "always"
               }
@@ -2391,7 +2384,6 @@ mod tests {
               "terminal": {
                 "bell": "off"
               },
-              "base_keymap": "VSCode",
               "minimap": {
                 "show": "always"
               }
@@ -2413,7 +2405,6 @@ mod tests {
               "terminal": {
                 "bell": "system"
               },
-              "base_keymap": "VSCode",
               "minimap": {
                 "show": "always"
               }
@@ -2435,7 +2426,6 @@ mod tests {
               "terminal": {
                 "bell": "off"
               },
-              "base_keymap": "VSCode",
               "minimap": {
                 "show": "always"
               }
@@ -2461,7 +2451,6 @@ mod tests {
               "terminal": {
                 "bell": "off"
               },
-              "base_keymap": "VSCode",
               "minimap": {
                 "show": "always"
               }
@@ -2484,7 +2473,6 @@ mod tests {
             }"#
             .to_owned(),
             r#"{
-              "base_keymap": "VSCode",
               "minimap": {
                 "show": "always"
               },
@@ -2506,7 +2494,6 @@ mod tests {
             r#"{ "editor.formatOnSave": true, "editor.formatOnSaveMode": "modificationsIfAvailable" }"#
                 .to_owned(),
             r#"{
-              "base_keymap": "VSCode",
               "minimap": {
                 "show": "always"
               },
@@ -2527,7 +2514,6 @@ mod tests {
             r#"{ "editor.formatOnSave": true, "editor.formatOnSaveMode": "modifications" }"#
                 .to_owned(),
             r#"{
-              "base_keymap": "VSCode",
               "minimap": {
                 "show": "always"
               },
@@ -2547,7 +2533,6 @@ mod tests {
             .unindent(),
             r#"{ "editor.formatOnSave": true, "editor.formatOnSaveMode": "file" }"#.to_owned(),
             r#"{
-              "base_keymap": "VSCode",
               "minimap": {
                 "show": "always"
               },
@@ -2568,7 +2553,6 @@ mod tests {
             r#"{ "editor.formatOnSave": false, "editor.formatOnSaveMode": "modifications" }"#
                 .to_owned(),
             r#"{
-              "base_keymap": "VSCode",
               "minimap": {
                 "show": "always"
               },
@@ -2588,7 +2572,6 @@ mod tests {
             .unindent(),
             r#"{ "editor.formatOnSaveMode": "modifications" }"#.to_owned(),
             r#"{
-              "base_keymap": "VSCode",
               "minimap": {
                 "show": "always"
               }
@@ -2607,7 +2590,6 @@ mod tests {
             .unindent(),
             r#"{ "editor.formatOnSave": true }"#.to_owned(),
             r#"{
-              "base_keymap": "VSCode",
               "minimap": {
                 "show": "always"
               },
@@ -2627,7 +2609,6 @@ mod tests {
             .unindent(),
             r#"{ "editor.formatOnSave": false }"#.to_owned(),
             r#"{
-              "base_keymap": "VSCode",
               "minimap": {
                 "show": "always"
               },
@@ -2651,7 +2632,6 @@ mod tests {
             .unindent(),
             r#"{ "files.associations": { "*.keymap": "c" } }"#.to_owned(),
             r#"{
-              "base_keymap": "VSCode",
               "minimap": {
                 "show": "always"
               },
@@ -2676,7 +2656,6 @@ mod tests {
             }"#
             .unindent(),
             r#"{
-              "base_keymap": "VSCode",
               "minimap": {
                 "show": "always"
               },
@@ -2699,7 +2678,6 @@ mod tests {
             }"#
             .unindent(),
             r#"{
-              "base_keymap": "VSCode",
               "minimap": {
                 "show": "always"
               }

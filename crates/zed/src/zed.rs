@@ -72,10 +72,11 @@ use release_channel::{AppCommitSha, AppVersion, ReleaseChannel};
 use rope::Rope;
 use search::project_search::ProjectSearchBar;
 use settings::{
-    BaseKeymap, DEFAULT_KEYMAP_PATH, DefaultOpenBehavior, InvalidSettingsError, KeybindSource,
-    KeymapFile, KeymapFileLoadResult, MigrationStatus, SPECIFIC_OVERRIDES_KEYMAP_PATH, Settings,
-    SettingsFile, SettingsStore, VIM_KEYMAP_PATH, initial_local_debug_tasks_content,
-    initial_project_settings_content, initial_tasks_content, update_settings_file,
+    DEFAULT_KEYMAP_PATH, DefaultOpenBehavior, InvalidSettingsError, JETBRAINS_KEYMAP_PATH,
+    KeybindSource, KeymapFile, KeymapFileLoadResult, MigrationStatus,
+    SPECIFIC_OVERRIDES_KEYMAP_PATH, Settings, SettingsFile, SettingsStore,
+    initial_local_debug_tasks_content, initial_project_settings_content, initial_tasks_content,
+    update_settings_file,
 };
 use sidebar::Sidebar;
 #[cfg(debug_assertions)]
@@ -95,7 +96,6 @@ use util::markdown::MarkdownString;
 use util::rel_path::RelPath;
 use util::{ResultExt, asset_str, maybe};
 use uuid::Uuid;
-use vim_mode_setting::VimModeSetting;
 use workspace::notifications::{NotificationId, dismiss_app_notification, show_app_notification};
 
 use workspace::{
@@ -610,7 +610,6 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
             cx.new(|_| language_selector::ActiveBufferLanguage::new(workspace));
         let active_toolchain_language =
             cx.new(|cx| toolchain_selector::ActiveToolchain::new(workspace, window, cx));
-        let vim_mode_indicator = cx.new(|cx| vim::ModeIndicator::new(window, cx));
         let pending_keystrokes_indicator =
             cx.new(|cx| which_key::PendingKeystrokesIndicator::new(window, cx));
         let image_info = cx.new(|_cx| ImageInfo::new(workspace));
@@ -647,7 +646,6 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
             status_bar.add_right_item(cursor_position, window, cx);
             status_bar.add_right_item(image_info, window, cx);
             // Keep these last so they stay leftmost and can change without moving the other items.
-            status_bar.add_right_item(vim_mode_indicator, window, cx);
             status_bar.add_right_item(pending_keystrokes_indicator, window, cx);
         });
 
@@ -2133,34 +2131,18 @@ pub fn handle_keymap_file_changes(
     user_keymap_watcher: gpui::Task<()>,
     cx: &mut App,
 ) {
-    let (base_keymap_tx, mut base_keymap_rx) = mpsc::unbounded();
+    let (keymap_settings_tx, mut keymap_settings_rx) = mpsc::unbounded();
     let (keyboard_layout_tx, mut keyboard_layout_rx) = mpsc::unbounded();
-    let mut old_base_keymap = *BaseKeymap::get_global(cx);
-    let mut old_vim_enabled = VimModeSetting::get_global(cx).0;
-    let mut old_helix_enabled = vim_mode_setting::HelixModeSetting::get_global(cx).0;
     let mut old_disable_ai = DisableAiSettings::get_global(cx).disable_ai;
 
     cx.observe_global::<SettingsStore>(move |cx| {
-        let new_base_keymap = *BaseKeymap::get_global(cx);
-        let new_vim_enabled = VimModeSetting::get_global(cx).0;
-        let new_helix_enabled = vim_mode_setting::HelixModeSetting::get_global(cx).0;
         let new_disable_ai = DisableAiSettings::get_global(cx).disable_ai;
 
         if new_disable_ai != old_disable_ai {
             reload_menus(cx);
-        }
-
-        if new_base_keymap != old_base_keymap
-            || new_vim_enabled != old_vim_enabled
-            || new_helix_enabled != old_helix_enabled
-            || new_disable_ai != old_disable_ai
-        {
-            old_base_keymap = new_base_keymap;
-            old_vim_enabled = new_vim_enabled;
-            old_helix_enabled = new_helix_enabled;
             old_disable_ai = new_disable_ai;
 
-            base_keymap_tx.unbounded_send(()).unwrap();
+            keymap_settings_tx.unbounded_send(()).unwrap();
         }
     })
     .detach();
@@ -2202,7 +2184,7 @@ pub fn handle_keymap_file_changes(
         let mut migrating_in_memory = false;
         loop {
             select_biased! {
-                _ = base_keymap_rx.next() => {},
+                _ = keymap_settings_rx.next() => {},
                 _ = keyboard_layout_rx.next() => {},
                 content = user_keymap_file_rx.next() => {
                     if let Some(content) = content {
@@ -2345,29 +2327,16 @@ fn reload_keymaps(cx: &mut App, mut user_key_bindings: Vec<KeyBinding>) {
 }
 
 pub fn load_default_keymap(cx: &mut App) {
-    let base_keymap = *BaseKeymap::get_global(cx);
-    if base_keymap == BaseKeymap::None {
-        return;
-    }
-
     cx.bind_keys(filter_disabled_ai_bindings(
         KeymapFile::load_asset(DEFAULT_KEYMAP_PATH, Some(KeybindSource::Default), cx).unwrap(),
         cx,
     ));
 
-    if let Some(asset_path) = base_keymap.asset_path() {
-        cx.bind_keys(filter_disabled_ai_bindings(
-            KeymapFile::load_asset(asset_path, Some(KeybindSource::Base), cx).unwrap(),
-            cx,
-        ));
-    }
-
-    if VimModeSetting::get_global(cx).0 || vim_mode_setting::HelixModeSetting::get_global(cx).0 {
-        cx.bind_keys(filter_disabled_ai_bindings(
-            KeymapFile::load_asset(VIM_KEYMAP_PATH, Some(KeybindSource::Vim), cx).unwrap(),
-            cx,
-        ));
-    }
+    cx.bind_keys(filter_disabled_ai_bindings(
+        KeymapFile::load_asset(JETBRAINS_KEYMAP_PATH, Some(KeybindSource::Base), cx)
+            .expect("JetBrains keymap should load"),
+        cx,
+    ));
 
     cx.bind_keys(
         KeymapFile::load_asset(
@@ -5510,96 +5479,8 @@ mod tests {
 
     actions!(test_only, [ActionA, ActionB]);
 
-    /// The actions the emacs keymap resolves for `keystroke` in `context`.
-    fn emacs_bindings_for(keystroke: &str, context: &str, cx: &mut TestAppContext) -> Vec<String> {
-        cx.update(|cx| {
-            let mut bindings = settings::KeymapFile::load_asset_allow_partial_failure(
-                "keymaps/default-linux.json",
-                cx,
-            )
-            .unwrap();
-            for binding in &mut bindings {
-                binding.set_meta(settings::KeybindSource::Default.meta());
-            }
-            let mut emacs_bindings = settings::KeymapFile::load_asset_allow_partial_failure(
-                "keymaps/linux/emacs.json",
-                cx,
-            )
-            .unwrap();
-            for binding in &mut emacs_bindings {
-                binding.set_meta(settings::KeybindSource::Base.meta());
-            }
-            bindings.extend(emacs_bindings);
-
-            gpui::Keymap::new(bindings)
-                .bindings_for_input(
-                    &[gpui::Keystroke::parse(keystroke).unwrap()],
-                    &[gpui::KeyContext::parse(context).unwrap()],
-                )
-                .0
-                .iter()
-                .map(|binding| binding.action().name().to_string())
-                .collect()
-        })
-    }
-
-    /// `editor::MoveDown` and `editor::MoveUp` propagate when the cursor doesn't move, which at the
-    /// ends of a buffer let `ctrl-n` and `ctrl-p` fall through to the default bindings and open a
-    /// new file / the file finder.
     #[gpui::test]
-    fn test_emacs_cursor_keys_do_not_fall_back_to_default_bindings(cx: &mut TestAppContext) {
-        init_keymap_test(cx);
-
-        let ctrl_n = emacs_bindings_for("ctrl-n", "Workspace Editor", cx);
-        assert!(
-            ctrl_n.contains(&"editor::MoveDown".to_string()),
-            "ctrl-n should still move down, got {ctrl_n:?}"
-        );
-        assert!(
-            !ctrl_n.contains(&"workspace::NewFile".to_string()),
-            "ctrl-n should not fall through to workspace::NewFile, got {ctrl_n:?}"
-        );
-
-        let ctrl_p = emacs_bindings_for("ctrl-p", "Workspace Editor", cx);
-        assert!(
-            ctrl_p.contains(&"editor::MoveUp".to_string()),
-            "ctrl-p should still move up, got {ctrl_p:?}"
-        );
-        assert!(
-            !ctrl_p.contains(&"file_finder::Toggle".to_string()),
-            "ctrl-p should not fall through to file_finder::Toggle, got {ctrl_p:?}"
-        );
-    }
-
-    /// The unbind above only targets `workspace::NewFile` / `file_finder::Toggle`, so the narrower
-    /// `ctrl-n` and `ctrl-p` bindings still win where they apply.
-    #[gpui::test]
-    fn test_emacs_cursor_keys_keep_narrower_bindings(cx: &mut TestAppContext) {
-        init_keymap_test(cx);
-
-        let completions = "Workspace Editor showing_completions";
-        assert_eq!(
-            emacs_bindings_for("ctrl-n", completions, cx).first(),
-            Some(&"editor::ContextMenuNext".to_string())
-        );
-        assert_eq!(
-            emacs_bindings_for("ctrl-p", completions, cx).first(),
-            Some(&"editor::ContextMenuPrevious".to_string())
-        );
-
-        let selection_mode = "Workspace Editor selection_mode";
-        assert_eq!(
-            emacs_bindings_for("ctrl-n", selection_mode, cx).first(),
-            Some(&"editor::SelectDown".to_string())
-        );
-        assert_eq!(
-            emacs_bindings_for("ctrl-p", selection_mode, cx).first(),
-            Some(&"editor::SelectUp".to_string())
-        );
-    }
-
-    #[gpui::test]
-    async fn test_base_keymap(cx: &mut gpui::TestAppContext) {
+    async fn test_jetbrains_keymap_with_user_bindings(cx: &mut gpui::TestAppContext) {
         let executor = cx.executor();
         let app_state = init_keymap_test(cx);
         let project = Project::test(app_state.fs.clone(), [], cx).await;
@@ -5609,20 +5490,11 @@ mod tests {
             .read_with(cx, |mw, _| mw.workspace().clone())
             .unwrap();
 
-        // From the Atom keymap
-        use workspace::ActivatePreviousPane;
-        // From the JetBrains keymap
         use workspace::ActivatePreviousItem;
-        // From the VSCode keymap
-        use debugger_ui::Start;
 
         app_state
             .fs
-            .save(
-                paths::settings_file(),
-                &r#"{"base_keymap": "Atom"}"#.into(),
-                Default::default(),
-            )
+            .save(paths::settings_file(), &r#"{}"#.into(), Default::default())
             .await
             .unwrap();
 
@@ -5650,47 +5522,27 @@ mod tests {
                 workspace.update(cx, |workspace, cx| {
                     workspace.register_action(|_, _: &ActionA, _window, _cx| {});
                     workspace.register_action(|_, _: &ActionB, _window, _cx| {});
-                    workspace.register_action(|_, _: &ActivatePreviousPane, _window, _cx| {});
                     workspace.register_action(|_, _: &ActivatePreviousItem, _window, _cx| {});
                     cx.notify();
                 });
             })
             .unwrap();
         executor.run_until_parked();
-        // Test loading the keymap base at all
         assert_key_bindings_for(
             window.into(),
             cx,
-            vec![("backspace", &ActionA), ("k", &ActivatePreviousPane)],
+            vec![
+                ("backspace", &ActionA),
+                ("{", &ActivatePreviousItem::default()),
+            ],
             line!(),
         );
 
-        // Test modifying the users keymap, while retaining the base keymap
         app_state
             .fs
             .save(
                 "/keymap.json".as_ref(),
                 &r#"[{"bindings": {"backspace": "test_only::ActionB"}}]"#.into(),
-                Default::default(),
-            )
-            .await
-            .unwrap();
-
-        executor.run_until_parked();
-
-        assert_key_bindings_for(
-            window.into(),
-            cx,
-            vec![("backspace", &ActionB), ("k", &ActivatePreviousPane)],
-            line!(),
-        );
-
-        // Test modifying the base, while retaining the users keymap
-        app_state
-            .fs
-            .save(
-                paths::settings_file(),
-                &r#"{"base_keymap": "JetBrains"}"#.into(),
                 Default::default(),
             )
             .await
@@ -5707,36 +5559,6 @@ mod tests {
             ],
             line!(),
         );
-
-        // Test the VSCode keymap overlay
-        app_state
-            .fs
-            .save(
-                paths::settings_file(),
-                &r#"{"base_keymap": "VSCode"}"#.into(),
-                Default::default(),
-            )
-            .await
-            .unwrap();
-
-        executor.run_until_parked();
-
-        window
-            .update(cx, |_, _, cx| {
-                workspace.update(cx, |workspace, cx| {
-                    workspace.register_action(|_, _: &Start, _window, _cx| {});
-                    cx.notify();
-                });
-            })
-            .unwrap();
-        executor.run_until_parked();
-
-        assert_key_bindings_for(
-            window.into(),
-            cx,
-            vec![("backspace", &ActionB), ("f5", &Start)],
-            line!(),
-        );
     }
 
     #[gpui::test]
@@ -5750,9 +5572,6 @@ mod tests {
             .read_with(cx, |mw, _| mw.workspace().clone())
             .unwrap();
 
-        // From the Atom keymap
-        use workspace::ActivatePreviousPane;
-        // From the JetBrains keymap
         use diagnostics::Deploy;
 
         window
@@ -5767,11 +5586,7 @@ mod tests {
             .unwrap();
         app_state
             .fs
-            .save(
-                paths::settings_file(),
-                &r#"{"base_keymap": "Atom"}"#.into(),
-                Default::default(),
-            )
+            .save(paths::settings_file(), &r#"{}"#.into(), Default::default())
             .await
             .unwrap();
         app_state
@@ -5798,40 +5613,18 @@ mod tests {
         cx.background_executor.run_until_parked();
 
         cx.background_executor.run_until_parked();
-        // Test loading the keymap base at all
         assert_key_bindings_for(
             window.into(),
             cx,
-            vec![("backspace", &ActionA), ("k", &ActivatePreviousPane)],
+            vec![("backspace", &ActionA), ("6", &Deploy)],
             line!(),
         );
 
-        // Test disabling the key binding for the base keymap
         app_state
             .fs
             .save(
                 "/keymap.json".as_ref(),
                 &r#"[{"bindings": {"backspace": null}}]"#.into(),
-                Default::default(),
-            )
-            .await
-            .unwrap();
-
-        cx.background_executor.run_until_parked();
-
-        assert_key_bindings_for(
-            window.into(),
-            cx,
-            vec![("k", &ActivatePreviousPane)],
-            line!(),
-        );
-
-        // Test modifying the base, while retaining the users keymap
-        app_state
-            .fs
-            .save(
-                paths::settings_file(),
-                &r#"{"base_keymap": "JetBrains"}"#.into(),
                 Default::default(),
             )
             .await

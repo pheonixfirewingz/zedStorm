@@ -983,6 +983,7 @@ pub struct Editor {
     pub(crate) show_cursor_when_unfocused: bool,
     columnar_selection_state: Option<ColumnarSelectionState>,
     add_selections_state: Option<AddSelectionsState>,
+    multi_cursor_control_held: bool,
     select_next_state: Option<SelectNextState>,
     select_prev_state: Option<SelectNextState>,
     selection_history: SelectionHistory,
@@ -2359,6 +2360,7 @@ impl Editor {
             scroll_manager: ScrollManager::new(cx),
             columnar_selection_state: None,
             add_selections_state: None,
+            multi_cursor_control_held: false,
             select_next_state: None,
             select_prev_state: None,
             selection_history: SelectionHistory::default(),
@@ -2789,6 +2791,9 @@ impl Editor {
         }
 
         key_context.set("mode", mode);
+        if self.multi_cursor_control_held && window.modifiers().control {
+            key_context.add("multi_cursor_control_held");
+        }
         if self.pending_rename.is_some() {
             key_context.add("renaming");
         }
@@ -10988,11 +10993,13 @@ impl Editor {
         if event.blurred != self.focus_handle {
             self.last_focused_descendant = Some(event.blurred);
         }
+        self.multi_cursor_control_held = false;
         self.selection_drag_state = SelectionDragState::None;
         self.refresh_inlay_hints(InlayHintRefreshReason::ModifiersChanged(false), cx);
     }
 
     pub fn handle_blur(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.multi_cursor_control_held = false;
         self.cursor_animations.clear();
         self.blink_manager.update(cx, BlinkManager::disable);
         self.buffer

@@ -9,17 +9,13 @@ use gpui::{Action, Animation, AnimationExt, App, Entity, IntoElement, TaskExt, p
 use project::agent_server_store::AllAgentServersSettings;
 use project::project_settings::ProjectSettings;
 use project::{AgentRegistryStore, RegistryAgent};
-use settings::{
-    BaseKeymap, CustomAgentServerSettings, Settings, SettingsStore, update_settings_file,
-};
+use settings::{CustomAgentServerSettings, Settings, SettingsStore, update_settings_file};
 use theme::{Appearance, SystemAppearance, ThemeRegistry};
 use theme_settings::{ThemeAppearanceMode, ThemeName, ThemeSelection, ThemeSettings};
 use ui::{
     AgentSetupButton, Divider, StatefulInteractiveElement, SwitchField, TintColor,
-    ToggleButtonGroup, ToggleButtonGroupSize, ToggleButtonSimple, ToggleButtonWithIcon, Tooltip,
-    prelude::*,
+    ToggleButtonGroup, ToggleButtonGroupSize, ToggleButtonSimple, Tooltip, prelude::*,
 };
-use vim_mode_setting::VimModeSetting;
 
 use crate::{
     ImportCursorSettings, ImportVsCodeSettings, SettingsImportState,
@@ -329,109 +325,6 @@ fn render_telemetry_section(tab_index: &mut isize, cx: &App) -> impl IntoElement
         )
 }
 
-fn render_base_keymap_section(tab_index: &mut isize, cx: &mut App) -> impl IntoElement {
-    let base_keymap = match BaseKeymap::get_global(cx) {
-        BaseKeymap::Zed => Some(0),
-        BaseKeymap::VSCode => Some(1),
-        BaseKeymap::JetBrains => Some(2),
-        BaseKeymap::SublimeText => Some(3),
-        BaseKeymap::Atom => Some(4),
-        BaseKeymap::Emacs => Some(5),
-        BaseKeymap::Cursor => Some(6),
-        BaseKeymap::TextMate => Some(7),
-        BaseKeymap::None => None,
-    };
-
-    return v_flex().gap_2().child(Label::new("Base Keymap")).child(
-        ToggleButtonGroup::two_rows(
-            "base_keymap_selection",
-            [
-                ToggleButtonWithIcon::new("Zed", IconName::AiZed, |_, _, cx| {
-                    write_keymap_base(BaseKeymap::Zed, cx);
-                }),
-                ToggleButtonWithIcon::new("VS Code", IconName::EditorVsCode, |_, _, cx| {
-                    write_keymap_base(BaseKeymap::VSCode, cx);
-                }),
-                ToggleButtonWithIcon::new("JetBrains", IconName::EditorJetBrains, |_, _, cx| {
-                    write_keymap_base(BaseKeymap::JetBrains, cx);
-                }),
-                ToggleButtonWithIcon::new("Sublime Text", IconName::EditorSublime, |_, _, cx| {
-                    write_keymap_base(BaseKeymap::SublimeText, cx);
-                }),
-            ],
-            [
-                ToggleButtonWithIcon::new("Atom", IconName::EditorAtom, |_, _, cx| {
-                    write_keymap_base(BaseKeymap::Atom, cx);
-                }),
-                ToggleButtonWithIcon::new("Emacs", IconName::EditorEmacs, |_, _, cx| {
-                    write_keymap_base(BaseKeymap::Emacs, cx);
-                }),
-                ToggleButtonWithIcon::new("Cursor", IconName::EditorCursor, |_, _, cx| {
-                    write_keymap_base(BaseKeymap::Cursor, cx);
-                }),
-                ToggleButtonWithIcon::new("TextMate", IconName::Keyboard, |_, _, cx| {
-                    write_keymap_base(BaseKeymap::TextMate, cx);
-                }),
-            ],
-        )
-        .when_some(base_keymap, |this, base_keymap| {
-            this.selected_index(base_keymap)
-        })
-        .full_width()
-        .tab_index(tab_index)
-        .size(ui::ToggleButtonGroupSize::Medium)
-        .style(ui::ToggleButtonGroupStyle::Outlined),
-    );
-
-    fn write_keymap_base(keymap_base: BaseKeymap, cx: &App) {
-        let fs = <dyn Fs>::global(cx);
-
-        update_settings_file(fs, cx, move |setting, _| {
-            setting.base_keymap = Some(keymap_base.into());
-        });
-
-        telemetry::event!("Welcome Keymap Changed", keymap = keymap_base);
-    }
-}
-
-fn render_vim_mode_switch(tab_index: &mut isize, cx: &mut App) -> impl IntoElement {
-    let toggle_state = if VimModeSetting::get_global(cx).0 {
-        ui::ToggleState::Selected
-    } else {
-        ui::ToggleState::Unselected
-    };
-    SwitchField::new(
-        "onboarding-vim-mode",
-        Some("Vim Mode"),
-        Some("Coming from Neovim? Use our first-class implementation of Vim Mode".into()),
-        toggle_state,
-        {
-            let fs = <dyn Fs>::global(cx);
-            move |&selection, _, cx| {
-                let vim_mode = match selection {
-                    ToggleState::Selected => true,
-                    ToggleState::Unselected => false,
-                    ToggleState::Indeterminate => {
-                        return;
-                    }
-                };
-                update_settings_file(fs.clone(), cx, move |setting, _| {
-                    setting.vim_mode = Some(vim_mode);
-                });
-
-                telemetry::event!(
-                    "Welcome Vim Mode Toggled",
-                    options = if vim_mode { "on" } else { "off" },
-                );
-            }
-        },
-    )
-    .tab_index({
-        *tab_index += 1;
-        *tab_index - 1
-    })
-}
-
 fn render_worktree_auto_trust_switch(tab_index: &mut isize, cx: &mut App) -> impl IntoElement {
     let toggle_state = if ProjectSettings::get_global(cx).session.trust_all_worktrees {
         ui::ToggleState::Selected
@@ -719,10 +612,8 @@ pub(crate) fn render_basics_page(user_store: &Entity<UserStore>, cx: &mut App) -
         .id("basics-page")
         .gap_6()
         .child(render_theme_section(&mut tab_index, cx))
-        .child(render_base_keymap_section(&mut tab_index, cx))
         .child(render_ai_section(user_store, cx))
         .child(render_import_settings_section(&mut tab_index, cx))
-        .child(render_vim_mode_switch(&mut tab_index, cx))
         .child(render_worktree_auto_trust_switch(&mut tab_index, cx))
         .child(Divider::horizontal().color(ui::DividerColor::BorderVariant))
         .child(render_telemetry_section(&mut tab_index, cx))

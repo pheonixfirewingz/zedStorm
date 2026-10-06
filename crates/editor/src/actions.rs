@@ -377,6 +377,15 @@ pub struct AddSelectionBelow {
     pub skip_soft_wrap: bool,
 }
 
+/// Adds a cursor and enables adding more with Ctrl+Up/Down until Ctrl is released.
+#[derive(PartialEq, Clone, Default, Debug, Deserialize, JsonSchema, Action)]
+#[action(namespace = editor)]
+#[serde(deny_unknown_fields)]
+pub struct StartMultiCursor {
+    #[serde(default)]
+    pub above: bool,
+}
+
 /// Inserts a snippet at the cursor.
 #[derive(PartialEq, Clone, Default, Debug, Deserialize, JsonSchema, Action)]
 #[action(namespace = editor)]
@@ -780,6 +789,8 @@ actions!(
         ScrollCursorCenterTopBottom,
         /// Scrolls the cursor to the top of the viewport.
         ScrollCursorTop,
+        /// Consumes a lone Ctrl tap after the multi-cursor gesture expires.
+        MultiCursorModifierTap,
         /// Selects all text in the editor.
         SelectAll,
         /// Selects all matches of the current selection.

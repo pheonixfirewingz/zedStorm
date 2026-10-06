@@ -27,9 +27,7 @@ use language::{Language, LanguageConfig, ToOffset as _};
 
 use notifications::status_toast::StatusToast;
 use project::{CompletionDisplayOptions, Project};
-use settings::{
-    BaseKeymap, KeybindSource, KeymapFile, Settings as _, SettingsAssets, infer_json_indent_size,
-};
+use settings::{KeybindSource, KeymapFile, Settings as _, SettingsAssets, infer_json_indent_size};
 use ui::{
     ActiveTheme as _, App, Banner, BorrowAppContext, ColumnWidthConfig, ContextMenu,
     IconButtonShape, IconPosition, Indicator, Modal, ModalFooter, ModalHeader, ParentElement as _,
@@ -233,14 +231,13 @@ impl FilterState {
 struct SourceFilters {
     user: bool,
     zed_defaults: bool,
-    vim_defaults: bool,
 }
 
 impl SourceFilters {
     fn allows(&self, source: Option<KeybindSource>) -> bool {
         match source {
             Some(KeybindSource::User) => self.user,
-            Some(KeybindSource::Vim) => self.vim_defaults,
+            Some(KeybindSource::Vim) => false,
             Some(KeybindSource::Base | KeybindSource::Default | KeybindSource::Unknown) | None => {
                 self.zed_defaults
             }
@@ -630,7 +627,6 @@ impl KeymapEditor {
             source_filters: SourceFilters {
                 user: true,
                 zed_defaults: true,
-                vim_defaults: true,
             },
             show_no_action_bindings: true,
             search_mode: SearchMode::default(),
@@ -1536,11 +1532,6 @@ impl KeymapEditor {
         self.on_query_changed(cx);
     }
 
-    fn toggle_vim_defaults_filter(&mut self, cx: &mut Context<Self>) {
-        self.source_filters.vim_defaults = !self.source_filters.vim_defaults;
-        self.on_query_changed(cx);
-    }
-
     fn set_filter_state(&mut self, filter_state: FilterState, cx: &mut Context<Self>) {
         if self.filter_state != filter_state {
             self.filter_state = filter_state;
@@ -1678,16 +1669,6 @@ impl KeymapEditor {
                                 &keymap_editor,
                                 Some(|editor, cx| {
                                     editor.toggle_zed_defaults_filter(cx);
-                                }),
-                            ))
-                            .map(add_filter(
-                                "Vim",
-                                source_filters.vim_defaults,
-                                None,
-                                &focus_handle,
-                                &keymap_editor,
-                                Some(|editor, cx| {
-                                    editor.toggle_vim_defaults_filter(cx);
                                 }),
                             ));
                         menu
@@ -3759,16 +3740,10 @@ async fn remove_keybinding(
 }
 
 fn collect_contexts_from_assets() -> Vec<SharedString> {
-    let mut keymap_assets = vec![
+    let keymap_assets = [
         util::asset_str::<SettingsAssets>(settings::DEFAULT_KEYMAP_PATH),
-        util::asset_str::<SettingsAssets>(settings::VIM_KEYMAP_PATH),
+        util::asset_str::<SettingsAssets>(settings::JETBRAINS_KEYMAP_PATH),
     ];
-    keymap_assets.extend(
-        BaseKeymap::OPTIONS
-            .iter()
-            .filter_map(|(_, base_keymap)| base_keymap.asset_path())
-            .map(util::asset_str::<SettingsAssets>),
-    );
 
     let mut contexts = HashSet::default();
 

@@ -12176,6 +12176,70 @@ async fn test_split_selection_into_lines_interacting_with_creases(cx: &mut TestA
 }
 
 #[gpui::test]
+async fn test_jetbrains_multi_cursor_control_hold(cx: &mut TestAppContext) {
+    init_test(cx, |_| {});
+    cx.update(|cx| {
+        let bindings = settings::KeymapFile::load_asset_allow_partial_failure(
+            "keymaps/linux/jetbrains.json",
+            cx,
+        )
+        .expect("JetBrains keymap should load");
+        cx.bind_keys(bindings);
+    });
+    let mut cx = EditorTestContext::new(cx).await;
+    cx.update(|window, _| window.activate_window());
+    cx.run_until_parked();
+    cx.set_state("aˇbc\nabc\nabc\nabc");
+
+    cx.simulate_modifiers_change(Modifiers::control());
+    cx.simulate_modifiers_change(Modifiers::none());
+    cx.simulate_modifiers_change(Modifiers::control());
+    assert!(cx.editor(|editor, _, _| editor.multi_cursor_control_held));
+    cx.assert_editor_state("aˇbc\nabc\nabc\nabc");
+    cx.executor().advance_clock(Duration::from_secs(2));
+    cx.run_until_parked();
+    cx.simulate_keystrokes("ctrl-down ctrl-down");
+    cx.assert_editor_state("aˇbc\naˇbc\naˇbc\nabc");
+    cx.simulate_keystrokes("ctrl-up");
+    cx.assert_editor_state("aˇbc\naˇbc\nabc\nabc");
+
+    cx.simulate_modifiers_change(Modifiers::none());
+    assert!(!cx.editor(|editor, _, _| editor.multi_cursor_control_held));
+    cx.set_state("abc\nabc\nabc\naˇbc");
+    cx.simulate_modifiers_change(Modifiers::control());
+    cx.simulate_keystrokes("ctrl-up");
+    cx.assert_editor_state("abc\nabc\nabc\naˇbc");
+    cx.simulate_modifiers_change(Modifiers::none());
+
+    cx.simulate_modifiers_change(Modifiers::control());
+    cx.simulate_modifiers_change(Modifiers::none());
+    cx.simulate_modifiers_change(Modifiers::control());
+    cx.simulate_keystrokes("ctrl-up ctrl-up");
+    cx.assert_editor_state("abc\naˇbc\naˇbc\naˇbc");
+    cx.simulate_modifiers_change(Modifiers::none());
+
+    cx.set_state("aˇbc\nabc\nabc\nabc");
+    cx.simulate_modifiers_change(Modifiers::control());
+    cx.simulate_modifiers_change(Modifiers::none());
+    cx.executor().advance_clock(Duration::from_secs(2));
+    cx.run_until_parked();
+    cx.simulate_modifiers_change(Modifiers::control());
+    cx.simulate_keystrokes("ctrl-down");
+    cx.assert_editor_state("aˇbc\nabc\nabc\nabc");
+    cx.simulate_modifiers_change(Modifiers::none());
+
+    cx.simulate_modifiers_change(Modifiers::control());
+    cx.simulate_modifiers_change(Modifiers::none());
+    cx.simulate_modifiers_change(Modifiers::control());
+    cx.simulate_keystrokes("ctrl-down");
+    assert!(cx.editor(|editor, _, _| editor.multi_cursor_control_held));
+    cx.update_editor(|_, window, cx| window.blur(cx));
+    cx.update(|window, cx| window.draw(cx).clear(cx));
+    cx.run_until_parked();
+    assert!(!cx.editor(|editor, _, _| editor.multi_cursor_control_held));
+}
+
+#[gpui::test]
 async fn test_add_selection_grapheme_columns(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
     let mut cx = EditorTestContext::new(cx).await;
