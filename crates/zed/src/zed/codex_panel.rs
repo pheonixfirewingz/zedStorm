@@ -7,7 +7,11 @@ use gpui::{
 use markdown::{Markdown, MarkdownElement, MarkdownFont, MarkdownStyle};
 use serde_json::{Value, json};
 use smol::channel;
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 use ui::{Tooltip, prelude::*};
 use util::ResultExt as _;
 use workspace::{
@@ -39,6 +43,8 @@ pub struct CodexPanel {
     position: DockPosition,
     remote: bool,
     _subscriptions: Vec<Subscription>,
+    last_markdown_sync: Instant,
+    markdown_sync_task: Option<Task<()>>,
 }
 
 impl CodexPanel {
@@ -64,6 +70,8 @@ impl CodexPanel {
             position: DockPosition::Right,
             remote: workspace.project().read(cx).is_remote(),
             _subscriptions: vec![subscription],
+            last_markdown_sync: Instant::now(),
+            markdown_sync_task: None,
         }
     }
 
@@ -75,6 +83,7 @@ impl CodexPanel {
         }
         self.connection_task.take();
         self.event_task.take();
+        self.markdown_sync_task.take();
         if self.session.thread_id.is_none() {
             if let Some(workspace) = self.workspace.upgrade() {
                 self.session.directory = project_directory(workspace.read(cx), cx);
@@ -93,24 +102,35 @@ impl CodexPanel {
         )));
         self.event_task = Some(cx.spawn(async move |panel, cx| {
             while let Ok(message) = incoming.recv().await {
-                let disconnected = message.is_err();
+                let mut batch = vec![message];
+                while let Ok(next) = incoming.try_recv() {
+                    batch.push(next);
+                    if batch.len() >= 64 {
+                        break;
+                    }
+                }
+
+                let mut disconnected = false;
                 let result = panel.update(cx, |panel, cx| {
-                    match message {
-                        Ok(message) => {
-                            let followups = panel.session.receive(message);
-                            for followup in followups {
-                                panel.transmit(followup);
+                    for msg in batch {
+                        match msg {
+                            Ok(message) => {
+                                let followups = panel.session.receive(message);
+                                for followup in followups {
+                                    panel.transmit(followup);
+                                }
+                                if let Some(url) = panel.session.auth_url.take() {
+                                    cx.open_url(&url);
+                                }
                             }
-                            if let Some(url) = panel.session.auth_url.take() {
-                                cx.open_url(&url);
+                            Err(error) => {
+                                panel.session.disconnected(format!("{error:#}"));
+                                panel.outgoing = None;
+                                disconnected = true;
                             }
-                        }
-                        Err(error) => {
-                            panel.session.disconnected(format!("{error:#}"));
-                            panel.outgoing = None;
                         }
                     }
-                    panel.sync_markdown(cx);
+                    panel.schedule_sync_markdown(cx);
                     cx.notify();
                 });
                 if let Err(error) = result {
@@ -135,6 +155,32 @@ impl CodexPanel {
             self.session
                 .disconnected(format!("Could not send to Codex: {error}"));
             self.outgoing = None;
+        }
+    }
+
+    fn schedule_sync_markdown(&mut self, cx: &mut Context<Self>) {
+        const MIN_MARKDOWN_SYNC_INTERVAL: Duration = Duration::from_millis(50);
+        let now = Instant::now();
+        if now.duration_since(self.last_markdown_sync) >= MIN_MARKDOWN_SYNC_INTERVAL
+            || !self.session.busy
+        {
+            self.last_markdown_sync = now;
+            self.markdown_sync_task = None;
+            self.sync_markdown(cx);
+        } else if self.markdown_sync_task.is_none() {
+            let delay = MIN_MARKDOWN_SYNC_INTERVAL
+                .saturating_sub(now.duration_since(self.last_markdown_sync));
+            self.markdown_sync_task = Some(cx.spawn(async move |panel, cx| {
+                cx.background_executor().timer(delay).await;
+                panel
+                    .update(cx, |panel, cx| {
+                        panel.last_markdown_sync = Instant::now();
+                        panel.markdown_sync_task = None;
+                        panel.sync_markdown(cx);
+                        cx.notify();
+                    })
+                    .ok();
+            }));
         }
     }
 
@@ -189,6 +235,7 @@ impl CodexPanel {
         }
         self.connection_task.take();
         self.event_task.take();
+        self.markdown_sync_task.take();
         self.outgoing = None;
         self.session = Session::new(self.session.directory.clone());
         self.markdown.clear();
@@ -516,13 +563,14 @@ impl Render for CodexPanel {
                         ))
                         .into_any_element()
                 } else {
+                    let text: SharedString = message.text.clone().into();
                     div()
                         .id(("codex-message-body", index))
                         .when(message.kind == MessageKind::Activity, |element| {
                             element.max_h(px(200.)).overflow_y_scroll()
                         })
                         .text_sm()
-                        .child(message.text.clone())
+                        .child(text)
                         .into_any_element()
                 };
                 v_flex()

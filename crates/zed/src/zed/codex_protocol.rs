@@ -4,6 +4,8 @@ use serde_json::{Value, json};
 use smol::{channel, io::BufReader, process::Command};
 use std::{collections::BTreeMap, path::PathBuf, process::Stdio};
 
+pub const MAX_ACTIVITY_TEXT_LEN: usize = 64 * 1024;
+
 pub async fn run_server(
     directory: PathBuf,
     outgoing: channel::Receiver<Value>,
@@ -452,7 +454,20 @@ impl Session {
                     params.get("itemId").and_then(Value::as_str),
                     params.get("delta").and_then(Value::as_str),
                 ) {
-                    self.message(id, MessageKind::Activity).text.push_str(delta);
+                    let text = &mut self.message(id, MessageKind::Activity).text;
+                    if text.len() + delta.len() > MAX_ACTIVITY_TEXT_LEN {
+                        let overflow = (text.len() + delta.len()) - MAX_ACTIVITY_TEXT_LEN;
+                        let truncate_point = text
+                            .char_indices()
+                            .map(|(i, _)| i)
+                            .find(|&i| i >= overflow)
+                            .unwrap_or(text.len());
+                        text.drain(..truncate_point);
+                        if !text.starts_with("[... output truncated ...]\n") {
+                            text.insert_str(0, "[... output truncated ...]\n");
+                        }
+                    }
+                    text.push_str(delta);
                 }
             }
             "item/started" | "item/completed" => {
@@ -834,6 +849,27 @@ mod tests {
         session.receive(json!({"method": "turn/completed", "params": {"threadId": "thread-1", "turn": {"id": "old-turn", "status": "completed"}}}));
         assert!(session.busy);
         assert_eq!(session.messages.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn codex_activity_output_is_capped_to_prevent_memory_exhaustion() -> Result<()> {
+        let mut session = running_session()?;
+        let chunk = "a".repeat(1024);
+        for _ in 0..100 {
+            session.receive(json!({
+                "method": "item/commandExecution/outputDelta",
+                "params": {
+                    "threadId": "thread-1",
+                    "turnId": "turn-1",
+                    "itemId": "cmd-1",
+                    "delta": chunk
+                }
+            }));
+        }
+        let msg = session.messages.iter().find(|m| m.id == "cmd-1").context("cmd msg")?;
+        assert!(msg.text.len() <= MAX_ACTIVITY_TEXT_LEN + chunk.len() + 40);
+        assert!(msg.text.starts_with("[... output truncated ...]\n"));
         Ok(())
     }
 }
