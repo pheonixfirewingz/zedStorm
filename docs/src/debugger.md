@@ -86,7 +86,7 @@ Compared to launching, attaching to an existing process might seem inferior, but
 
 ## Multiple Debug Sessions
 
-You can start another debug session while one is already running. Each session appears in a named tab with its current status and its own resume, pause, stepping, restart, and stop controls. Finished sessions remain available until you close them.
+You can start another debug session while one is already running. Each session appears in a named tab with its current status and its own resume, pause, stepping, restart, and stop controls. Finished sessions remain available until you close them or start a new session.
 
 Drag a session tab to the left, right, top, or bottom edge of another session to create a resizable split. Drag it onto another session tab to join that group. You can also use **Move Session to Right Split** and **Join All Sessions as Tabs** in the session tab bar. Moving a session preserves its running process, console, variables, and breakpoints.
 
