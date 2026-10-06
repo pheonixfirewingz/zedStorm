@@ -5,6 +5,7 @@ publish.workspace = true
 edition.workspace = true
 
 [features]
+bench-support = ["gpui/bench-support", "gpui_platform/bench-support", "worktree/bench-support"]
 test-support = ["http_client/test-support"]
 
 [[bin]]
@@ -12,7 +13,15 @@ name = "project_benchmarks"
 path = "src/main.rs"
 required-features = ["test-support"]
 
+[[bench]]
+name = "remote_snapshot"
+path = "benches/remote_snapshot.rs"
+harness = false
+required-features = ["bench-support"]
+
 [dependencies]
+worktree.workspace = true
+criterion.workspace = true
 anyhow.workspace = true
 askpass.workspace = true
 clap.workspace = true

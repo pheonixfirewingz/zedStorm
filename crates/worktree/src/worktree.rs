@@ -462,9 +462,53 @@ enum ScanState {
 }
 
 struct UpdateObservationState {
-    snapshots_tx: mpsc::UnboundedSender<(LocalSnapshot, UpdatedEntriesSet)>,
+    snapshots_tx: SnapshotUpdateSender,
     resume_updates: watch::Sender<()>,
     _maintain_remote_snapshot: Task<Option<()>>,
+}
+
+struct SnapshotUpdateSender {
+    sender: mpsc::UnboundedSender<(LocalSnapshot, UpdatedEntriesSet)>,
+}
+
+struct SnapshotUpdateReceiver {
+    initial_snapshot: Option<LocalSnapshot>,
+    receiver: mpsc::UnboundedReceiver<(LocalSnapshot, UpdatedEntriesSet)>,
+}
+
+fn snapshot_update_channel(
+    initial_snapshot: LocalSnapshot,
+) -> (SnapshotUpdateSender, SnapshotUpdateReceiver) {
+    let (sender, receiver) = mpsc::unbounded();
+    (
+        SnapshotUpdateSender { sender },
+        SnapshotUpdateReceiver {
+            initial_snapshot: Some(initial_snapshot),
+            receiver,
+        },
+    )
+}
+
+impl SnapshotUpdateSender {
+    fn send(&self, snapshot: LocalSnapshot, changes: UpdatedEntriesSet) -> Result<()> {
+        self.sender
+            .unbounded_send((snapshot, changes))
+            .map_err(|error| anyhow!("{error}"))
+    }
+}
+
+impl SnapshotUpdateReceiver {
+    async fn next(&mut self) -> Option<(LocalSnapshot, UpdatedEntriesSet)> {
+        if let Some(snapshot) = self.initial_snapshot.take() {
+            return Some((snapshot, Arc::default()));
+        }
+        self.receiver.next().await
+    }
+
+    #[cfg(any(test, feature = "bench-support"))]
+    fn retained_snapshots(&self) -> usize {
+        usize::from(self.initial_snapshot.is_some()) + self.receiver.size_hint().0
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1476,8 +1520,8 @@ impl LocalWorktree {
         if let Some(share) = self.update_observer.as_mut() {
             share
                 .snapshots_tx
-                .unbounded_send((self.snapshot.clone(), entry_changes.clone()))
-                .ok();
+                .send(self.snapshot.clone(), entry_changes.clone())
+                .log_err();
         }
 
         if !entry_changes.is_empty() {
@@ -2187,11 +2231,7 @@ impl LocalWorktree {
         }
 
         let (resume_updates_tx, mut resume_updates_rx) = watch::channel::<()>();
-        let (snapshots_tx, mut snapshots_rx) =
-            mpsc::unbounded::<(LocalSnapshot, UpdatedEntriesSet)>();
-        snapshots_tx
-            .unbounded_send((self.snapshot(), Arc::default()))
-            .ok();
+        let (snapshots_tx, mut snapshots_rx) = snapshot_update_channel(self.snapshot());
 
         let worktree_id = self.id.to_proto();
         let _maintain_remote_snapshot = cx.background_spawn(async move {
@@ -7715,4 +7755,121 @@ mod tests {
         assert_eq!(stream(b"hello \xe2\x82").await, None, "truncated at eof");
         assert_eq!(stream(b"plain \x1b$B text").await, None, "iso-2022 escape");
     }
+}
+
+#[cfg(any(test, feature = "bench-support"))]
+#[derive(Debug)]
+pub struct SnapshotUpdateBenchmarkReport {
+    pub retained_snapshots: usize,
+    pub delivered_updates: usize,
+    pub final_entries: usize,
+}
+
+// This supplies filesystem entry changes at the publication boundary. Queueing,
+// persistent snapshots, serialization and remote application remain production code.
+#[cfg(any(test, feature = "bench-support"))]
+pub fn benchmark_snapshot_updates(
+    update_count: usize,
+    entry_count: usize,
+) -> Result<SnapshotUpdateBenchmarkReport> {
+    anyhow::ensure!(entry_count > 0, "entry count must be positive");
+    let mut snapshot = LocalSnapshot {
+        snapshot: Snapshot::new(
+            WorktreeId::from_proto(1),
+            RelPath::from_unix_str("benchmark")?.into(),
+            Path::new("/benchmark").into(),
+            PathStyle::Unix,
+        ),
+        global_gitignore: None,
+        repo_exclude_by_work_dir_abs_path: Default::default(),
+        ignores_by_parent_abs_path: Default::default(),
+        git_repositories: Default::default(),
+        root_file_handle: None,
+        external_canonical_to_relative: Default::default(),
+    };
+    let matcher = PathMatcher::default();
+    let make_update = |scan_id, is_last_update| proto::UpdateWorktree {
+        project_id: 1,
+        worktree_id: 1,
+        abs_path: "/benchmark".into(),
+        root_name: "benchmark".into(),
+        scan_id,
+        is_last_update,
+        ..Default::default()
+    };
+    let mut initial = make_update(1, true);
+    initial.updated_entries = (1..=entry_count)
+        .map(|id| proto::Entry {
+            id: id as u64,
+            path: format!("file-{id}"),
+            size: Some(0),
+            ..Default::default()
+        })
+        .collect();
+    snapshot.snapshot.apply_remote_update(initial, &matcher);
+    let mut remote = Snapshot::new(
+        WorktreeId::from_proto(1),
+        RelPath::from_unix_str("benchmark")?.into(),
+        Path::new("/benchmark").into(),
+        PathStyle::Unix,
+    );
+    let (sender, mut receiver) = snapshot_update_channel(snapshot.clone());
+    let mut retained_snapshots = receiver.retained_snapshots();
+    for index in 0..update_count {
+        let id = index % entry_count + 1;
+        let phase = (index / entry_count) % 4;
+        let path: Arc<RelPath> = RelPath::from_unix_str(&format!(
+            "{}file-{id}",
+            if phase == 1 { "renamed-" } else { "" }
+        ))?
+        .into();
+        let mut update = make_update(index as u64 + 2, index % 2 == 0);
+        let change = if phase == 2 {
+            update.removed_entries.push(id as u64);
+            PathChange::Removed
+        } else {
+            update.updated_entries.push(proto::Entry {
+                id: id as u64,
+                path: path.as_unix_str().into(),
+                size: Some(index as u64),
+                ..Default::default()
+            });
+            PathChange::Updated
+        };
+        snapshot.snapshot.apply_remote_update(update, &matcher);
+        sender.send(
+            snapshot.clone(),
+            Arc::from([(path, ProjectEntryId::from_proto(id as u64), change)]),
+        )?;
+        retained_snapshots = retained_snapshots.max(receiver.retained_snapshots());
+    }
+    drop(sender);
+    let mut delivered_updates = 0;
+    futures::executor::block_on(async {
+        while let Some((snapshot, changes)) = receiver.next().await {
+            let update = if delivered_updates == 0 {
+                snapshot.build_initial_update(1, 1)
+            } else {
+                snapshot.build_update(1, 1, changes)
+            };
+            for update in proto::split_worktree_update(update) {
+                remote.apply_remote_update(update, &matcher);
+            }
+            delivered_updates += 1;
+        }
+    });
+    anyhow::ensure!(remote.scan_id == snapshot.scan_id, "scan ordering changed");
+    anyhow::ensure!(
+        remote.completed_scan_id == snapshot.completed_scan_id,
+        "completed scan was lost"
+    );
+    anyhow::ensure!(
+        remote.build_initial_update(1, 1) == snapshot.build_initial_update(1, 1),
+        "final entries differ"
+    );
+    Ok(SnapshotUpdateBenchmarkReport {
+        retained_snapshots,
+        delivered_updates,
+        final_entries: remote.entry_count(),
+    })
 }

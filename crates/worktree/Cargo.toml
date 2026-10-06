@@ -18,6 +18,7 @@ path = "tests/integration/worktree_tests.rs"
 workspace = true
 
 [features]
+bench-support = []
 test-support = [
     "gpui/test-support",
 
