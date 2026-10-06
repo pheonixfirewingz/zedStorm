@@ -11,7 +11,7 @@ use crate::{
     persistence, spawn_task_or_modal,
 };
 use anyhow::{Context as _, Result, anyhow};
-use collections::{HashMap, IndexMap};
+use collections::{HashMap, HashSet, IndexMap};
 use dap::adapters::DebugAdapterName;
 use dap::{DapRegistry, StartDebuggingRequestArguments};
 use dap::{client::SessionId, debugger_settings::DebuggerSettings};
@@ -63,6 +63,7 @@ pub struct DebugPanel {
     pub(crate) session_panes: Option<PaneGroup>,
     active_session_pane: Option<Entity<Pane>>,
     session_pane_subscriptions: HashMap<EntityId, Subscription>,
+    session_subscriptions: HashMap<EntityId, Subscription>,
     project: Entity<Project>,
     workspace: WeakEntity<Workspace>,
     focus_handle: FocusHandle,
@@ -389,6 +390,7 @@ impl DebugPanel {
                 session_panes: None,
                 active_session_pane: None,
                 session_pane_subscriptions: HashMap::default(),
+                session_subscriptions: HashMap::default(),
                 focus_handle,
                 breakpoint_list: BreakpointList::new(
                     None,
@@ -1536,6 +1538,9 @@ impl DebugPanel {
                 keep(&child)
             });
         }
+        let kept_ids: HashSet<EntityId> =
+            self.sessions_with_children.keys().map(|s| s.entity_id()).collect();
+        self.session_subscriptions.retain(|id, _| kept_ids.contains(id));
     }
 
     fn render_history_button(
@@ -1680,13 +1685,27 @@ async fn register_session_inner(
             cx,
         );
 
-        // We might want to make this an event subscription and only notify when a new thread is selected
-        // This is used to filter the command menu correctly
-        cx.observe(
+        // Keep subscription alive while session is retained in panel
+        let sub = cx.observe(
             &debug_session.read(cx).running_state().clone(),
             |_, _, cx| cx.notify(),
-        )
-        .detach();
+        );
+        this.session_subscriptions.insert(debug_session.entity_id(), sub);
+
+        // Cap accumulated terminated sessions to prevent unbounded memory growth
+        let terminated: Vec<_> = this
+            .sessions_with_children
+            .keys()
+            .filter(|s| s.read(cx).running_state().read(cx).session().read(cx).is_terminated())
+            .cloned()
+            .collect();
+        if terminated.len() >= 3 {
+            for old in &terminated[..terminated.len() - 2] {
+                let old_id = old.entity_id();
+                this.retain_sessions(&|s| s.entity_id() != old_id);
+            }
+            this.sync_session_panes(window, cx);
+        }
         let insert_position = this
             .sessions_with_children
             .keys()

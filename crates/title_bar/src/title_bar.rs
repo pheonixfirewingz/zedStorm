@@ -184,6 +184,7 @@ fn update_layout_action_filter(cx: &mut App) {
 
 pub struct TitleBar {
     debugger_subscription: Option<(gpui::EntityId, Subscription)>,
+    debugger_state: Option<(Option<gpui::EntityId>, Option<SharedString>, bool)>,
     platform_titlebar: Entity<PlatformTitleBar>,
     project: Entity<Project>,
     user_store: Entity<UserStore>,
@@ -219,10 +220,25 @@ impl Render for TitleBar {
         if let Some(panel) = &debug_panel {
             if self.debugger_subscription.as_ref().map(|(id, _)| *id) != Some(panel.entity_id()) {
                 self.debugger_subscription =
-                    Some((panel.entity_id(), cx.observe(panel, |_, _, cx| cx.notify())));
+                    Some((panel.entity_id(), cx.observe(panel, |this, panel, cx| {
+                        let active_session = panel.read(cx).active_session();
+                        let active_id = active_session.as_ref().map(|s| s.entity_id());
+                        let label = active_session
+                            .as_ref()
+                            .and_then(|s| s.read(cx).session(cx).read(cx).label());
+                        let can_stop = active_session
+                            .as_ref()
+                            .is_some_and(|s| !s.read(cx).session(cx).read(cx).is_terminated());
+                        let new_state = (active_id, label, can_stop);
+                        if this.debugger_state != Some(new_state.clone()) {
+                            this.debugger_state = Some(new_state);
+                            cx.notify();
+                        }
+                    })));
             }
         } else {
             self.debugger_subscription = None;
+            self.debugger_state = None;
         }
         let active_session = debug_panel
             .as_ref()
@@ -576,6 +592,7 @@ impl TitleBar {
 
         Self {
             debugger_subscription: None,
+            debugger_state: None,
             platform_titlebar,
             application_menu,
             workspace: workspace.weak_handle(),
