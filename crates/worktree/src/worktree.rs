@@ -7884,13 +7884,8 @@ fn apply_benchmark_snapshot_update(
 }
 
 #[cfg(any(test, feature = "bench-support"))]
-fn benchmark_snapshot_updates_with_drain(
-    update_count: usize,
-    entry_count: usize,
-    drain_every: Option<usize>,
-) -> Result<SnapshotUpdateBenchmarkReport> {
-    anyhow::ensure!(entry_count > 0, "entry count must be positive");
-    let mut snapshot = LocalSnapshot {
+fn benchmark_empty_snapshot() -> Result<LocalSnapshot> {
+    Ok(LocalSnapshot {
         snapshot: Snapshot::new(
             WorktreeId::from_proto(1),
             RelPath::from_unix_str("benchmark")?.into(),
@@ -7903,7 +7898,17 @@ fn benchmark_snapshot_updates_with_drain(
         git_repositories: Default::default(),
         root_file_handle: None,
         external_canonical_to_relative: Default::default(),
-    };
+    })
+}
+
+#[cfg(any(test, feature = "bench-support"))]
+fn benchmark_snapshot_updates_with_drain(
+    update_count: usize,
+    entry_count: usize,
+    drain_every: Option<usize>,
+) -> Result<SnapshotUpdateBenchmarkReport> {
+    anyhow::ensure!(entry_count > 0, "entry count must be positive");
+    let mut snapshot = benchmark_empty_snapshot()?;
     let matcher = PathMatcher::default();
     let make_update = |scan_id, is_last_update| proto::UpdateWorktree {
         project_id: 1,
@@ -7918,7 +7923,7 @@ fn benchmark_snapshot_updates_with_drain(
     initial.updated_entries = (1..=entry_count)
         .map(|id| proto::Entry {
             id: id as u64,
-            path: format!("file-{id}"),
+            path: format!("z-file-{id}"),
             size: Some(0),
             ..Default::default()
         })
@@ -7935,16 +7940,15 @@ fn benchmark_snapshot_updates_with_drain(
     let mut delivered_updates = 0;
     for index in 0..update_count {
         let id = index % entry_count + 1;
-        let phase = (index / entry_count) % 4;
+        let phase = (index / entry_count) % 5;
         let path: Arc<RelPath> = RelPath::from_unix_str(&format!(
             "{}file-{id}",
-            if phase == 1 { "renamed-" } else { "" }
+            if phase == 1 { "a-" } else { "z-" }
         ))?
         .into();
         let mut update = make_update(index as u64 + 2, index % 2 == 0);
-        let change = if phase == 2 {
+        if phase == 3 {
             update.removed_entries.push(id as u64);
-            PathChange::Removed
         } else {
             update.updated_entries.push(proto::Entry {
                 id: id as u64,
@@ -7952,13 +7956,19 @@ fn benchmark_snapshot_updates_with_drain(
                 size: Some(index as u64),
                 ..Default::default()
             });
-            PathChange::Updated
-        };
+        }
+        let previous_snapshot = snapshot.snapshot.clone();
         snapshot.snapshot.apply_remote_update(update, &matcher);
-        sender.send(
-            snapshot.clone(),
-            Arc::from([(path, ProjectEntryId::from_proto(id as u64), change)]),
-        )?;
+        let changes = build_diff(
+            BackgroundScannerPhase::Events,
+            &previous_snapshot,
+            &snapshot.snapshot,
+            &[EventRoot {
+                path: RelPath::empty().into(),
+                was_rescanned: false,
+            }],
+        );
+        sender.send(snapshot.clone(), changes)?;
         retained_snapshots = retained_snapshots.max(receiver.retained_snapshots());
         if drain_every.is_some_and(|interval| (index + 1) % interval == 0) {
             while receiver.retained_snapshots() > 0 {
