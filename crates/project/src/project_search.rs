@@ -641,20 +641,30 @@ impl Search {
             let mut matched_buffers = 0;
             let mut matches = 0;
             while let Ok(mut next_buffer_matches) = rx.recv().await {
-                let Some((buffer, ranges)) = next_buffer_matches.recv().await else {
+                let Some((buffer, mut ranges)) = next_buffer_matches.recv().await else {
                     continue;
                 };
 
-                if matched_buffers > Search::MAX_SEARCH_RESULT_FILES
-                    || matches > Search::MAX_SEARCH_RESULT_RANGES
+                if ranges.is_empty() {
+                    continue;
+                }
+                if matched_buffers == Search::MAX_SEARCH_RESULT_FILES
+                    || matches == Search::MAX_SEARCH_RESULT_RANGES
                 {
-                    _ = tx.send(SearchResult::LimitReached).await;
+                    tx.send(SearchResult::LimitReached).await?;
                     break;
                 }
+                let remaining_matches = Search::MAX_SEARCH_RESULT_RANGES - matches;
+                let limit_reached = ranges.len() > remaining_matches;
+                ranges.truncate(remaining_matches);
                 matched_buffers += 1;
                 matches += ranges.len();
 
-                _ = tx.send(SearchResult::Buffer { buffer, ranges }).await?;
+                tx.send(SearchResult::Buffer { buffer, ranges }).await?;
+                if limit_reached {
+                    tx.send(SearchResult::LimitReached).await?;
+                    break;
+                }
             }
             anyhow::Ok(())
         })
@@ -804,9 +814,10 @@ async fn find_buffer_matches(
     range_offset: usize,
 ) -> Vec<Range<language::Anchor>> {
     query
-        .search(snapshot, subrange)
+        // One extra match distinguishes a full result set from a truncated one.
+        .search_with_limit(snapshot, subrange, Search::MAX_SEARCH_RESULT_RANGES + 1)
         .await
-        .iter()
+        .into_iter()
         .map(|range| {
             snapshot.anchor_before(range.start + range_offset)
                 ..snapshot.anchor_after(range.end + range_offset)

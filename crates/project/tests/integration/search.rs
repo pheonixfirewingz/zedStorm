@@ -3,10 +3,10 @@ use std::io::{self, BufReader, Cursor};
 use collections::HashMap;
 use fs::FakeFs;
 use futures::FutureExt as _;
-use language::Buffer;
+use language::{Buffer, OffsetRangeExt as _};
 use project::{
     Project,
-    search::{MatchPositionHint, SearchQuery},
+    search::{MatchPositionHint, SearchQuery, SearchResult},
 };
 use serde_json::json;
 use text::Rope;
@@ -524,6 +524,127 @@ async fn searches_legacy_text_after_utf8_prefixes(cx: &mut gpui::TestAppContext)
                 (!expected.is_empty()).then(|| (path!("dir/legacy.txt").to_string(), expected))
             ),
         );
+    }
+}
+
+#[gpui::test]
+async fn search_with_limit_preserves_match_prefix(cx: &mut gpui::TestAppContext) {
+    let text = Rope::from("needleish needle needle\nneedle needle\nneedle");
+    let snapshot = cx
+        .update(|app| Buffer::build_snapshot(text, None, None, None, app))
+        .await;
+    let queries = [
+        SearchQuery::text(
+            "needle",
+            true,
+            true,
+            false,
+            Default::default(),
+            Default::default(),
+            false,
+            None,
+        )
+        .expect("valid literal query"),
+        SearchQuery::regex(
+            "needle",
+            false,
+            true,
+            false,
+            false,
+            Default::default(),
+            Default::default(),
+            false,
+            None,
+        )
+        .expect("valid regex query"),
+        SearchQuery::regex(
+            "needle",
+            false,
+            true,
+            false,
+            true,
+            Default::default(),
+            Default::default(),
+            false,
+            None,
+        )
+        .expect("valid one-match-per-line query"),
+    ];
+    for query in queries {
+        for subrange in [None, Some(10..snapshot.len())] {
+            let all_matches = query.search(&snapshot, subrange.clone()).await;
+            for limit in [0, 1, 2, all_matches.len(), all_matches.len() + 1] {
+                assert_eq!(
+                    query
+                        .search_with_limit(&snapshot, subrange.clone(), limit)
+                        .await,
+                    all_matches.iter().take(limit).cloned().collect::<Vec<_>>(),
+                );
+            }
+        }
+    }
+}
+
+#[gpui::test(iterations = 5)]
+async fn project_search_enforces_match_limit(cx: &mut gpui::TestAppContext) {
+    init_test(cx);
+    for (first_count, second_count, expect_limit) in [
+        (10_000, 0, false),
+        (10_001, 0, true),
+        (6_000, 5_000, true),
+        (6_000, 4_000, false),
+    ] {
+        let fs = FakeFs::new(cx.executor());
+        fs.insert_tree(
+            path!("/dir"),
+            json!({
+                "first.txt": "needle\n".repeat(first_count),
+                "second.txt": "needle\n".repeat(second_count),
+            }),
+        )
+        .await;
+        let project = Project::test(fs, [path!("/dir").as_ref()], cx).await;
+        let query = SearchQuery::text(
+            "needle",
+            false,
+            true,
+            false,
+            Default::default(),
+            Default::default(),
+            false,
+            None,
+        )
+        .expect("valid literal query");
+        let search = project.update(cx, |project, cx| project.search(query, cx));
+        let mut match_count = 0;
+        let mut limit_reached = false;
+        while let Ok(result) = search.rx.recv().await {
+            match result {
+                SearchResult::Buffer { buffer, ranges } => {
+                    assert!(!limit_reached, "no results after the limit notification");
+                    let expected_count = if match_count == 0 {
+                        first_count.min(10_000)
+                    } else {
+                        second_count.min(10_000 - match_count)
+                    };
+                    assert_eq!(ranges.len(), expected_count);
+                    buffer.read_with(cx, |buffer, _| {
+                        for (index, range) in ranges.iter().enumerate() {
+                            assert_eq!(range.to_offset(buffer), index * 7..index * 7 + 6);
+                        }
+                    });
+                    match_count += ranges.len();
+                }
+                SearchResult::LimitReached => {
+                    assert!(!limit_reached, "only one limit notification");
+                    limit_reached = true;
+                }
+                SearchResult::WaitingForScan | SearchResult::Searching => {}
+            }
+        }
+        assert_eq!(match_count, (first_count + second_count).min(10_000));
+        assert_eq!(limit_reached, expect_limit);
+        search.task_handle.await;
     }
 }
 
