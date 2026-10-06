@@ -1,6 +1,8 @@
 pub mod running;
 
-use crate::{persistence::SerializedLayout, session::running::DebugTerminal};
+use crate::{
+    debugger_panel::DebugPanel, persistence::SerializedLayout, session::running::DebugTerminal,
+};
 use dap::client::SessionId;
 use gpui::{App, Axis, Entity, EventEmitter, FocusHandle, Focusable, Task, WeakEntity};
 use project::debugger::session::Session;
@@ -9,12 +11,15 @@ use project::{Project, debugger::session::SessionQuirks};
 use rpc::proto;
 use running::RunningState;
 use ui::prelude::*;
+use util::ResultExt;
 use workspace::{
-    CollaboratorId, FollowableItem, ViewId, Workspace,
+    CollaboratorId, FollowableItem, Pane, ViewId, Workspace,
     item::{self, Item},
 };
 
 pub struct DebugSession {
+    pub(crate) panel: Option<WeakEntity<DebugPanel>>,
+    pub(crate) host_pane: Option<WeakEntity<Pane>>,
     remote_id: Option<workspace::ViewId>,
     pub(crate) running_state: Entity<RunningState>,
     pub(crate) quirks: SessionQuirks,
@@ -45,10 +50,19 @@ impl DebugSession {
         });
         let quirks = session.read(cx).quirks();
 
-        cx.new(|_| Self {
-            remote_id: None,
-            running_state,
-            quirks,
+        cx.new(|cx| {
+            cx.observe(&running_state, |_, _, cx| {
+                cx.emit(());
+                cx.notify();
+            })
+            .detach();
+            Self {
+                panel: None,
+                host_pane: None,
+                remote_id: None,
+                running_state,
+                quirks,
+            }
         })
     }
 
@@ -100,8 +114,83 @@ impl Focusable for DebugSession {
 
 impl Item for DebugSession {
     type Event = ();
-    fn tab_content_text(&self, _detail: usize, _cx: &App) -> SharedString {
-        "Debugger".into()
+
+    fn can_split(&self) -> bool {
+        false
+    }
+
+    fn to_item_events(_: &(), emit: &mut dyn FnMut(item::ItemEvent)) {
+        emit(item::ItemEvent::UpdateTab);
+    }
+    fn tab_content_text(&self, _detail: usize, cx: &App) -> SharedString {
+        self.session(cx)
+            .read(cx)
+            .label()
+            .unwrap_or_else(|| "Debug Session".into())
+    }
+
+    fn tab_content(&self, params: item::TabContentParams, _: &Window, cx: &App) -> AnyElement {
+        let session = self.session(cx);
+        let (icon, color, status) = if session.read(cx).is_terminated() {
+            (IconName::Power, Color::Muted, "Finished")
+        } else if session.read(cx).is_building() {
+            (IconName::Clock, Color::Muted, "Building")
+        } else if self.running_state.read(cx).thread_status(cx)
+            == Some(project::debugger::session::ThreadStatus::Stopped)
+        {
+            (IconName::DebugPause, Color::Warning, "Paused")
+        } else {
+            (IconName::Debug, Color::Success, "Running")
+        };
+        h_flex()
+            .gap_1()
+            .child(Icon::new(icon).size(IconSize::Small).color(color))
+            .child(
+                Label::new(self.tab_content_text(0, cx))
+                    .size(LabelSize::Small)
+                    .color(params.text_color()),
+            )
+            .child(
+                Label::new(status)
+                    .size(LabelSize::XSmall)
+                    .color(Color::Muted),
+            )
+            .into_any_element()
+    }
+
+    fn handle_drop(
+        &self,
+        active_pane: &Pane,
+        dropped: &dyn std::any::Any,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> bool {
+        let Some(tab) = dropped.downcast_ref::<workspace::pane::DraggedTab>() else {
+            return true;
+        };
+        if tab.item.downcast::<DebugSession>().is_none() {
+            return true;
+        }
+        let Some(direction) = active_pane.drag_split_direction() else {
+            return false;
+        };
+        let Some(target) = self.host_pane.as_ref().and_then(WeakEntity::upgrade) else {
+            return true;
+        };
+        let Some(panel) = self.panel.clone() else {
+            return true;
+        };
+        let source = tab.pane.clone();
+        let item_id = tab.item.item_id();
+        // The source or target pane may still be updating during the drop.
+        window.defer(cx, move |window, cx| {
+            panel
+                .update(cx, |panel, cx| {
+                    panel.split_session_pane(&source, &target, item_id, direction, window, cx);
+                })
+                .log_err();
+        });
+        true
     }
 }
 
@@ -173,7 +262,20 @@ impl FollowableItem for DebugSession {
 
 impl Render for DebugSession {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.running_state
-            .update(cx, |this, cx| this.render(window, cx).into_any_element())
+        let controls = DebugPanel::session_controls(&self.running_state, window, cx);
+        let content = self
+            .running_state
+            .update(cx, |this, cx| this.render(window, cx).into_any_element());
+        v_flex()
+            .size_full()
+            .child(
+                h_flex()
+                    .w_full()
+                    .p_1()
+                    .border_b_1()
+                    .border_color(cx.theme().colors().border)
+                    .child(controls),
+            )
+            .child(div().flex_1().min_h_0().size_full().child(content))
     }
 }

@@ -420,7 +420,7 @@ impl Render for DraggedTabPreview {
     }
 }
 
-fn render_debugger_tab(
+pub(crate) fn render_debugger_tab(
     ix: usize,
     item: &dyn ItemHandle,
     selected: bool,
@@ -429,6 +429,7 @@ fn render_debugger_tab(
     cx: &mut Context<Pane>,
 ) -> impl IntoElement + use<> {
     let item_ = item.boxed_clone();
+    let is_session = item.downcast::<super::DebugSession>().is_some();
     let colors = cx.theme().colors();
 
     div()
@@ -471,7 +472,12 @@ fn render_debugger_tab(
                 }))
                 .on_drop(
                     cx.listener(move |this, dragged_tab: &DraggedTab, window, cx| {
-                        if dragged_tab.item.downcast::<SubView>().is_none() {
+                        let accepted = if is_session {
+                            dragged_tab.item.downcast::<super::DebugSession>().is_some()
+                        } else {
+                            dragged_tab.item.downcast::<SubView>().is_some()
+                        };
+                        if !accepted {
                             return;
                         }
                         this.drag_split_direction = None;
@@ -1968,12 +1974,6 @@ impl RunningState {
 
         let center_pane = new_debugger_pane(workspace.clone(), project.clone(), window, cx);
         let center_pane_handle = center_pane.downgrade();
-        let center_console = SubView::console(
-            console.clone(),
-            running_state.clone(),
-            center_pane_handle.clone(),
-            cx,
-        );
         let center_variables = SubView::new(
             variable_list.focus_handle(cx),
             variable_list.clone().into(),
@@ -1984,13 +1984,17 @@ impl RunningState {
         );
 
         center_pane.update(cx, |this, cx| {
-            this.add_item(Box::new(center_console), true, false, None, window, cx);
-
             this.add_item(Box::new(center_variables), true, false, None, window, cx);
             this.activate_item(0, false, false, window, cx);
         });
 
         let rightmost_pane = new_debugger_pane(workspace.clone(), project, window, cx);
+        let rightmost_console = SubView::console(
+            console.clone(),
+            running_state.clone(),
+            rightmost_pane.downgrade(),
+            cx,
+        );
         let rightmost_terminal = SubView::new(
             debug_terminal.focus_handle(cx),
             debug_terminal.clone().into(),
@@ -2000,6 +2004,7 @@ impl RunningState {
             cx,
         );
         rightmost_pane.update(cx, |this, cx| {
+            this.add_item(Box::new(rightmost_console), true, false, None, window, cx);
             this.add_item(Box::new(rightmost_terminal), false, false, None, window, cx);
         });
 
@@ -2015,11 +2020,14 @@ impl RunningState {
         );
 
         let group_root = workspace::PaneAxis::new(
-            dock_axis.invert(),
-            [leftmost_pane, center_pane, rightmost_pane]
-                .into_iter()
-                .map(workspace::Member::Pane)
-                .collect(),
+            dock_axis,
+            vec![
+                Member::Axis(workspace::PaneAxis::new(
+                    dock_axis.invert(),
+                    vec![Member::Pane(leftmost_pane), Member::Pane(center_pane)],
+                )),
+                Member::Pane(rightmost_pane),
+            ],
         );
 
         Member::Axis(group_root)

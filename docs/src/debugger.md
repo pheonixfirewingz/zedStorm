@@ -41,6 +41,8 @@ For most languages, the fastest way to get started is to run {#action debugger::
 
 You can open the same modal by clicking the "plus" button at the top right of the debug panel.
 
+The window title bar also provides **Run** and **Debug** buttons. The session selector lists your debug sessions and lets you switch between them or edit your debug configurations. The stop button targets the selected debug session.
+
 For languages that don't provide preconfigured debug tasks (this includes C, C++, and some extension-supported languages), you can define debug configurations in the `.zed/debug.json` file in your project root. This file should be an array of configuration objects:
 
 ```json [debug]
@@ -81,6 +83,15 @@ When launching a new instance, Zed (and the underlying debug adapter) can often 
 Running unit tests or a debug build of your application is a good use case for launching.
 
 Compared to launching, attaching to an existing process might seem inferior, but that's far from the truth; there are cases where you cannot afford to restart your program, because for example, the bug is not reproducible outside of a production environment or some other circumstances.
+
+## Multiple Debug Sessions
+
+You can start another debug session while one is already running. Each session appears in a named tab with its current status and its own resume, pause, stepping, restart, and stop controls. Finished sessions remain available until you close them.
+
+Drag a session tab to the left, right, top, or bottom edge of another session to create a resizable split. Drag it onto another session tab to join that group. You can also use **Move Session to Right Split** and **Join All Sessions as Tabs** in the session tab bar. Moving a session preserves its running process, console, variables, and breakpoints.
+
+The default session layout shows frames and variables together, with the console and terminal tabs below. These views can also be rearranged by dragging their tabs.
+
 
 ## Configuration
 

@@ -183,6 +183,7 @@ fn update_layout_action_filter(cx: &mut App) {
 }
 
 pub struct TitleBar {
+    debugger_subscription: Option<(gpui::EntityId, Subscription)>,
     platform_titlebar: Entity<PlatformTitleBar>,
     project: Entity<Project>,
     user_store: Entity<UserStore>,
@@ -210,6 +211,29 @@ impl Render for TitleBar {
         }
 
         let title_bar_settings = *TitleBarSettings::get_global(cx);
+        let debug_panel = self.workspace.upgrade().and_then(|workspace| {
+            workspace
+                .read(cx)
+                .panel::<debugger_ui::debugger_panel::DebugPanel>(cx)
+        });
+        if let Some(panel) = &debug_panel {
+            if self.debugger_subscription.as_ref().map(|(id, _)| *id) != Some(panel.entity_id()) {
+                self.debugger_subscription =
+                    Some((panel.entity_id(), cx.observe(panel, |_, _, cx| cx.notify())));
+            }
+        } else {
+            self.debugger_subscription = None;
+        }
+        let active_session = debug_panel
+            .as_ref()
+            .and_then(|panel| panel.read(cx).active_session());
+        let session_label = active_session
+            .as_ref()
+            .and_then(|session| session.read(cx).session(cx).read(cx).label())
+            .unwrap_or_else(|| "Run / Debug".into());
+        let can_stop = active_session
+            .as_ref()
+            .is_some_and(|session| !session.read(cx).session(cx).read(cx).is_terminated());
         let button_layout = title_bar_settings.button_layout;
         let is_git_enabled = ProjectSettings::get_global(cx).git.enabled.status;
 
@@ -334,6 +358,98 @@ impl Render for TitleBar {
                 .pr_1()
                 .gap_1()
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .child(
+                    PopoverMenu::new("run-debug-sessions")
+                        .trigger(
+                            Button::new("run-debug-session-selector", session_label)
+                                .truncate(true)
+                                .width(px(160.))
+                                .label_size(LabelSize::Small)
+                                .tab_index(0_isize)
+                                .end_icon(Icon::new(IconName::ChevronDown).size(IconSize::XSmall)),
+                        )
+                        .menu(move |window, cx| {
+                            let panel = debug_panel.clone();
+                            Some(ui::ContextMenu::build(
+                                window,
+                                cx,
+                                move |mut menu, _, cx| {
+                                    if let Some(panel) = &panel {
+                                        let sessions =
+                                            panel.read(cx).sessions().collect::<Vec<_>>();
+                                        for session in sessions {
+                                            let label = session
+                                                .read(cx)
+                                                .session(cx)
+                                                .read(cx)
+                                                .label()
+                                                .unwrap_or_else(|| "Debug Session".into());
+                                            let panel = panel.clone();
+                                            menu = menu.entry(label, None, move |window, cx| {
+                                                panel.update(cx, |panel, cx| {
+                                                    panel.activate_session(
+                                                        session.clone(),
+                                                        window,
+                                                        cx,
+                                                    )
+                                                });
+                                            });
+                                        }
+                                        menu = menu.separator();
+                                    }
+                                    menu.action(
+                                        "New Debug Session",
+                                        debugger_ui::Start.boxed_clone(),
+                                    )
+                                    .action(
+                                        "Run Configuration",
+                                        zed_actions::Spawn::modal().boxed_clone(),
+                                    )
+                                    .action(
+                                        "Edit Debug Configurations",
+                                        zed_actions::OpenProjectDebugTasks.boxed_clone(),
+                                    )
+                                },
+                            ))
+                        }),
+                )
+                .child(
+                    Button::new("run-configuration", "Run")
+                        .tab_index(0_isize)
+                        .start_icon(Icon::new(IconName::PlayFilled).color(Color::Success))
+                        .tooltip(Tooltip::for_action_title(
+                            "Run Configuration",
+                            &zed_actions::Spawn::modal(),
+                        ))
+                        .on_click(|_, window, cx| {
+                            window.dispatch_action(zed_actions::Spawn::modal().boxed_clone(), cx);
+                        }),
+                )
+                .child(
+                    Button::new("debug-configuration", "Debug")
+                        .tab_index(0_isize)
+                        .start_icon(Icon::new(IconName::Debug).color(Color::Success))
+                        .tooltip(Tooltip::for_action_title(
+                            "Debug Configuration",
+                            &debugger_ui::Start,
+                        ))
+                        .on_click(|_, window, cx| {
+                            window.dispatch_action(debugger_ui::Start.boxed_clone(), cx);
+                        }),
+                )
+                .child(
+                    IconButton::new("stop-debug-session", IconName::Power)
+                        .tab_index(0_isize)
+                        .disabled(!can_stop)
+                        .icon_color(Color::Error)
+                        .tooltip(Tooltip::for_action_title(
+                            "Stop Selected Debug Session",
+                            &debugger_ui::Stop,
+                        ))
+                        .on_click(|_, window, cx| {
+                            window.dispatch_action(debugger_ui::Stop.boxed_clone(), cx)
+                        }),
+                )
                 .child(self.update_version.clone())
                 .child(
                     Button::new("open-codex", "Codex")
@@ -459,6 +575,7 @@ impl TitleBar {
         let banner = None;
 
         Self {
+            debugger_subscription: None,
             platform_titlebar,
             application_menu,
             workspace: workspace.weak_handle(),

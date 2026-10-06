@@ -39,6 +39,124 @@ use workspace::pane_group::SplitDirection;
 use workspace::{Item, dock::Panel, move_active_item};
 
 #[gpui::test]
+async fn test_concurrent_sessions_split_and_rejoin(
+    executor: BackgroundExecutor,
+    cx: &mut TestAppContext,
+) {
+    init_test(cx);
+    let fs = FakeFs::new(executor);
+    fs.insert_tree(path!("/project"), json!({ "main.rs": "fn main() {}" }))
+        .await;
+    let project = Project::test(fs, [path!("/project").as_ref()], cx).await;
+    let workspace = init_test_workspace(&project, cx).await;
+    let cx = &mut VisualTestContext::from_window(*workspace, cx);
+    let first = start_debug_session(&workspace, cx, |_| {}).unwrap();
+    let first_view = active_debug_session_panel(workspace, cx);
+    let second = start_debug_session(&workspace, cx, |_| {}).unwrap();
+    let second_view = active_debug_session_panel(workspace, cx);
+    let panel = workspace
+        .update(cx, |workspace, _, cx| {
+            workspace.panel::<DebugPanel>(cx).unwrap()
+        })
+        .unwrap();
+
+    let source = panel.read_with(cx, |panel, cx| {
+        assert_eq!(panel.sessions().count(), 2);
+        assert!(!first.read(cx).is_terminated());
+        assert!(!second.read(cx).is_terminated());
+        let panes = panel.session_panes.as_ref().unwrap().panes();
+        assert_eq!(panes.len(), 1);
+        assert_eq!(panes[0].read(cx).items_len(), 2);
+        panes[0].clone()
+    });
+    source.update_in(cx, |pane, window, cx| {
+        pane.drag_split_direction = Some(SplitDirection::Right);
+        let tab = workspace::pane::DraggedTab {
+            pane: source.clone(),
+            item: Box::new(second_view.clone()),
+            ix: 1,
+            detail: 0,
+            is_active: true,
+        };
+        pane.handle_tab_drop(&tab, pane.active_item_index(), true, window, cx);
+    });
+    cx.run_until_parked();
+    let destination = panel.read_with(cx, |panel, cx| {
+        let panes = panel.session_panes.as_ref().unwrap().panes();
+        assert_eq!(panes.len(), 2);
+        assert!(panes.iter().all(|pane| pane.read(cx).items_len() == 1));
+        assert_eq!(panel.active_session(), Some(second_view.clone()));
+        second_view
+            .read(cx)
+            .host_pane
+            .as_ref()
+            .unwrap()
+            .upgrade()
+            .unwrap()
+    });
+    cx.update(|window, cx| {
+        workspace::move_item(
+            &destination,
+            &source,
+            second_view.entity_id(),
+            1,
+            true,
+            window,
+            cx,
+        );
+    });
+    cx.run_until_parked();
+    panel.read_with(cx, |panel, cx| {
+        assert_eq!(panel.session_panes.as_ref().unwrap().panes().len(), 1);
+        assert_eq!(source.read(cx).items_len(), 2);
+        assert_eq!(
+            second_view.read(cx).host_pane.as_ref().unwrap().upgrade(),
+            Some(source.clone())
+        );
+        assert_eq!(panel.active_session(), Some(second_view.clone()));
+        assert!(!first.read(cx).is_terminated());
+        assert!(!second.read(cx).is_terminated());
+    });
+    second.update(cx, |session, cx| session.shutdown(cx)).await;
+    panel.update_in(cx, |panel, window, cx| {
+        panel.close_session(second_view.entity_id(), window, cx)
+    });
+    cx.run_until_parked();
+    panel.read_with(cx, |panel, cx| {
+        assert_eq!(panel.sessions().count(), 1);
+        assert_eq!(panel.active_session(), Some(first_view.clone()));
+        assert_eq!(source.read(cx).items_len(), 1);
+        assert!(!first.read(cx).is_terminated());
+    });
+    first.update(cx, |session, cx| session.shutdown(cx)).await;
+    panel.update_in(cx, |panel, window, cx| {
+        panel.close_session(first_view.entity_id(), window, cx)
+    });
+    cx.run_until_parked();
+    panel.read_with(cx, |panel, _| {
+        assert_eq!(panel.sessions().count(), 0);
+        assert!(panel.active_session().is_none());
+    });
+    let third = start_debug_session(&workspace, cx, |_| {}).unwrap();
+    let third_view = active_debug_session_panel(workspace, cx);
+    panel.read_with(cx, |panel, cx| {
+        assert_eq!(panel.sessions().count(), 1);
+        assert_eq!(panel.active_session(), Some(third_view));
+        assert_eq!(
+            panel
+                .session_panes
+                .as_ref()
+                .unwrap()
+                .first_pane()
+                .read(cx)
+                .items_len(),
+            1
+        );
+    });
+    third.update(cx, |session, cx| session.shutdown(cx)).await;
+}
+
+#[gpui::test]
 async fn test_basic_show_debug_panel(executor: BackgroundExecutor, cx: &mut TestAppContext) {
     init_test(cx);
 
