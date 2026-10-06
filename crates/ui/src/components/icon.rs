@@ -131,6 +131,8 @@ pub fn git_hosting_provider_icon(provider_name: &str) -> IconName {
 enum IconSource {
     /// An SVG embedded in the Zed binary.
     Embedded(SharedString),
+    /// A color SVG embedded in the Zed binary, rendered without a tint mask.
+    EmbeddedImage(SharedString),
     /// An image file located at the specified path.
     ///
     /// Currently our SVG renderer is missing support for rendering polychrome SVGs.
@@ -160,11 +162,16 @@ impl Icon {
     }
 
     /// Create an icon from a path. Uses a heuristic to determine if it's embedded or external:
-    /// - Paths starting with "icons/" are treated as embedded SVGs
+    /// - Built-in file and folder icons are treated as embedded color images
+    /// - Other paths starting with "icons/" are treated as embedded SVGs
     /// - Other paths are treated as external raster images (from icon themes)
     pub fn from_path(path: impl Into<SharedString>) -> Self {
         let path = path.into();
-        let source = if path.starts_with("icons/") {
+        let source = if path.starts_with("icons/file_icons/")
+            && !path.starts_with("icons/file_icons/chevron_")
+        {
+            IconSource::EmbeddedImage(path)
+        } else if path.starts_with("icons/") {
             IconSource::Embedded(path)
         } else {
             IconSource::External(Arc::from(PathBuf::from(path.as_ref())))
@@ -222,6 +229,9 @@ impl RenderOnce for Icon {
                 .path(path)
                 .text_color(self.color.color(cx))
                 .into_any_element(),
+            IconSource::EmbeddedImage(path) => {
+                img(path).size(self.size).flex_none().into_any_element()
+            }
             IconSource::ExternalSvg(path) => svg()
                 .external_path(path)
                 .with_transformation(self.transformation)

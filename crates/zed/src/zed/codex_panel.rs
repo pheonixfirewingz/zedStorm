@@ -45,7 +45,7 @@ impl CodexPanel {
     pub fn new(workspace: &Workspace, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let prompt = cx.new(|cx| {
             let mut editor = Editor::auto_height(3, 10, window, cx);
-            editor.set_placeholder_text("Ask Codex to work on this project…", window, cx);
+            editor.set_placeholder_text("Ask Codex…", window, cx);
             editor
         });
         let subscription = cx.observe(&prompt, |_, _, cx| cx.notify());
@@ -475,6 +475,24 @@ impl Render for CodexPanel {
         } else {
             "Ready"
         };
+        let status_icon = if self.remote || self.session.needs_sign_in {
+            IconName::Warning
+        } else if self.session.signing_in || !self.session.requests.is_empty() {
+            IconName::CircleHelp
+        } else if !self.session.ready {
+            if self.outgoing.is_some() {
+                IconName::LoadCircle
+            } else {
+                IconName::Disconnected
+            }
+        } else if self.session.busy {
+            IconName::LoadCircle
+        } else if self.session.stopped {
+            IconName::Stop
+        } else {
+            IconName::Check
+        };
+        let directory = self.session.directory.display().to_string();
         let can_send = self.session.ready
             && !self.session.busy
             && !self.session.needs_sign_in
@@ -518,41 +536,146 @@ impl Render for CodexPanel {
                     .child(Label::new(label).size(LabelSize::Small).color(Color::Muted))
                     .child(body)
             });
-        v_flex().id("codex-chat-panel").size_full().min_w_0().overflow_hidden()
+        v_flex()
+            .id("codex-chat-panel")
+            .size_full()
+            .min_w_0()
+            .overflow_hidden()
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::send))
             .on_action(cx.listener(Self::stop))
             .bg(cx.theme().colors().panel_background)
-            .child(h_flex().justify_between().p_3().border_b_1().border_color(cx.theme().colors().border)
-                .child(Label::new("Codex Chat"))
-                .child(Button::new("codex-new-chat", "New Chat").disabled(self.session.busy)
-                    .on_click(cx.listener(|panel, _, window, cx| panel.new_chat(window, cx)))))
-            .child(v_flex().gap_1().px_3().py_2()
-                .child(Label::new(status).size(LabelSize::Small).color(Color::Muted))
-                .child(div().text_xs().text_color(cx.theme().colors().text_muted).child(self.session.directory.display().to_string()))
-                .when_some(self.session.model.clone(), |element, model| element.child(Label::new(model).size(LabelSize::Small).color(Color::Muted))))
-            .child(v_flex().id("codex-transcript").flex_1().min_h_0().overflow_y_scroll().track_scroll(&self.scroll_handle).p_2().gap_3()
-                .when(self.session.messages.is_empty(), |element| element.child(v_flex().gap_2().p_3()
-                    .child(Label::new("Work on your project with Codex"))
-                    .child(div().text_sm().text_color(cx.theme().colors().text_muted).child("Ask a question, explain some code, or describe a change you want to make."))))
-                .children(messages))
-            .when_some(self.session.error.clone(), |element, error| element.child(v_flex().p_3().gap_2().border_t_1().border_color(cx.theme().colors().border)
-                .child(div().id("codex-error").max_h(px(140.)).overflow_y_scroll().text_sm().text_color(cx.theme().status().error).child(error))
-                .when(!self.session.ready && !self.remote, |element| element.child(Button::new("codex-reconnect", "Reconnect")
-                    .on_click(cx.listener(|panel, _, _, cx| panel.connect(cx)))))))
-            .when(self.session.needs_sign_in, |element| element.child(div().px_3().pb_2().child(Button::new("codex-sign-in", "Sign in to Codex")
-                .disabled(self.session.signing_in).on_click(cx.listener(|panel, _, _, cx| panel.login(cx))))))
+            .child(
+                h_flex()
+                    .justify_between()
+                    .gap_2()
+                    .p_3()
+                    .border_b_1()
+                    .border_color(cx.theme().colors().border)
+                    .child(
+                        h_flex()
+                            .min_w_0()
+                            .gap_2()
+                            .child(Label::new("Codex"))
+                            .child(
+                                div()
+                                    .id("codex-status")
+                                    .child(
+                                        Icon::new(status_icon)
+                                            .size(IconSize::Small)
+                                            .color(Color::Muted),
+                                    )
+                                    .tooltip(Tooltip::text(format!("{status} · {directory}"))),
+                            )
+                            .when_some(self.session.model.clone(), |element, model| {
+                                element.child(
+                                    div()
+                                        .id("codex-model")
+                                        .min_w_0()
+                                        .overflow_hidden()
+                                        .child(
+                                            Label::new(model.clone())
+                                                .size(LabelSize::Small)
+                                                .color(Color::Muted)
+                                                .truncate(),
+                                        )
+                                        .tooltip(Tooltip::text(model)),
+                                )
+                            }),
+                    )
+                    .child(
+                        IconButton::new("codex-new-chat", IconName::Plus)
+                            .disabled(self.session.busy)
+                            .tooltip(Tooltip::text("New chat"))
+                            .on_click(
+                                cx.listener(|panel, _, window, cx| panel.new_chat(window, cx)),
+                            ),
+                    ),
+            )
+            .when(self.remote || self.session.signing_in, |element| {
+                element.child(
+                    div().px_3().py_2().child(
+                        Label::new(status)
+                            .size(LabelSize::Small)
+                            .color(Color::Muted),
+                    ),
+                )
+            })
+            .child(
+                v_flex()
+                    .id("codex-transcript")
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .track_scroll(&self.scroll_handle)
+                    .p_2()
+                    .gap_3()
+                    .children(messages),
+            )
+            .when_some(self.session.error.clone(), |element, error| {
+                element.child(
+                    v_flex()
+                        .p_3()
+                        .gap_2()
+                        .border_t_1()
+                        .border_color(cx.theme().colors().border)
+                        .child(
+                            div()
+                                .id("codex-error")
+                                .max_h(px(140.))
+                                .overflow_y_scroll()
+                                .text_sm()
+                                .text_color(cx.theme().status().error)
+                                .child(error),
+                        )
+                        .when(!self.session.ready && !self.remote, |element| {
+                            element.child(
+                                Button::new("codex-reconnect", "Reconnect")
+                                    .on_click(cx.listener(|panel, _, _, cx| panel.connect(cx))),
+                            )
+                        }),
+                )
+            })
+            .when(self.session.needs_sign_in, |element| {
+                element.child(
+                    div().px_3().pb_2().child(
+                        Button::new("codex-sign-in", "Sign in")
+                            .disabled(self.session.signing_in)
+                            .on_click(cx.listener(|panel, _, _, cx| panel.login(cx))),
+                    ),
+                )
+            })
             .children(request)
-            .child(v_flex().key_context("CodexChat").gap_2().p_3().border_t_1().border_color(cx.theme().colors().border)
-                .child(Label::new("Message Codex").size(LabelSize::Small))
-                .child(div().p_2().rounded_md().border_1().border_color(cx.theme().colors().border).child(self.prompt.clone()))
-                .child(h_flex().justify_between().gap_2()
-                    .child(Label::new("Enter to send · Shift+Enter for a new line").size(LabelSize::Small).color(Color::Muted))
-                    .child(if self.session.busy {
-                        Button::new("codex-stop", "Stop").on_click(cx.listener(|panel, _, window, cx| panel.stop(&Stop, window, cx)))
+            .child(
+                v_flex()
+                    .key_context("CodexChat")
+                    .gap_2()
+                    .p_3()
+                    .border_t_1()
+                    .border_color(cx.theme().colors().border)
+                    .child(
+                        div()
+                            .p_2()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(cx.theme().colors().border)
+                            .child(self.prompt.clone()),
+                    )
+                    .child(h_flex().justify_end().child(if self.session.busy {
+                        IconButton::new("codex-stop", IconName::Stop)
+                            .tooltip(Tooltip::text("Stop"))
+                            .on_click(
+                                cx.listener(|panel, _, window, cx| panel.stop(&Stop, window, cx)),
+                            )
                     } else {
-                        Button::new("codex-send", "Send").disabled(!can_send).on_click(cx.listener(|panel, _, window, cx| panel.send(&SendPrompt, window, cx)))
-                    })))
+                        IconButton::new("codex-send", IconName::ArrowUp)
+                            .disabled(!can_send)
+                            .tooltip(Tooltip::text("Send · Enter (Shift+Enter for a new line)"))
+                            .on_click(cx.listener(|panel, _, window, cx| {
+                                panel.send(&SendPrompt, window, cx)
+                            }))
+                    })),
+            )
     }
 }
 
@@ -607,11 +730,13 @@ impl Panel for CodexPanel {
             // Dock activation happens inside a workspace update; read its project afterwards.
             let panel = cx.entity().downgrade();
             cx.defer(move |cx| {
-                panel.update(cx, |panel, cx| {
-                    if panel.outgoing.is_none() && panel.connection_task.is_none() {
-                        panel.connect(cx);
-                    }
-                }).log_err();
+                panel
+                    .update(cx, |panel, cx| {
+                        if panel.outgoing.is_none() && panel.connection_task.is_none() {
+                            panel.connect(cx);
+                        }
+                    })
+                    .log_err();
             });
         }
     }
