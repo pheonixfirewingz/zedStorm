@@ -16,68 +16,57 @@ use crate::{SettingsWindow, components::SettingsInputField};
 
 const HARDCODED_RULES_DESCRIPTION: &str =
     "`rm -rf` commands are always blocked when run on `$HOME`, `~`, `.`, `..`, or `/`";
-const SETTINGS_DISCLAIMER: &str = "Note: custom tool permissions only apply to the Zed native agent and don’t extend to external agents connected through the Agent Client Protocol (ACP).";
 
 /// Tools that support permission rules
 const TOOLS: &[ToolInfo] = &[
     ToolInfo {
         id: "terminal",
         name: "Terminal",
-        description: "Commands executed in the terminal",
         regex_explanation: "Patterns are matched against each command in the input. Commands chained with &&, ||, ;, or pipes are split and checked individually.",
     },
     ToolInfo {
         id: "edit_file",
         name: "Edit File",
-        description: "File editing operations",
         regex_explanation: "Patterns are matched against the file path being edited.",
     },
     ToolInfo {
         id: "write_file",
         name: "Write File",
-        description: "File creation and overwrite operations",
         regex_explanation: "Patterns are matched against the file path being written.",
     },
     ToolInfo {
         id: "delete_path",
         name: "Delete Path",
-        description: "File and directory deletion",
         regex_explanation: "Patterns are matched against the path being deleted.",
     },
     ToolInfo {
         id: "copy_path",
         name: "Copy Path",
-        description: "File and directory copying",
         regex_explanation: "Patterns are matched independently against the source path and the destination path. Enter either path below to test.",
     },
     ToolInfo {
         id: "move_path",
         name: "Move Path",
-        description: "File and directory moves/renames",
         regex_explanation: "Patterns are matched independently against the source path and the destination path. Enter either path below to test.",
     },
     ToolInfo {
         id: "create_directory",
         name: "Create Directory",
-        description: "Directory creation",
         regex_explanation: "Patterns are matched against the directory path being created.",
     },
     ToolInfo {
         id: "fetch",
         name: "Fetch",
-        description: "HTTP requests to URLs",
         regex_explanation: "Patterns are matched against the URL being fetched.",
     },
     ToolInfo {
         id: "search_web",
         name: "Web Search",
-        description: "Web search queries",
         regex_explanation: "Patterns are matched against the search query.",
     },
     ToolInfo {
         id: "skill",
         name: "Skill",
-        description: "Loading agent skill instructions",
         regex_explanation: "Patterns are matched against the absolute path to the skill's SKILL.md file.",
     },
 ];
@@ -85,7 +74,6 @@ const TOOLS: &[ToolInfo] = &[
 pub(crate) struct ToolInfo {
     id: &'static str,
     name: &'static str,
-    description: &'static str,
     regex_explanation: &'static str,
 }
 
@@ -150,173 +138,6 @@ fn render_inline_code_markdown(text: &str, cx: &App) -> StyledText {
     StyledText::new(plain).with_highlights(highlights)
 }
 
-/// Renders the main tool permissions setup page showing a list of tools
-pub(crate) fn render_tool_permissions_setup_page(
-    settings_window: &SettingsWindow,
-    scroll_handle: &ScrollHandle,
-    window: &mut Window,
-    cx: &mut Context<SettingsWindow>,
-) -> AnyElement {
-    let tool_items: Vec<AnyElement> = TOOLS
-        .iter()
-        .enumerate()
-        .map(|(i, tool)| render_tool_list_item(settings_window, tool, i, window, cx))
-        .collect();
-
-    let settings = AgentSettings::get_global(cx);
-    let global_default = settings.tool_permissions.default;
-
-    let scroll_step = px(40.);
-
-    v_flex()
-        .id("tool-permissions-page")
-        .on_action({
-            let scroll_handle = scroll_handle.clone();
-            move |_: &menu::SelectNext, window, cx| {
-                window.focus_next(cx);
-                let current_offset = scroll_handle.offset();
-                scroll_handle.set_offset(point(current_offset.x, current_offset.y - scroll_step));
-            }
-        })
-        .on_action({
-            let scroll_handle = scroll_handle.clone();
-            move |_: &menu::SelectPrevious, window, cx| {
-                window.focus_prev(cx);
-                let current_offset = scroll_handle.offset();
-                scroll_handle.set_offset(point(current_offset.x, current_offset.y + scroll_step));
-            }
-        })
-        .min_w_0()
-        .size_full()
-        .pt_2p5()
-        .px_8()
-        .pb_16()
-        .overflow_y_scroll()
-        .track_scroll(scroll_handle)
-        .child(
-            Banner::new().child(
-                Label::new(SETTINGS_DISCLAIMER)
-                    .size(LabelSize::Small)
-                    .color(Color::Muted)
-                    .mt_0p5(),
-            ),
-        )
-        .child(
-            v_flex()
-                .child(render_global_default_mode_section(global_default))
-                .child(Divider::horizontal())
-                .children(tool_items.into_iter().enumerate().flat_map(|(i, item)| {
-                    let mut elements: Vec<AnyElement> = vec![item];
-                    if i + 1 < TOOLS.len() {
-                        elements.push(Divider::horizontal().into_any_element());
-                    }
-                    elements
-                })),
-        )
-        .into_any_element()
-}
-
-fn render_tool_list_item(
-    _settings_window: &SettingsWindow,
-    tool: &'static ToolInfo,
-    tool_index: usize,
-    _window: &mut Window,
-    cx: &mut Context<SettingsWindow>,
-) -> AnyElement {
-    let rules = get_tool_rules(tool.id, cx);
-    let rule_count =
-        rules.always_allow.len() + rules.always_deny.len() + rules.always_confirm.len();
-    let invalid_count = rules.invalid_patterns.len();
-
-    let rule_summary = if rule_count > 0 || invalid_count > 0 {
-        let mut parts = Vec::new();
-        if rule_count > 0 {
-            if rule_count == 1 {
-                parts.push("1 rule".to_string());
-            } else {
-                parts.push(format!("{} rules", rule_count));
-            }
-        }
-        if invalid_count > 0 {
-            parts.push(format!("{} invalid", invalid_count));
-        }
-        Some(parts.join(", "))
-    } else {
-        None
-    };
-
-    let render_fn = get_tool_render_fn(tool.id);
-
-    h_flex()
-        .w_full()
-        .min_w_0()
-        .py_3()
-        .justify_between()
-        .child(
-            v_flex()
-                .w_full()
-                .min_w_0()
-                .child(h_flex().gap_1().child(Label::new(tool.name)).when_some(
-                    rule_summary,
-                    |this, summary| {
-                        this.child(
-                            Label::new(summary)
-                                .size(LabelSize::Small)
-                                .color(Color::Muted),
-                        )
-                    },
-                ))
-                .child(
-                    Label::new(tool.description)
-                        .size(LabelSize::Small)
-                        .color(Color::Muted),
-                ),
-        )
-        .child({
-            let tool_name = tool.name;
-            Button::new(format!("configure-{}", tool.id), "Configure")
-                .tab_index(tool_index as isize)
-                .style(ButtonStyle::OutlinedGhost)
-                .size(ButtonSize::Medium)
-                .end_icon(
-                    Icon::new(IconName::ChevronRight)
-                        .size(IconSize::Small)
-                        .color(Color::Muted),
-                )
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.push_dynamic_sub_page(
-                        tool_name,
-                        "Tool Permissions",
-                        None,
-                        true,
-                        render_fn,
-                        window,
-                        cx,
-                    );
-                }))
-        })
-        .into_any_element()
-}
-
-fn get_tool_render_fn(
-    tool_id: &str,
-) -> fn(&SettingsWindow, &ScrollHandle, &mut Window, &mut Context<SettingsWindow>) -> AnyElement {
-    match tool_id {
-        "terminal" => render_terminal_tool_config,
-        "edit_file" => render_edit_file_tool_config,
-        "write_file" => render_write_file_tool_config,
-        "delete_path" => render_delete_path_tool_config,
-        "copy_path" => render_copy_path_tool_config,
-        "move_path" => render_move_path_tool_config,
-        "create_directory" => render_create_directory_tool_config,
-        "fetch" => render_fetch_tool_config,
-        "search_web" => render_web_search_tool_config,
-        "skill" => render_skill_tool_config,
-        _ => render_terminal_tool_config, // fallback
-    }
-}
-
-/// Renders an individual tool's permission configuration page
 pub(crate) fn render_tool_config_page(
     tool: &ToolInfo,
     settings_window: &SettingsWindow,
@@ -1069,53 +890,6 @@ fn render_add_pattern_input(
         .into_any_element()
 }
 
-fn render_global_default_mode_section(current_mode: ToolPermissionMode) -> AnyElement {
-    let mode_label = current_mode.to_string();
-
-    h_flex()
-        .my_4()
-        .min_w_0()
-        .justify_between()
-        .child(
-            v_flex()
-                .w_full()
-                .min_w_0()
-                .child(Label::new("Default Permission"))
-                .child(
-                    Label::new(
-                        "Controls the default behavior for all tool actions. Per-tool rules and patterns can override this.",
-                    )
-                    .size(LabelSize::Small)
-                    .color(Color::Muted),
-                ),
-        )
-        .child(
-            PopoverMenu::new("global-default-mode")
-                .trigger(
-                    Button::new("global-mode-trigger", mode_label)
-                        .tab_index(0_isize)
-                        .style(ButtonStyle::Outlined)
-                        .size(ButtonSize::Medium)
-                        .end_icon(Icon::new(IconName::ChevronDown).size(IconSize::Small)),
-                )
-                .menu(move |window, cx| {
-                    Some(ContextMenu::build(window, cx, move |menu, _, _| {
-                        menu.entry("Confirm", None, move |_, cx| {
-                            set_global_default_permission(ToolPermissionMode::Confirm, cx);
-                        })
-                        .entry("Allow", None, move |_, cx| {
-                            set_global_default_permission(ToolPermissionMode::Allow, cx);
-                        })
-                        .entry("Deny", None, move |_, cx| {
-                            set_global_default_permission(ToolPermissionMode::Deny, cx);
-                        })
-                    }))
-                })
-                .anchor(gpui::Anchor::TopRight),
-        )
-        .into_any_element()
-}
-
 fn render_default_mode_section(
     tool_id: &'static str,
     current_mode: ToolPermissionMode,
@@ -1335,17 +1109,6 @@ fn delete_pattern(tool_name: &str, rule_type: ToolPermissionMode, pattern: &str,
                 list.0.retain(|r| r.pattern != pattern);
             }
         }
-    });
-}
-
-fn set_global_default_permission(mode: ToolPermissionMode, cx: &mut App) {
-    SettingsStore::global(cx).update_settings_file(<dyn fs::Fs>::global(cx), move |settings, _| {
-        settings
-            .agent
-            .get_or_insert_default()
-            .tool_permissions
-            .get_or_insert_default()
-            .default = Some(mode);
     });
 }
 

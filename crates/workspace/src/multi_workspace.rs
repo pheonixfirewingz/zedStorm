@@ -348,9 +348,7 @@ impl MultiWorkspace {
             }
         });
         let settings_subscription = cx.observe_global_in::<settings::SettingsStore>(window, {
-            let mut previous_multi_workspace_enabled = !DisableAiSettings::get_global(cx)
-                .disable_ai
-                && AgentSettings::get_global(cx).enabled;
+            let mut previous_multi_workspace_enabled = true;
             move |this, window, cx| {
                 let multi_workspace_enabled = this.multi_workspace_enabled(cx);
                 if previous_multi_workspace_enabled && !multi_workspace_enabled {
@@ -424,7 +422,10 @@ impl MultiWorkspace {
     }
 
     pub fn multi_workspace_enabled(&self, cx: &App) -> bool {
-        !DisableAiSettings::get_global(cx).disable_ai && AgentSettings::get_global(cx).enabled
+        // Editor projects and terminal sessions do not require an agent sidebar.
+        self.sidebar.is_none()
+            || (!DisableAiSettings::get_global(cx).disable_ai
+                && AgentSettings::get_global(cx).enabled)
     }
 
     pub fn toggle_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) {

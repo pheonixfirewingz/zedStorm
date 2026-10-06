@@ -44,7 +44,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, LazyLock, Weak,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -206,6 +206,7 @@ impl Global for GlobalClient {}
 
 pub struct Client {
     id: AtomicU64,
+    sign_in_enabled: AtomicBool,
     peer: Arc<Peer>,
     http: Arc<HttpClientWithUrl>,
     cloud_client: Arc<CloudApiClient>,
@@ -562,6 +563,7 @@ impl Client {
     ) -> Arc<Self> {
         Arc::new(Self {
             id: AtomicU64::new(0),
+            sign_in_enabled: AtomicBool::new(true),
             peer: Peer::new(0),
             telemetry: Telemetry::new(clock, http.clone(), cx),
             cloud_client: Arc::new(CloudApiClient::new(http.clone())),
@@ -877,11 +879,21 @@ impl Client {
             .is_some()
     }
 
+    pub fn disable_sign_in(&self) {
+        self.sign_in_enabled.store(false, Ordering::Release);
+    }
+
     pub async fn sign_in(
         self: &Arc<Self>,
         try_provider: bool,
         cx: &AsyncApp,
     ) -> Result<Credentials> {
+        if !self.sign_in_enabled.load(Ordering::Acquire) {
+            return Err(anyhow!(
+                "Zed sign-in is unavailable. Sign in through Codex CLI instead."
+            ));
+        }
+
         let is_reauthenticating = if self.status().borrow().is_signed_out() {
             self.set_status(Status::Authenticating, cx);
             false
@@ -1044,6 +1056,12 @@ impl Client {
         try_provider: bool,
         cx: &AsyncApp,
     ) -> Result<()> {
+        if !self.sign_in_enabled.load(Ordering::Acquire) {
+            return Err(anyhow!(
+                "Zed sign-in is unavailable. Sign in through Codex CLI instead."
+            ));
+        }
+
         // Don't try to sign in again if we're already connected to Collab, as it will temporarily disconnect us.
         if self.status().borrow().is_connected() {
             return Ok(());
@@ -1428,6 +1446,12 @@ impl Client {
     }
 
     pub fn authenticate_with_browser(self: &Arc<Self>, cx: &AsyncApp) -> Task<Result<Credentials>> {
+        if !self.sign_in_enabled.load(Ordering::Acquire) {
+            return Task::ready(Err(anyhow!(
+                "Zed sign-in is unavailable. Sign in through Codex CLI instead."
+            )));
+        }
+
         let http = self.http.clone();
         let this = self.clone();
         cx.spawn(async move |cx| {
@@ -2011,6 +2035,39 @@ mod tests {
             ProxySettings::from_settings(&content).proxy.as_deref(),
             Some("http://127.0.0.1:10809")
         );
+    }
+
+    #[gpui::test]
+    async fn test_disabled_sign_in_rejects_all_authentication_routes(cx: &mut TestAppContext) {
+        init_test(cx);
+        let client = cx.update(|cx| {
+            Client::new(
+                Arc::new(FakeSystemClock::new()),
+                FakeHttpClient::with_404_response(),
+                cx,
+            )
+        });
+        client.override_authenticate(|_| panic!("disabled sign-in must not authenticate"));
+        client.disable_sign_in();
+        let async_cx = cx.to_async();
+        for try_provider in [false, true] {
+            assert!(client.sign_in(try_provider, &async_cx).await.is_err());
+            assert!(
+                client
+                    .sign_in_with_optional_connect(try_provider, &async_cx)
+                    .await
+                    .is_err()
+            );
+            assert!(
+                client
+                    .connect(try_provider, &async_cx)
+                    .await
+                    .into_response()
+                    .is_err()
+            );
+        }
+        assert!(client.authenticate_with_browser(&async_cx).await.is_err());
+        assert!(client.status().borrow().is_signed_out());
     }
 
     #[gpui::test(iterations = 10)]

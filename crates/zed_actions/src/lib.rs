@@ -38,6 +38,8 @@ pub struct ChangeKeybinding {
 actions!(
     zed,
     [
+        /// Opens the integrated Codex chat panel.
+        OpenCodex,
         /// Opens the settings editor.
         #[action(deprecated_aliases = ["zed_actions::OpenSettingsEditor"])]
         OpenSettings,

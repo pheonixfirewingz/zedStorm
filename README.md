@@ -1,22 +1,15 @@
 > [!IMPORTANT]
 > Remove this line to confirm you've reviewed this PR before submitting.
 
-# Zed
+# ZedStorm
 
-[![Zed](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/zed-industries/zed/main/assets/badge/v0.json)](https://zed.dev)
-[![CI](https://github.com/zed-industries/zed/actions/workflows/run_tests.yml/badge.svg)](https://github.com/zed-industries/zed/actions/workflows/run_tests.yml)
+A Zed-based editor with an integrated chat interface for Codex CLI. Zed accounts, the built-in agent panel, model providers, edit predictions, and collaboration UI are removed from the application flow.
 
-Welcome to Zed, a high-performance, multiplayer code editor from the creators of [Atom](https://github.com/atom/atom) and [Tree-sitter](https://github.com/tree-sitter/tree-sitter).
+Install [Codex CLI](https://learn.chatgpt.com/docs/codex/cli) separately and make sure `codex` is on your shell's `PATH`. Open a project, then click **Codex** in the title bar, choose **View → Codex Chat**, or run **zed: open codex** from the command palette. The shortcut is **Ctrl+Alt+J** on Linux/Windows and **Cmd+Alt+J** on macOS.
 
----
+The Codex button opens a native chat panel in the right dock. Send prompts with **Enter** and add new lines with **Shift+Enter**. Replies stream with Markdown and code blocks; command activity, file changes, approvals, and errors appear in the panel. **Stop** interrupts a turn, **New Chat** starts a fresh conversation, and **Reconnect** resumes the current chat after a connection failure. The panel uses the installed CLI's `codex app-server` process and existing authentication/configuration. If needed, **Sign in to Codex** opens Codex's browser sign-in. Local projects are supported; remote projects currently show an explicit message.
 
-### Installation
-
-On macOS, Linux, and Windows you can [download Zed directly](https://zed.dev/download) or install Zed via your local package manager ([macOS](https://zed.dev/docs/installation#macos)/[Linux](https://zed.dev/docs/linux#installing-via-a-package-manager)/[Windows](https://zed.dev/docs/windows#package-managers)).
-
-Other platforms are not yet available:
-
-- Web ([tracking discussion](https://github.com/zed-industries/zed/discussions/26195))
+The upstream shared AI and collaboration crates remain in the source tree where editor libraries depend on their types. Their app startup hooks and UI entry points are removed, and the legacy `disable_ai: false` setting cannot re-enable them.
 
 ### Developing Zed
 

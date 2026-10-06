@@ -1147,17 +1147,15 @@ pub enum PulledDiagnostics {
 
 /// Whether to disable all AI features in Zed.
 ///
-/// Default: false
+/// ZedStorm delegates AI to Codex CLI.
 #[derive(Copy, Clone, Debug, RegisterSetting)]
 pub struct DisableAiSettings {
     pub disable_ai: bool,
 }
 
 impl settings::Settings for DisableAiSettings {
-    fn from_settings(content: &settings::SettingsContent) -> Self {
-        Self {
-            disable_ai: content.project.disable_ai.unwrap().0,
-        }
+    fn from_settings(_content: &settings::SettingsContent) -> Self {
+        Self { disable_ai: true }
     }
 }
 
