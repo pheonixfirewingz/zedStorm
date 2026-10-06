@@ -8016,6 +8016,85 @@ fn benchmark_snapshot_updates_with_drain(
 #[cfg(test)]
 mod snapshot_update_tests {
     #[test]
+    fn coalescing_preserves_path_sorted_same_id_renames() -> anyhow::Result<()> {
+        for (old_path, new_path) in [("a.txt", "z.txt"), ("z.txt", "a.txt")] {
+            let matcher = super::PathMatcher::default();
+            let mut snapshot = super::benchmark_empty_snapshot()?;
+            let make_update = |path: &str, scan_id| super::proto::UpdateWorktree {
+                project_id: 1,
+                worktree_id: 1,
+                root_name: "benchmark".into(),
+                abs_path: "/benchmark".into(),
+                scan_id,
+                is_last_update: true,
+                updated_entries: vec![super::proto::Entry {
+                    id: 1,
+                    path: path.into(),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            };
+            snapshot
+                .snapshot
+                .apply_remote_update(make_update(old_path, 1), &matcher);
+            let previous = snapshot.clone();
+            snapshot
+                .snapshot
+                .apply_remote_update(make_update(new_path, 2), &matcher);
+            let changes = super::build_diff(
+                super::BackgroundScannerPhase::Events,
+                &previous.snapshot,
+                &snapshot.snapshot,
+                &[super::EventRoot {
+                    path: super::RelPath::empty().into(),
+                    was_rescanned: false,
+                }],
+            );
+            assert_eq!(changes.len(), 2);
+            assert!(changes.iter().all(|(_, id, _)| id.to_proto() == 1));
+            let expected = if old_path < new_path {
+                vec![
+                    (old_path, super::PathChange::Removed),
+                    (new_path, super::PathChange::Added),
+                ]
+            } else {
+                vec![
+                    (new_path, super::PathChange::Added),
+                    (old_path, super::PathChange::Removed),
+                ]
+            };
+            assert_eq!(
+                changes
+                    .iter()
+                    .map(|(path, _, change)| (path.as_unix_str(), *change))
+                    .collect::<Vec<_>>(),
+                expected
+            );
+            let mut remote = previous.snapshot.clone();
+            let (sender, mut receiver) = super::snapshot_update_channel(previous);
+            sender.send(snapshot.clone(), changes)?;
+            drop(sender);
+            let mut delivered_updates = 0;
+            futures::executor::block_on(async {
+                while let Some((snapshot, changes)) = receiver.next().await {
+                    super::apply_benchmark_snapshot_update(
+                        snapshot,
+                        changes,
+                        &mut remote,
+                        &matcher,
+                        &mut delivered_updates,
+                    );
+                }
+            });
+            assert_eq!(
+                remote.build_initial_update(1, 1),
+                snapshot.build_initial_update(1, 1)
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn coalescing_preserves_state_across_repeated_drains() {
         for drain_every in [1, 7, 16, 127] {
             let report = super::benchmark_snapshot_updates_with_drain(2048, 128, Some(drain_every))
