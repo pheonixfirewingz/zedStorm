@@ -12488,6 +12488,7 @@ dependencies = [
  "askpass",
  "clap",
  "client",
+ "criterion",
  "futures",
  "gpui",
  "gpui_platform",
@@ -12501,6 +12502,7 @@ dependencies = [
  "semver",
  "settings",
  "watch",
+ "worktree",
 ]
 
 [[package]]
