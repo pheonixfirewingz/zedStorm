@@ -797,6 +797,31 @@ struct RequestHandler<'worker> {
     confirm_contents_will_match_tx: &'worker Sender<MatchingEntry>,
 }
 
+async fn find_buffer_matches(
+    query: &SearchQuery,
+    snapshot: &BufferSnapshot,
+    subrange: Option<Range<usize>>,
+    range_offset: usize,
+) -> Vec<Range<language::Anchor>> {
+    query
+        .search(snapshot, subrange)
+        .await
+        .iter()
+        .map(|range| {
+            snapshot.anchor_before(range.start + range_offset)
+                ..snapshot.anchor_after(range.end + range_offset)
+        })
+        .collect()
+}
+
+#[cfg(feature = "bench-support")]
+pub async fn benchmark_find_buffer_matches(
+    query: &SearchQuery,
+    snapshot: &BufferSnapshot,
+) -> Vec<Range<language::Anchor>> {
+    find_buffer_matches(query, snapshot, None, 0).await
+}
+
 impl RequestHandler<'_> {
     async fn handle_find_all_matches(&self, request: FindAllMatchesRequest) {
         let FindAllMatchesRequest {
@@ -814,16 +839,7 @@ impl RequestHandler<'_> {
         };
 
         let subrange = (range_offset > 0).then(|| range_offset..snapshot.len());
-        let ranges = self
-            .query
-            .search(&snapshot, subrange)
-            .await
-            .iter()
-            .map(|range| {
-                snapshot.anchor_before(range.start + range_offset)
-                    ..snapshot.anchor_after(range.end + range_offset)
-            })
-            .collect::<Vec<_>>();
+        let ranges = find_buffer_matches(self.query, &snapshot, subrange, range_offset).await;
 
         _ = report_matches.send((buffer, ranges)).await;
     }
