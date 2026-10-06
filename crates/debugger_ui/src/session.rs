@@ -4,7 +4,7 @@ use crate::{
     debugger_panel::DebugPanel, persistence::SerializedLayout, session::running::DebugTerminal,
 };
 use dap::client::SessionId;
-use gpui::{App, Axis, Entity, EventEmitter, FocusHandle, Focusable, Task, WeakEntity};
+use gpui::{App, Axis, Entity, EventEmitter, FocusHandle, Focusable, Subscription, Task, WeakEntity};
 use project::debugger::session::Session;
 
 use project::{Project, debugger::session::SessionQuirks};
@@ -23,6 +23,7 @@ pub struct DebugSession {
     remote_id: Option<workspace::ViewId>,
     pub(crate) running_state: Entity<RunningState>,
     pub(crate) quirks: SessionQuirks,
+    _subscription: Subscription,
 }
 
 impl DebugSession {
@@ -51,17 +52,17 @@ impl DebugSession {
         let quirks = session.read(cx).quirks();
 
         cx.new(|cx| {
-            cx.observe(&running_state, |_, _, cx| {
+            let _subscription = cx.observe(&running_state, |_, _, cx| {
                 cx.emit(());
                 cx.notify();
-            })
-            .detach();
+            });
             Self {
                 panel: None,
                 host_pane: None,
                 remote_id: None,
                 running_state,
                 quirks,
+                _subscription,
             }
         })
     }
