@@ -63,6 +63,44 @@ fn dense_literal(match_count: &usize, cx: &mut BenchAppContext) {
     });
 }
 
+#[gpui::bench(inputs = match_counts(), input_name = "matches", group = "Unlimited search control")]
+fn unlimited_literal(match_count: &usize, cx: &mut BenchAppContext) {
+    cx.update(|cx| {
+        settings::init(cx);
+        language::language_settings::AllLanguageSettings::register(cx);
+    });
+    let buffer = cx.update(|cx| cx.new(|cx| Buffer::local("needle\n".repeat(*match_count), cx)));
+    let snapshot = cx.update(|cx| buffer.read(cx).snapshot());
+    let query = Arc::new(
+        SearchQuery::text(
+            "needle",
+            false,
+            true,
+            false,
+            Default::default(),
+            Default::default(),
+            false,
+            None,
+        )
+        .expect("valid literal query"),
+    );
+    let match_count = *match_count;
+    cx.bench_task(|cx| {
+        let snapshot = snapshot.clone();
+        let query = query.clone();
+        cx.background_executor().spawn(async move {
+            let ranges = query.search(&snapshot, None).await;
+            assert_eq!(ranges.len(), match_count);
+            assert_eq!(ranges.first(), Some(&(0..6)));
+            assert_eq!(
+                ranges.last(),
+                Some(&((match_count - 1) * 7..(match_count - 1) * 7 + 6))
+            );
+            ranges
+        })
+    });
+}
+
 gpui::bench_group! {
     name = benches;
     config = criterion::Criterion::default()
@@ -70,6 +108,6 @@ gpui::bench_group! {
         .warm_up_time(Duration::from_millis(200))
         .measurement_time(Duration::from_secs(1))
         .without_plots();
-    targets = dense_literal
+    targets = dense_literal, unlimited_literal
 }
 gpui::bench_main!(benches);
