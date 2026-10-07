@@ -5,6 +5,7 @@ publish.workspace = true
 edition.workspace = true
 
 [features]
+bench-support = ["gpui/bench-support", "gpui_platform/bench-support", "project/bench-support"]
 test-support = ["http_client/test-support"]
 
 [[bin]]
@@ -12,7 +13,14 @@ name = "project_benchmarks"
 path = "src/main.rs"
 required-features = ["test-support"]
 
+[[bench]]
+name = "search_budget"
+path = "benches/search_budget.rs"
+harness = false
+required-features = ["bench-support"]
+
 [dependencies]
+criterion.workspace = true
 anyhow.workspace = true
 askpass.workspace = true
 clap.workspace = true

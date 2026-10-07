@@ -641,20 +641,30 @@ impl Search {
             let mut matched_buffers = 0;
             let mut matches = 0;
             while let Ok(mut next_buffer_matches) = rx.recv().await {
-                let Some((buffer, ranges)) = next_buffer_matches.recv().await else {
+                let Some((buffer, mut ranges)) = next_buffer_matches.recv().await else {
                     continue;
                 };
 
-                if matched_buffers > Search::MAX_SEARCH_RESULT_FILES
-                    || matches > Search::MAX_SEARCH_RESULT_RANGES
+                if ranges.is_empty() {
+                    continue;
+                }
+                if matched_buffers == Search::MAX_SEARCH_RESULT_FILES
+                    || matches == Search::MAX_SEARCH_RESULT_RANGES
                 {
-                    _ = tx.send(SearchResult::LimitReached).await;
+                    tx.send(SearchResult::LimitReached).await?;
                     break;
                 }
+                let remaining_matches = Search::MAX_SEARCH_RESULT_RANGES - matches;
+                let limit_reached = ranges.len() > remaining_matches;
+                ranges.truncate(remaining_matches);
                 matched_buffers += 1;
                 matches += ranges.len();
 
-                _ = tx.send(SearchResult::Buffer { buffer, ranges }).await?;
+                tx.send(SearchResult::Buffer { buffer, ranges }).await?;
+                if limit_reached {
+                    tx.send(SearchResult::LimitReached).await?;
+                    break;
+                }
             }
             anyhow::Ok(())
         })
@@ -797,6 +807,32 @@ struct RequestHandler<'worker> {
     confirm_contents_will_match_tx: &'worker Sender<MatchingEntry>,
 }
 
+async fn find_buffer_matches(
+    query: &SearchQuery,
+    snapshot: &BufferSnapshot,
+    subrange: Option<Range<usize>>,
+    range_offset: usize,
+) -> Vec<Range<language::Anchor>> {
+    query
+        // One extra match distinguishes a full result set from a truncated one.
+        .search_with_limit(snapshot, subrange, Search::MAX_SEARCH_RESULT_RANGES + 1)
+        .await
+        .into_iter()
+        .map(|range| {
+            snapshot.anchor_before(range.start + range_offset)
+                ..snapshot.anchor_after(range.end + range_offset)
+        })
+        .collect()
+}
+
+#[cfg(feature = "bench-support")]
+pub async fn benchmark_find_buffer_matches(
+    query: &SearchQuery,
+    snapshot: &BufferSnapshot,
+) -> Vec<Range<language::Anchor>> {
+    find_buffer_matches(query, snapshot, None, 0).await
+}
+
 impl RequestHandler<'_> {
     async fn handle_find_all_matches(&self, request: FindAllMatchesRequest) {
         let FindAllMatchesRequest {
@@ -814,16 +850,7 @@ impl RequestHandler<'_> {
         };
 
         let subrange = (range_offset > 0).then(|| range_offset..snapshot.len());
-        let ranges = self
-            .query
-            .search(&snapshot, subrange)
-            .await
-            .iter()
-            .map(|range| {
-                snapshot.anchor_before(range.start + range_offset)
-                    ..snapshot.anchor_after(range.end + range_offset)
-            })
-            .collect::<Vec<_>>();
+        let ranges = find_buffer_matches(self.query, &snapshot, subrange, range_offset).await;
 
         _ = report_matches.send((buffer, ranges)).await;
     }

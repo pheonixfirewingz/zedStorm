@@ -490,9 +490,18 @@ impl SearchQuery {
         buffer: &BufferSnapshot,
         subrange: Option<Range<usize>>,
     ) -> Vec<Range<usize>> {
+        self.search_with_limit(buffer, subrange, usize::MAX).await
+    }
+
+    pub async fn search_with_limit(
+        &self,
+        buffer: &BufferSnapshot,
+        subrange: Option<Range<usize>>,
+        limit: usize,
+    ) -> Vec<Range<usize>> {
         const YIELD_INTERVAL: usize = 20000;
 
-        if self.as_str().is_empty() {
+        if limit == 0 || self.as_str().is_empty() {
             return Default::default();
         }
 
@@ -535,7 +544,10 @@ impl SearchQuery {
                             continue;
                         }
                     }
-                    matches.push(mat.start()..mat.end())
+                    matches.push(mat.start()..mat.end());
+                    if matches.len() == limit {
+                        break;
+                    }
                 }
             }
 
@@ -561,6 +573,9 @@ impl SearchQuery {
                         };
                         if should_push {
                             matches.push(mat.start()..mat.end());
+                            if matches.len() == limit {
+                                break;
+                            }
                         }
                     }
                 }
