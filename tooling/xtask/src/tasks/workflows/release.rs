@@ -4,7 +4,7 @@ use gh_workflow::{
 use indoc::formatdoc;
 
 use crate::tasks::workflows::{
-    run_bundling::{build_static_bwrap, bundle_linux, bundle_mac, bundle_windows, upload_artifact},
+    run_bundling::{bundle_linux, bundle_mac, bundle_windows, upload_artifact},
     run_tests,
     runners::{self, Arch, Platform},
     steps::{
@@ -40,14 +40,6 @@ pub(crate) fn release() -> Workflow {
             Arch::X86_64,
             None,
             true,
-            &[&linux_tests, &linux_clippy, &check_scripts],
-        ),
-        bwrap_linux_aarch64: build_static_bwrap(
-            Arch::AARCH64,
-            &[&linux_tests, &linux_clippy, &check_scripts],
-        ),
-        bwrap_linux_x86_64: build_static_bwrap(
-            Arch::X86_64,
             &[&linux_tests, &linux_clippy, &check_scripts],
         ),
         mac_aarch64: bundle_mac(
@@ -136,8 +128,6 @@ pub(crate) fn release() -> Workflow {
 pub(crate) struct ReleaseBundleJobs {
     pub linux_aarch64: NamedJob,
     pub linux_x86_64: NamedJob,
-    pub bwrap_linux_aarch64: NamedJob,
-    pub bwrap_linux_x86_64: NamedJob,
     pub mac_aarch64: NamedJob,
     pub mac_x86_64: NamedJob,
     pub windows_aarch64: NamedJob,
@@ -149,8 +139,6 @@ impl ReleaseBundleJobs {
         vec![
             &self.linux_aarch64,
             &self.linux_x86_64,
-            &self.bwrap_linux_aarch64,
-            &self.bwrap_linux_x86_64,
             &self.mac_aarch64,
             &self.mac_x86_64,
             &self.windows_aarch64,
@@ -162,8 +150,6 @@ impl ReleaseBundleJobs {
         vec![
             self.linux_aarch64,
             self.linux_x86_64,
-            self.bwrap_linux_aarch64,
-            self.bwrap_linux_x86_64,
             self.mac_aarch64,
             self.mac_x86_64,
             self.windows_aarch64,
@@ -369,9 +355,13 @@ fn validate_release_assets(deps: &[&NamedJob]) -> NamedJob {
     )
 }
 
-fn release_compliance_check(deps: &[&NamedJob], non_blocking_outcome: JobOutput) -> NamedJob {
+pub(crate) fn release_compliance_check(
+    deps: &[&NamedJob],
+    non_blocking_compliance_outcome: JobOutput,
+) -> NamedJob {
     let job = dependant_job(deps)
-        .runs_on(runners::LINUX_LARGE)
+        .runs_on(runners::LINUX_SMALL)
+        .permissions(Permissions::default().contents(Level::Write))
         .add_step(
             steps::checkout_repo()
                 .with_full_history()
@@ -382,7 +372,7 @@ fn release_compliance_check(deps: &[&NamedJob], non_blocking_outcome: JobOutput)
     let (job, _) = add_compliance_steps(
         job,
         ComplianceContext::Release {
-            non_blocking_outcome,
+            non_blocking_outcome: non_blocking_compliance_outcome,
         },
     );
 
@@ -390,72 +380,35 @@ fn release_compliance_check(deps: &[&NamedJob], non_blocking_outcome: JobOutput)
 }
 
 fn auto_release_preview(deps: &[&NamedJob]) -> (NamedJob, JobOutput) {
-    fn auto_release_preview(token: &StepOutput) -> Step<Run> {
-        named::bash(indoc::indoc! {r#"
-            tag="$GITHUB_REF_NAME"
-            release_published=false
+    let script = formatdoc! {r#"
+        RELEASE_CHANNEL=$(script/determine-release-channel)
+        if [ "$RELEASE_CHANNEL" = "preview" ]; then
+            echo "Auto-publishing preview release..."
+            gh release edit "$GITHUB_REF_NAME" --repo=zed-industries/zed --draft=false
+            echo "published=true" >> "$GITHUB_OUTPUT"
+        else
+            echo "Not auto-publishing $RELEASE_CHANNEL release."
+            echo "published=false" >> "$GITHUB_OUTPUT"
+        fi
+        "#,
+    };
 
-            if [[ ! "$tag" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)-pre$ ]]; then
-                echo "::error::expected preview release tag in the form vMAJOR.MINOR.PATCH-pre, got $tag"
-                exit 1
-            fi
+    let step = named::bash(&script)
+        .add_env(("GITHUB_TOKEN", vars::GITHUB_TOKEN))
+        .id("auto-release-preview");
 
-            major="${BASH_REMATCH[1]}"
-            minor="${BASH_REMATCH[2]}"
-            should_release=true
+    let published = StepOutput::new(&step, "published");
 
-            released_preview="$(script/get-released-version preview)"
-            if [[ -z "$released_preview" || "$released_preview" == "null" ]]; then
-                echo "::error::could not determine released preview version"
-                exit 1
-            fi
+    let job = dependant_job(deps)
+        .runs_on(runners::LINUX_SMALL)
+        .permissions(Permissions::default().contents(Level::Write))
+        .add_step(steps::checkout_repo().with_ref(Context::github().ref_()))
+        .add_step(step);
 
-            released_preview_major="$(echo "$released_preview" | cut -d. -f1)"
-            released_preview_minor="$(echo "$released_preview" | cut -d. -f2)"
+    let named_job = named::job(job);
+    let output = published.as_job_output(&named_job);
 
-            if [[ "$released_preview_major" != "$major" || "$released_preview_minor" != "$minor" ]]; then
-                should_release=false
-                echo "Leaving $tag as a draft because it is the first preview release for v${major}.${minor}.x"
-            fi
-
-            if [[ "$should_release" == "true" ]]; then
-                gh release edit "$tag" --repo=zed-industries/zed --draft=false
-                release_published=true
-            fi
-
-            echo "release_published=$release_published" >> "$GITHUB_OUTPUT"
-        "#})
-        .id("auto-release-preview")
-        .add_env(("GITHUB_TOKEN", token))
-    }
-
-    let (authenticate, token) = steps::authenticate_as_zippy()
-        .for_repository(steps::RepositoryTarget::current())
-        .with_permissions([(steps::TokenPermissions::Contents, Level::Write)])
-        .into();
-    let auto_release_preview_step = auto_release_preview(&token);
-    let release_published = StepOutput::new(&auto_release_preview_step, "release_published");
-
-    let job = named::job(
-        dependant_job(deps)
-            .runs_on(runners::LINUX_SMALL)
-            .cond(Expression::new(indoc::indoc!(
-                r#"startsWith(github.ref, 'refs/tags/v') && endsWith(github.ref, '-pre')"#
-            )))
-            .add_step(authenticate)
-            .add_step(
-                steps::checkout_repo()
-                    .with_token(&token)
-                    .with_ref(Context::github().ref_()),
-            )
-            .add_step(auto_release_preview_step)
-            .outputs([(
-                release_published.name.to_owned(),
-                release_published.to_string(),
-            )]),
-    );
-    let release_published = release_published.as_job_output(&job);
-    (job, release_published)
+    (named_job, output)
 }
 
 pub(crate) fn download_workflow_artifacts() -> DownloadArtifactStep {

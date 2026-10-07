@@ -4,7 +4,7 @@ use crate::tasks::workflows::{
         ReleaseBundleJobs, create_sentry_release, download_workflow_artifacts, notify_on_failure,
         prep_release_artifacts,
     },
-    run_bundling::{build_static_bwrap, bundle_linux, bundle_mac, bundle_windows},
+    run_bundling::{bundle_linux, bundle_mac, bundle_windows},
     run_tests::run_platform_tests_no_filter,
     runners::{Arch, Platform, ReleaseChannel},
     steps::{
@@ -33,15 +33,12 @@ pub fn release_nightly() -> Workflow {
     let bundle = ReleaseBundleJobs {
         linux_aarch64: bundle_linux(Arch::AARCH64, NIGHTLY, true, &[&tests]),
         linux_x86_64: bundle_linux(Arch::X86_64, NIGHTLY, true, &[&tests]),
-        bwrap_linux_aarch64: build_static_bwrap(Arch::AARCH64, &[&tests]),
-        bwrap_linux_x86_64: build_static_bwrap(Arch::X86_64, &[&tests]),
         mac_aarch64: bundle_mac(Arch::AARCH64, NIGHTLY, &[&tests]),
         mac_x86_64: bundle_mac(Arch::X86_64, NIGHTLY, &[&tests]),
         windows_aarch64: bundle_windows(Arch::AARCH64, NIGHTLY, &[&tests]),
         windows_x86_64: bundle_windows(Arch::X86_64, NIGHTLY, &[&tests]),
     };
 
-    let nix_linux_x86 = build_nix(Platform::Linux, Arch::X86_64, "default", None, &[&tests]);
     let nix_mac_arm = build_nix(Platform::Mac, Arch::AARCH64, "default", None, &[&tests]);
     let update_nightly_tag = update_nightly_tag_job(&bundle);
     let notify_on_failure = notify_on_failure(&bundle.jobs());
@@ -67,7 +64,6 @@ pub fn release_nightly() -> Workflow {
             }
             workflow
         })
-        .add_job(nix_linux_x86.name, nix_linux_x86.job)
         .add_job(nix_mac_arm.name, nix_mac_arm.job)
         .add_job(update_nightly_tag.name, update_nightly_tag.job)
         .add_job(notify_on_failure.name, notify_on_failure.job)

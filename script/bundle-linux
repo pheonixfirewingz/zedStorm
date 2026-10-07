@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 
 set -euxo pipefail
+cd "$(dirname "$0")/.."
 source script/lib/blob-store.sh
 
 # Function for displaying help info
 help_info() {
   echo "
 Usage: ${0##*/} [options]
-Build a release .tar.gz for Linux.
+Build Linux bundle. For release channels, builds Flatpak (only build option on Linux).
+For dev channel, builds non-Flatpak (.tar.gz).
 
 Options:
   -h, --help        Display this help and exit.
-  --flatpak         Set ZED_BUNDLE_TYPE=flatpak so that this can be included in system info
+  --flatpak         Set ZED_BUNDLE_TYPE=flatpak (disallowed on dev channel).
+  --stage-archive   Only build the intermediate archive without bundling Flatpak.
   --require-sentry  Require Sentry credentials, CLI, and successful symbol upload (official releases).
   --skip-sentry     Skip symbol upload for local packaging; incompatible with --require-sentry.
   "
@@ -19,6 +22,8 @@ Options:
 
 require_sentry=false
 skip_sentry=false
+stage_archive=false
+flatpak_requested=false
 
 # Parse all arguments manually
 while [[ $# -gt 0 ]]; do
@@ -28,7 +33,12 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         --flatpak)
+            flatpak_requested=true
             export ZED_BUNDLE_TYPE=flatpak
+            shift
+            ;;
+        --stage-archive)
+            stage_archive=true
             shift
             ;;
         --require-sentry)
@@ -88,6 +98,16 @@ fi
 export ZED_BUNDLE=true
 
 channel=$(<crates/zed/RELEASE_CHANNEL)
+if [[ "$channel" == "dev" ]]; then
+    if "$flatpak_requested"; then
+        echo "Error: Flatpak packaging is disabled for dev builds. Dev channel only supports non-Flatpak builds." >&2
+        exit 1
+    fi
+else
+    # Release channels (stable, preview, nightly) only support Flatpak on Linux
+    export ZED_BUNDLE_TYPE=flatpak
+fi
+
 target_dir="${CARGO_TARGET_DIR:-target}"
 
 version="$(script/get-crate-version zed)"
@@ -252,3 +272,42 @@ ls "${target_dir}/release" | grep -E ${remove_match} | xargs -d "\n" -I {} rm -f
 tar -czvf "${target_dir}/release/$archive" -C ${temp_dir} "zed$suffix.app"
 
 gzip -f --stdout --best "${temp_dir}/remote_server" > "${target_dir}/zed-remote-server-linux-${arch}.gz"
+
+if [[ "$channel" != "dev" ]] && ! "$stage_archive"; then
+    echo "Packaging Flatpak bundle (only build option for release channels on Linux)..."
+    export CHANNEL="$channel"
+    export ARCHIVE="$archive"
+    if [[ "$channel" == "nightly" ]]; then
+        export APP_ID="dev.zed.ZedNightly"
+        export APP_NAME="Zed Nightly"
+        export BRANDING_LIGHT="#e9aa6a"
+        export BRANDING_DARK="#1a5fb4"
+        export ICON_FILE="app-icon-nightly"
+    elif [[ "$channel" == "preview" ]]; then
+        export APP_ID="dev.zed.ZedPreview"
+        export APP_NAME="Zed Preview"
+        export BRANDING_LIGHT="#99c1f1"
+        export BRANDING_DARK="#1a5fb4"
+        export ICON_FILE="app-icon-preview"
+    elif [[ "$channel" == "stable" ]]; then
+        export APP_ID="dev.zed.Zed"
+        export APP_NAME="Zed"
+        export BRANDING_LIGHT="#99c1f1"
+        export BRANDING_DARK="#1a5fb4"
+        export ICON_FILE="app-icon"
+    else
+        echo "Invalid channel: '$channel'" >&2
+        exit 1
+    fi
+
+    envsubst < "crates/zed/resources/flatpak/manifest-template.json" > "$APP_ID.json"
+    flatpak-builder --user --install --force-clean build "$APP_ID.json"
+    flatpak build-bundle ~/.local/share/flatpak/repo "${target_dir}/release/$APP_ID.flatpak" "$APP_ID"
+    cp "${target_dir}/release/$APP_ID.flatpak" "${target_dir}/release/Zed-${arch}.flatpak"
+    rm -f "$APP_ID.json"
+    rm -rf build .flatpak-builder
+
+    # Clean up temporary archive so only Flatpak bundle remains as release artifact
+    rm -f "${target_dir}/release/$archive"
+    echo "Flatpak release bundle created: ${target_dir}/release/Zed-${arch}.flatpak"
+fi

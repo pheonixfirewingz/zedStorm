@@ -372,10 +372,8 @@ pub mod assets {
     // NOTE: these asset names also exist in the zed.dev codebase.
     pub const MAC_AARCH64: &str = "Zed-aarch64.dmg";
     pub const MAC_X86_64: &str = "Zed-x86_64.dmg";
-    pub const LINUX_AARCH64: &str = "zed-linux-aarch64.tar.gz";
-    pub const LINUX_X86_64: &str = "zed-linux-x86_64.tar.gz";
-    pub const BWRAP_LINUX_AARCH64: &str = "bwrap-linux-aarch64.gz";
-    pub const BWRAP_LINUX_X86_64: &str = "bwrap-linux-x86_64.gz";
+    pub const LINUX_AARCH64: &str = "Zed-aarch64.flatpak";
+    pub const LINUX_X86_64: &str = "Zed-x86_64.flatpak";
     pub const WINDOWS_X86_64: &str = "Zed-x86_64.exe";
     pub const WINDOWS_AARCH64: &str = "Zed-aarch64.exe";
 
@@ -392,8 +390,6 @@ pub mod assets {
             MAC_X86_64,
             LINUX_AARCH64,
             LINUX_X86_64,
-            BWRAP_LINUX_AARCH64,
-            BWRAP_LINUX_X86_64,
             WINDOWS_X86_64,
             WINDOWS_AARCH64,
             REMOTE_SERVER_MAC_AARCH64,

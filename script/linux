@@ -49,6 +49,8 @@ if [[ -n $apt ]]; then
     build-essential
     pipewire
     xdg-desktop-portal
+    flatpak
+    flatpak-builder
   )
   if (grep -qP 'PRETTY_NAME="(Debian|Raspbian).+13' /etc/os-release); then
       # libstdc++-14-dev is in build-essential
@@ -115,6 +117,8 @@ if [[ -n $dnf ]] || [[ -n $yum ]]; then
     jq
     git
     tar
+    flatpak
+    flatpak-builder
   )
   # perl used for building openssl-sys crate. See: https://docs.rs/openssl/latest/openssl/
   if grep -qP '^ID="?(fedora)' /etc/os-release; then
@@ -188,6 +192,8 @@ if [[ -n $zyp ]]; then
     xcb-util-devel
     pipewire
     xdg-desktop-portal
+    flatpak
+    flatpak-builder
   )
   $maysudo "$zyp" install -y "${deps[@]}"
   finalize
@@ -220,6 +226,8 @@ if [[ -n $pacman ]]; then
     xdg-desktop-portal
     jq
     git
+    flatpak
+    flatpak-builder
   )
   $maysudo "$pacman" -Syu --needed --noconfirm "${deps[@]}"
   finalize
@@ -251,6 +259,8 @@ if [[ -n $xbps ]]; then
     sqlite-devel
     pipewire
     xdg-desktop-portal
+    flatpak
+    flatpak-builder
   )
   $maysudo "$xbps" -Syu "${deps[@]}"
   finalize
@@ -278,6 +288,8 @@ if [[ -n $emerge ]]; then
     dev-db/sqlite
     media-video/pipewire
     sys-apps/xdg-desktop-portal
+    sys-apps/flatpak
+    dev-util/flatpak-builder
   )
   $maysudo "$emerge" -u "${deps[@]}"
   finalize

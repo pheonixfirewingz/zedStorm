@@ -11,7 +11,7 @@ use gh_workflow::*;
 /// here (not in run_bundling.yml) so that setting both labels doesn't build
 /// them twice.
 pub fn nix_build() -> Workflow {
-    let [nix_linux_x86_64, nix_mac_aarch64] = nix_pr_jobs(&["run-nix", "run-bundling"]);
+    let [nix_mac_aarch64] = nix_pr_jobs(&["run-nix", "run-bundling"]);
     named::workflow()
         .with_minimal_permissions()
         .on(Event::default().pull_request(
@@ -25,14 +25,13 @@ pub fn nix_build() -> Workflow {
         )
         .add_env(("CARGO_TERM_COLOR", "always"))
         .add_env(("RUST_BACKTRACE", "1"))
-        .add_job(nix_linux_x86_64.name, nix_linux_x86_64.job)
         .add_job(nix_mac_aarch64.name, nix_mac_aarch64.job)
 }
 
-/// Builds the pair of PR Nix jobs (Linux x86_64 + macOS aarch64), each gated so
+/// Builds the PR Nix jobs (macOS aarch64), gated so
 /// they run when any of the given PR `labels` is present (on
 /// `labeled`/`synchronize` events).
-fn nix_pr_jobs(labels: &[&str]) -> [NamedJob; 2] {
+fn nix_pr_jobs(labels: &[&str]) -> [NamedJob; 1] {
     let labeled = labels
         .iter()
         .map(|label| format!("github.event.label.name == '{label}'"))
@@ -44,7 +43,6 @@ fn nix_pr_jobs(labels: &[&str]) -> [NamedJob; 2] {
         .collect::<Vec<_>>()
         .join(" || ");
     [
-        (Platform::Linux, Arch::X86_64),
         (Platform::Mac, Arch::AARCH64),
     ]
     .map(|(platform, arch)| {

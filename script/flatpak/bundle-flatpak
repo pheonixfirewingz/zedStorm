@@ -4,20 +4,20 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 shopt -s extglob
 
-script/bundle-linux --flatpak
+channel=$(<crates/zed/RELEASE_CHANNEL)
+if [[ "$channel" == "dev" ]]; then
+    echo "Error: Flatpak packaging is disabled for dev builds. Dev channel only supports non-Flatpak builds." >&2
+    exit 1
+fi
+
+script/bundle-linux --flatpak --stage-archive "$@"
 archive_match="zed(-[a-zA-Z0-9]+)?-linux-$(uname -m)\.tar\.gz"
 archive=$(ls "target/release" | grep -E ${archive_match})
-channel=$(<crates/zed/RELEASE_CHANNEL)
 
 export CHANNEL="$channel"
 export ARCHIVE="$archive"
-if [[ "$channel" == "dev" ]]; then
-    export APP_ID="dev.zed.ZedDev"
-    export APP_NAME="Zed Devel"
-    export BRANDING_LIGHT="#99c1f1"
-    export BRANDING_DARK="#1a5fb4"
-    export ICON_FILE="app-icon-dev"
-elif [[ "$channel" == "nightly" ]]; then
+arch=$(uname -m)
+if [[ "$channel" == "nightly" ]]; then
     export APP_ID="dev.zed.ZedNightly"
     export APP_NAME="Zed Nightly"
     export BRANDING_LIGHT="#e9aa6a"
@@ -36,11 +36,15 @@ elif [[ "$channel" == "stable" ]]; then
     export BRANDING_DARK="#1a5fb4"
     export ICON_FILE="app-icon"
 else
-    echo "Invalid channel: '$channel'"
-    exit
+    echo "Invalid channel: '$channel'" >&2
+    exit 1
 fi
 
 envsubst < "crates/zed/resources/flatpak/manifest-template.json" > "$APP_ID.json"
 flatpak-builder --user --install --force-clean build "$APP_ID.json"
 flatpak build-bundle ~/.local/share/flatpak/repo "target/release/$APP_ID.flatpak" "$APP_ID"
-echo "Created 'target/release/$APP_ID.flatpak'"
+cp "target/release/$APP_ID.flatpak" "target/release/Zed-${arch}.flatpak"
+rm -f "$APP_ID.json"
+rm -rf build .flatpak-builder
+rm -f "target/release/$archive"
+echo "Created 'target/release/$APP_ID.flatpak' and 'target/release/Zed-${arch}.flatpak'"
