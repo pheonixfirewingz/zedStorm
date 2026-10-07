@@ -12502,6 +12502,7 @@ dependencies = [
  "semver",
  "settings",
  "watch",
+ "worktree",
 ]
 
 [[package]]
