@@ -24,8 +24,7 @@ Zed is made up of several smaller crates. Here are the ones you're most likely t
 - [`vim`](https://github.com/zed-industries/zed/tree/main/crates/vim) is a thin implementation of Vim workflow over `editor`.
 - [`lsp`](https://github.com/zed-industries/zed/tree/main/crates/lsp) handles communication with external LSP server.
 - [`language`](https://github.com/zed-industries/zed/tree/main/crates/language) drives `editor`'s understanding of language - from providing a list of symbols to the syntax map.
-- [`collab`](https://github.com/zed-industries/zed/tree/main/crates/collab) is the collaboration server itself, driving the collaboration features such as project sharing.
-- [`rpc`](https://github.com/zed-industries/zed/tree/main/crates/rpc) defines messages to be exchanged with collaboration server.
+- [`rpc`](https://github.com/zed-industries/zed/tree/main/crates/rpc) provides RPC transport for client services and SSH remote development.
 - [`theme`](https://github.com/zed-industries/zed/tree/main/crates/theme) defines the theme system and provides a default theme.
 - [`ui`](https://github.com/zed-industries/zed/tree/main/crates/ui) is a collection of UI components and common patterns used throughout Zed.
 - [`cli`](https://github.com/zed-industries/zed/tree/main/crates/cli) is the CLI crate which invokes the Zed binary.

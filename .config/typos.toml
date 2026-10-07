@@ -15,14 +15,9 @@ extend-exclude = [
     # Some mock data is flagged as typos.
     "crates/assistant_tools/src/web_search_tool.rs",
 
-    # Suppress false positives in database schema.
-    "crates/collab/migrations/20251208000000_test_schema.sql",
-
     # Vendored JSON schemas from SchemaStore.
     "crates/json_schema_store/src/schemas/",
 
-    # Not our typos.
-    "crates/livekit_api/",
     # Editor, file finder, and fuzzy matching rely on partial typing and custom in-string syntax.
     "crates/file_finder/src/file_finder_tests.rs",
     "crates/fuzzy_nucleo/src/strings.rs",

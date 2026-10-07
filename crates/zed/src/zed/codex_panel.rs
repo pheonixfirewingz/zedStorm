@@ -12,7 +12,7 @@ use std::{
     path::PathBuf,
     time::{Duration, Instant},
 };
-use ui::{Tooltip, prelude::*};
+use ui::{CircularProgress, Tooltip, prelude::*};
 use util::ResultExt as _;
 use workspace::{
     Panel, Workspace,
@@ -638,6 +638,64 @@ impl Render for CodexPanel {
                             .on_click(
                                 cx.listener(|panel, _, window, cx| panel.new_chat(window, cx)),
                             ),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .gap_4()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(cx.theme().colors().border)
+                    .children(
+                        [
+                            (
+                                "codex-five-hour-usage",
+                                "5-hour",
+                                self.session.five_hour_usage,
+                            ),
+                            ("codex-weekly-usage", "Weekly", self.session.weekly_usage),
+                        ]
+                        .into_iter()
+                        .map(|(id, label, usage)| {
+                            let remaining = usage.map(|percent| 100.0 - percent);
+                            let percentage = remaining
+                                .map(|percent| format!("{percent:.0}%"))
+                                .unwrap_or_else(|| "—".into());
+                            let tooltip = remaining
+                                .map(|percent| format!("{label} limit: {percent:.0}% left"))
+                                .unwrap_or_else(|| {
+                                    self.session
+                                        .usage_error
+                                        .clone()
+                                        .unwrap_or_else(|| format!("{label} usage is unavailable"))
+                                });
+                            let color = match remaining {
+                                Some(percent) if percent <= 10.0 => cx.theme().status().error,
+                                Some(percent) if percent <= 25.0 => cx.theme().status().warning,
+                                Some(_) => cx.theme().status().info,
+                                None => cx.theme().colors().border_variant,
+                            };
+                            h_flex()
+                                .id(id)
+                                .gap_1p5()
+                                .child(
+                                    CircularProgress::new(
+                                        remaining.unwrap_or(0.0),
+                                        100.0,
+                                        px(16.0),
+                                        cx,
+                                    )
+                                    .stroke_width(px(2.0))
+                                    .progress_color(color),
+                                )
+                                .child(
+                                    Label::new(format!("{label} {percentage} left"))
+                                        .size(LabelSize::Small)
+                                        .color(Color::Muted),
+                                )
+                                .tooltip(Tooltip::text(tooltip))
+                        }),
                     ),
             )
             .when(self.remote || self.session.signing_in, |element| {

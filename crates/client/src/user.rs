@@ -1,4 +1,4 @@
-use super::{Client, Status, TypedEnvelope, proto};
+use super::{Client, Status, proto};
 use anyhow::{Context as _, Result};
 use chrono::{DateTime, Utc};
 use cloud_api_client::websocket_protocol::MessageToClient;
@@ -7,31 +7,19 @@ use cloud_api_client::{
     UpdateSystemSettingsBody,
 };
 use cloud_api_types::OrganizationConfiguration;
-use collections::{HashMap, HashSet, hash_map::Entry};
+use collections::HashMap;
 use feature_flags::FeatureFlagAppExt;
-use futures::{Future, StreamExt, channel::mpsc};
+use futures::{StreamExt, channel::mpsc};
 use gpui::{
-    App, AppContext as _, AsyncApp, Context, Entity, EventEmitter, SharedString, SharedUri, Task,
-    TaskExt, WeakEntity,
+    App, AppContext as _, Context, EventEmitter, SharedString, SharedUri, Task, TaskExt, WeakEntity,
 };
 use postage::{sink::Sink, watch};
 use rpc::proto::{RequestMessage, UsersResponse};
 use std::sync::{Arc, Weak};
 use text::ReplicaId;
-use util::{ResultExt, TryFutureExt as _};
+use util::ResultExt;
 
 pub type LegacyUserId = u64;
-
-#[derive(
-    Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, serde::Serialize, serde::Deserialize,
-)]
-pub struct ChannelId(pub u64);
-
-impl std::fmt::Display for ChannelId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
-}
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
 pub struct ProjectId(pub u64);
@@ -83,85 +71,34 @@ impl PartialEq for User {
 
 impl Eq for User {}
 
-#[derive(Debug, PartialEq)]
-pub struct Contact {
-    pub user: Arc<User>,
-    pub online: bool,
-    pub busy: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ContactRequestStatus {
-    None,
-    RequestSent,
-    RequestReceived,
-    RequestAccepted,
-}
-
 pub struct UserStore {
     users: HashMap<u64, Arc<User>>,
     participant_indices: HashMap<u64, ParticipantIndex>,
-    update_contacts_tx: mpsc::UnboundedSender<UpdateContacts>,
     plan_info: Option<PlanInfo>,
     current_user: watch::Receiver<Option<Arc<User>>>,
     current_organization: Option<Arc<Organization>>,
     organizations: Vec<Arc<Organization>>,
     plans_by_organization: HashMap<OrganizationId, Plan>,
     configuration_by_organization: HashMap<OrganizationId, OrganizationConfiguration>,
-    contacts: Vec<Arc<Contact>>,
-    incoming_contact_requests: Vec<Arc<User>>,
-    outgoing_contact_requests: Vec<Arc<User>>,
-    pending_contact_requests: HashMap<u64, usize>,
     client: Weak<Client>,
-    _maintain_contacts: Task<()>,
     _maintain_current_user: Task<Result<()>>,
     _handle_sign_out: Task<()>,
     weak_self: WeakEntity<Self>,
 }
 
-#[derive(Clone)]
-pub struct InviteInfo {
-    pub count: u32,
-    pub url: Arc<str>,
-}
-
 pub enum Event {
-    Contact {
-        user: Arc<User>,
-        kind: ContactEventKind,
-    },
-    ShowContacts,
     ParticipantIndicesChanged,
     PrivateUserInfoUpdated,
     PlanUpdated,
     OrganizationChanged,
 }
 
-#[derive(Clone, Copy)]
-pub enum ContactEventKind {
-    Requested,
-    Accepted,
-    Cancelled,
-}
-
 impl EventEmitter<Event> for UserStore {}
-
-enum UpdateContacts {
-    Update(proto::UpdateContacts),
-    Wait(postage::barrier::Sender),
-    Clear(postage::barrier::Sender),
-}
 
 impl UserStore {
     pub fn new(client: Arc<Client>, cx: &Context<Self>) -> Self {
         let (mut current_user_tx, current_user_rx) = watch::channel();
         let (sign_out_tx, mut sign_out_rx) = mpsc::unbounded();
-        let (update_contacts_tx, mut update_contacts_rx) = mpsc::unbounded();
-        let rpc_subscriptions = vec![
-            client.add_message_handler(cx.weak_entity(), Self::handle_update_contacts),
-            client.add_message_handler(cx.weak_entity(), Self::handle_show_contacts),
-        ];
-
         client.sign_out_tx.lock().replace(sign_out_tx);
         client.add_message_to_client_handler({
             let this = cx.weak_entity();
@@ -176,23 +113,8 @@ impl UserStore {
             plans_by_organization: HashMap::default(),
             configuration_by_organization: HashMap::default(),
             plan_info: None,
-            contacts: Default::default(),
-            incoming_contact_requests: Default::default(),
             participant_indices: Default::default(),
-            outgoing_contact_requests: Default::default(),
             client: Arc::downgrade(&client),
-            update_contacts_tx,
-            _maintain_contacts: cx.spawn(async move |this, cx| {
-                let _subscriptions = rpc_subscriptions;
-                while let Some(message) = update_contacts_rx.next().await {
-                    if let Ok(task) = this.update(cx, |this, cx| this.update_contacts(message, cx))
-                    {
-                        task.log_err().await;
-                    } else {
-                        break;
-                    }
-                }
-            }),
             _maintain_current_user: cx.spawn(async move |this, cx| {
                 let mut status = client.status();
                 let weak = Arc::downgrade(&client);
@@ -257,16 +179,12 @@ impl UserStore {
                                 this.clear_plan_and_usage();
                                 cx.emit(Event::PrivateUserInfoUpdated);
                                 cx.notify();
-                                this.clear_contacts()
-                            })?
-                            .await;
+                            })?;
                         }
                         Status::ConnectionLost => {
-                            this.update(cx, |this, cx| {
+                            this.update(cx, |_, cx| {
                                 cx.notify();
-                                this.clear_contacts()
-                            })?
-                            .await;
+                            })?;
                         }
                         _ => {}
                     }
@@ -286,7 +204,6 @@ impl UserStore {
                     client.sign_out(cx).await;
                 }
             }),
-            pending_contact_requests: Default::default(),
             weak_self: cx.weak_entity(),
         }
     }
@@ -294,301 +211,6 @@ impl UserStore {
     #[cfg(feature = "test-support")]
     pub fn clear_cache(&mut self) {
         self.users.clear();
-    }
-
-    async fn handle_show_contacts(
-        this: Entity<Self>,
-        _: TypedEnvelope<proto::ShowContacts>,
-        mut cx: AsyncApp,
-    ) -> Result<()> {
-        this.update(&mut cx, |_, cx| cx.emit(Event::ShowContacts));
-        Ok(())
-    }
-
-    async fn handle_update_contacts(
-        this: Entity<Self>,
-        message: TypedEnvelope<proto::UpdateContacts>,
-        cx: AsyncApp,
-    ) -> Result<()> {
-        this.read_with(&cx, |this, _| {
-            this.update_contacts_tx
-                .unbounded_send(UpdateContacts::Update(message.payload))
-                .unwrap();
-        });
-        Ok(())
-    }
-
-    fn update_contacts(&mut self, message: UpdateContacts, cx: &Context<Self>) -> Task<Result<()>> {
-        match message {
-            UpdateContacts::Wait(barrier) => {
-                drop(barrier);
-                Task::ready(Ok(()))
-            }
-            UpdateContacts::Clear(barrier) => {
-                self.contacts.clear();
-                self.incoming_contact_requests.clear();
-                self.outgoing_contact_requests.clear();
-                drop(barrier);
-                Task::ready(Ok(()))
-            }
-            UpdateContacts::Update(message) => {
-                let mut user_ids = HashSet::default();
-                for contact in &message.contacts {
-                    user_ids.insert(contact.user_id);
-                }
-                user_ids.extend(message.incoming_requests.iter().map(|req| req.requester_id));
-                user_ids.extend(message.outgoing_requests.iter());
-
-                let load_users = self.get_users(user_ids.into_iter().collect(), cx);
-                cx.spawn(async move |this, cx| {
-                    load_users.await?;
-
-                    // Users are fetched in parallel above and cached in call to get_users
-                    // No need to parallelize here
-                    let mut updated_contacts = Vec::new();
-                    let this = this.upgrade().context("can't upgrade user store handle")?;
-                    for contact in message.contacts {
-                        updated_contacts
-                            .push(Arc::new(Contact::from_proto(contact, &this, cx).await?));
-                    }
-
-                    let mut incoming_requests = Vec::new();
-                    for request in message.incoming_requests {
-                        incoming_requests.push({
-                            this.update(cx, |this, cx| this.get_user(request.requester_id, cx))
-                                .await?
-                        });
-                    }
-
-                    let mut outgoing_requests = Vec::new();
-                    for requested_user_id in message.outgoing_requests {
-                        outgoing_requests.push(
-                            this.update(cx, |this, cx| this.get_user(requested_user_id, cx))
-                                .await?,
-                        );
-                    }
-
-                    let removed_contacts =
-                        HashSet::<u64>::from_iter(message.remove_contacts.iter().copied());
-                    let removed_incoming_requests =
-                        HashSet::<u64>::from_iter(message.remove_incoming_requests.iter().copied());
-                    let removed_outgoing_requests =
-                        HashSet::<u64>::from_iter(message.remove_outgoing_requests.iter().copied());
-
-                    this.update(cx, |this, cx| {
-                        // Remove contacts
-                        this.contacts
-                            .retain(|contact| !removed_contacts.contains(&contact.user.legacy_id));
-                        // Update existing contacts and insert new ones
-                        for updated_contact in updated_contacts {
-                            match this
-                                .contacts
-                                .binary_search_by_key(&&updated_contact.user.username, |contact| {
-                                    &contact.user.username
-                                }) {
-                                Ok(ix) => this.contacts[ix] = updated_contact,
-                                Err(ix) => this.contacts.insert(ix, updated_contact),
-                            }
-                        }
-
-                        // Remove incoming contact requests
-                        this.incoming_contact_requests.retain(|user| {
-                            if removed_incoming_requests.contains(&user.legacy_id) {
-                                cx.emit(Event::Contact {
-                                    user: user.clone(),
-                                    kind: ContactEventKind::Cancelled,
-                                });
-                                false
-                            } else {
-                                true
-                            }
-                        });
-                        // Update existing incoming requests and insert new ones
-                        for user in incoming_requests {
-                            match this
-                                .incoming_contact_requests
-                                .binary_search_by_key(&&user.username, |contact| &contact.username)
-                            {
-                                Ok(ix) => this.incoming_contact_requests[ix] = user,
-                                Err(ix) => this.incoming_contact_requests.insert(ix, user),
-                            }
-                        }
-
-                        // Remove outgoing contact requests
-                        this.outgoing_contact_requests
-                            .retain(|user| !removed_outgoing_requests.contains(&user.legacy_id));
-                        // Update existing incoming requests and insert new ones
-                        for request in outgoing_requests {
-                            match this
-                                .outgoing_contact_requests
-                                .binary_search_by_key(&&request.username, |contact| {
-                                    &contact.username
-                                }) {
-                                Ok(ix) => this.outgoing_contact_requests[ix] = request,
-                                Err(ix) => this.outgoing_contact_requests.insert(ix, request),
-                            }
-                        }
-
-                        cx.notify();
-                    });
-
-                    Ok(())
-                })
-            }
-        }
-    }
-
-    pub fn contacts(&self) -> &[Arc<Contact>] {
-        &self.contacts
-    }
-
-    pub fn has_contact(&self, user: &Arc<User>) -> bool {
-        self.contacts
-            .binary_search_by_key(&&user.username, |contact| &contact.user.username)
-            .is_ok()
-    }
-
-    pub fn incoming_contact_requests(&self) -> &[Arc<User>] {
-        &self.incoming_contact_requests
-    }
-
-    pub fn outgoing_contact_requests(&self) -> &[Arc<User>] {
-        &self.outgoing_contact_requests
-    }
-
-    pub fn is_contact_request_pending(&self, user: &User) -> bool {
-        self.pending_contact_requests.contains_key(&user.legacy_id)
-    }
-
-    pub fn contact_request_status(&self, user: &User) -> ContactRequestStatus {
-        if self
-            .contacts
-            .binary_search_by_key(&&user.username, |contact| &contact.user.username)
-            .is_ok()
-        {
-            ContactRequestStatus::RequestAccepted
-        } else if self
-            .outgoing_contact_requests
-            .binary_search_by_key(&&user.username, |user| &user.username)
-            .is_ok()
-        {
-            ContactRequestStatus::RequestSent
-        } else if self
-            .incoming_contact_requests
-            .binary_search_by_key(&&user.username, |user| &user.username)
-            .is_ok()
-        {
-            ContactRequestStatus::RequestReceived
-        } else {
-            ContactRequestStatus::None
-        }
-    }
-
-    pub fn request_contact(
-        &mut self,
-        responder_id: u64,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<()>> {
-        self.perform_contact_request(responder_id, proto::RequestContact { responder_id }, cx)
-    }
-
-    pub fn remove_contact(&mut self, user_id: u64, cx: &mut Context<Self>) -> Task<Result<()>> {
-        self.perform_contact_request(user_id, proto::RemoveContact { user_id }, cx)
-    }
-
-    pub fn has_incoming_contact_request(&self, user_id: u64) -> bool {
-        self.incoming_contact_requests
-            .iter()
-            .any(|user| user.legacy_id == user_id)
-    }
-
-    pub fn respond_to_contact_request(
-        &mut self,
-        requester_id: u64,
-        accept: bool,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<()>> {
-        self.perform_contact_request(
-            requester_id,
-            proto::RespondToContactRequest {
-                requester_id,
-                response: if accept {
-                    proto::ContactRequestResponse::Accept
-                } else {
-                    proto::ContactRequestResponse::Decline
-                } as i32,
-            },
-            cx,
-        )
-    }
-
-    pub fn dismiss_contact_request(
-        &self,
-        requester_id: u64,
-        cx: &Context<Self>,
-    ) -> Task<Result<()>> {
-        let client = self.client.upgrade();
-        cx.spawn(async move |_, _| {
-            client
-                .context("can't upgrade client reference")?
-                .request(proto::RespondToContactRequest {
-                    requester_id,
-                    response: proto::ContactRequestResponse::Dismiss as i32,
-                })
-                .await?;
-            Ok(())
-        })
-    }
-
-    fn perform_contact_request<T: RequestMessage>(
-        &mut self,
-        user_id: u64,
-        request: T,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<()>> {
-        let client = self.client.upgrade();
-        *self.pending_contact_requests.entry(user_id).or_insert(0) += 1;
-        cx.notify();
-
-        cx.spawn(async move |this, cx| {
-            let response = client
-                .context("can't upgrade client reference")?
-                .request(request)
-                .await;
-            this.update(cx, |this, cx| {
-                if let Entry::Occupied(mut request_count) =
-                    this.pending_contact_requests.entry(user_id)
-                {
-                    *request_count.get_mut() -= 1;
-                    if *request_count.get() == 0 {
-                        request_count.remove();
-                    }
-                }
-                cx.notify();
-            })?;
-            response?;
-            Ok(())
-        })
-    }
-
-    pub fn clear_contacts(&self) -> impl Future<Output = ()> + use<> {
-        let (tx, mut rx) = postage::barrier::channel();
-        self.update_contacts_tx
-            .unbounded_send(UpdateContacts::Clear(tx))
-            .unwrap();
-        async move {
-            rx.next().await;
-        }
-    }
-
-    pub fn contact_updates_done(&self) -> impl Future<Output = ()> {
-        let (tx, mut rx) = postage::barrier::channel();
-        self.update_contacts_tx
-            .unbounded_send(UpdateContacts::Wait(tx))
-            .unwrap();
-        async move {
-            rx.next().await;
-        }
     }
 
     pub fn get_users(
@@ -974,25 +596,6 @@ impl User {
             username: message.username.into(),
             avatar_uri: message.avatar_url.into(),
             name: message.name,
-        })
-    }
-}
-
-impl Contact {
-    async fn from_proto(
-        contact: proto::Contact,
-        user_store: &Entity<UserStore>,
-        cx: &mut AsyncApp,
-    ) -> Result<Self> {
-        let user = user_store
-            .update(cx, |user_store, cx| {
-                user_store.get_user(contact.user_id, cx)
-            })
-            .await?;
-        Ok(Self {
-            user,
-            online: contact.online,
-            busy: contact.busy,
         })
     }
 }

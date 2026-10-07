@@ -1,5 +1,4 @@
 mod application_menu;
-pub mod collab;
 mod onboarding_banner;
 mod title_bar_settings;
 mod update_version;
@@ -219,8 +218,9 @@ impl Render for TitleBar {
         });
         if let Some(panel) = &debug_panel {
             if self.debugger_subscription.as_ref().map(|(id, _)| *id) != Some(panel.entity_id()) {
-                self.debugger_subscription =
-                    Some((panel.entity_id(), cx.observe(panel, |this, panel, cx| {
+                self.debugger_subscription = Some((
+                    panel.entity_id(),
+                    cx.observe(panel, |this, panel, cx| {
                         let active_session = panel.read(cx).active_session();
                         let active_id = active_session.as_ref().map(|s| s.entity_id());
                         let label = active_session
@@ -234,7 +234,8 @@ impl Render for TitleBar {
                             this.debugger_state = Some(new_state);
                             cx.notify();
                         }
-                    })));
+                    }),
+                ));
             }
         } else {
             self.debugger_subscription = None;

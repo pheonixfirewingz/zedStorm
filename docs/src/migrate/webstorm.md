@@ -326,7 +326,6 @@ Zed's extension catalog is smaller and more focused:
 
 Several features that require plugins in WebStorm are built into Zed:
 
-- Real-time collaboration with voice chat
 - AI coding assistance
 - Built-in terminal
 - Task runner
@@ -345,16 +344,6 @@ To set expectations clearly, here's what WebStorm offers that Zed doesn't have:
 - **Visual package.json editor** — Edit the file directly
 - **Built-in REST client** — Use external tools or extensions
 - **Profiler integration** — Use Chrome DevTools or Node.js profiling tools
-
-## Collaboration in Zed vs. WebStorm
-
-WebStorm offers Code With Me as a separate feature for collaboration. Zed has collaboration built into the core experience.
-
-- Open the Collab Panel in the left dock
-- Create a channel and [invite your collaborators](https://zed.dev/docs/collaboration#inviting-a-collaborator) to join
-- [Share your screen or your codebase](https://zed.dev/docs/collaboration#share-a-project) directly
-
-Once connected, you'll see each other's cursors, selections, and edits in real time. Voice chat is included. There's no need for separate tools or third-party logins.
 
 ## Using AI in Zed
 
@@ -445,6 +434,5 @@ Now that you're set up, here are some resources to help you get the most out of 
 - [Key Bindings](../key-bindings.md) — Learn how to customize and extend your keymap
 - [Tasks](../tasks.md) — Set up build and run commands for your projects
 - [AI Features](../ai/overview.md) — Explore Zed's AI capabilities beyond code completion
-- [Collaboration](../collaboration/overview.md) — Share your projects and code together in real time
 - [JavaScript in Zed](../languages/javascript.md) — JavaScript-specific setup and configuration
 - [TypeScript in Zed](../languages/typescript.md) — TypeScript-specific setup and configuration

@@ -38,5 +38,6 @@ project.
 
 `target/` contains generated build output and caches. Cargo recreates it when
 needed; retaining it speeds up local builds. Benchmark and extension-development
-crates are optional for day-to-day editor work. Shared libraries such as `client`
-and collaboration data types still support editor infrastructure.
+crates are optional for day-to-day editor work. Shared libraries such as `client`, RPC messages, and replicated buffer types
+still support editor infrastructure and SSH remote development. Calls, channels,
+contacts, project sharing, LiveKit, and WebRTC have been removed.

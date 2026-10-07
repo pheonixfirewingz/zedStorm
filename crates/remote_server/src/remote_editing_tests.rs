@@ -4,7 +4,7 @@
 use crate::headless_project::HeadlessProject;
 use client::{Client, UserStore};
 use clock::FakeSystemClock;
-use collections::{HashMap, HashSet};
+use collections::HashSet;
 use languages::rust_lang;
 
 use editor::{
@@ -58,7 +58,7 @@ use std::{
     },
 };
 use unindent::Unindent as _;
-use util::{path, path_list::PathList, paths::PathMatcher, rel_path::rel_path};
+use util::{path, paths::PathMatcher, rel_path::rel_path};
 
 #[gpui::test]
 async fn test_basic_remote_editing(cx: &mut TestAppContext, server_cx: &mut TestAppContext) {
@@ -5252,63 +5252,6 @@ async fn test_remote_log_streams_follow_aggregate_demand(
         }),
         "reconnecting must not replay streams without any remaining demand"
     );
-
-    for has_local_view in [false, true] {
-        project
-            .update(cx, |project, cx| project.shared(1, cx))
-            .expect("project should be shareable");
-        if has_local_view {
-            local_log_store.update(cx, |log_store, cx| {
-                log_store.retain_view_log_stream(&remote_server_key, LogKind::Rpc, cx);
-            });
-        }
-        project.update(cx, |_, cx| {
-            cx.emit(project::Event::ToggleLspLogs {
-                peer_id,
-                server_id,
-                enabled: true,
-                toggled_log_kind: LogKind::Rpc,
-            });
-        });
-        cx.run_until_parked();
-        server_cx.run_until_parked();
-        assert!(headless_log_store.read_with(server_cx, |log_store, _| {
-            log_store
-                .language_servers
-                .get(&headless_server_key)
-                .is_some_and(|state| state.rpc_state.is_some())
-        }));
-
-        project
-            .update(cx, |project, cx| project.unshare(cx))
-            .expect("shared project should unshare");
-        cx.run_until_parked();
-        server_cx.run_until_parked();
-        assert_eq!(
-            headless_log_store.read_with(server_cx, |log_store, _| {
-                log_store
-                    .language_servers
-                    .get(&headless_server_key)
-                    .map(|state| state.rpc_state.is_some())
-            }),
-            Some(has_local_view),
-            "unsharing must release downstream demand while preserving local views"
-        );
-
-        if has_local_view {
-            local_log_store.update(cx, |log_store, cx| {
-                log_store.release_view_log_stream(&remote_server_key, LogKind::Rpc, cx);
-            });
-            cx.run_until_parked();
-            server_cx.run_until_parked();
-            assert!(headless_log_store.read_with(server_cx, |log_store, _| {
-                log_store
-                    .language_servers
-                    .get(&headless_server_key)
-                    .is_some_and(|state| state.rpc_state.is_none())
-            }));
-        }
-    }
 }
 
 #[gpui::test]
@@ -5453,10 +5396,6 @@ fn build_project(ssh: Entity<RemoteClient>, cx: &mut TestAppContext) -> Entity<P
     let user_store = cx.new(|cx| UserStore::new(client.clone(), cx));
     let languages = Arc::new(LanguageRegistry::test(cx.executor()));
     let fs = FakeFs::new(cx.executor());
-
-    cx.update(|cx| {
-        Project::init(&client, cx);
-    });
 
     cx.update(|cx| Project::remote(ssh, client, node, user_store, languages, fs, false, cx))
 }

@@ -4711,7 +4711,6 @@ fn collect_search_matches(picker: &Picker<FileFinderDelegate>) -> SearchEntries 
                 search_entries.search_matches.push(path_match.0.clone());
             }
             Match::CreateNew(_) => {}
-            Match::Channel { .. } => {}
         }
     }
     search_entries
@@ -4935,7 +4934,6 @@ fn assert_match_at_position(
         Match::History { path, .. } => path.absolute.file_name().and_then(|s| s.to_str()),
         Match::Search(path_match) => path_match.0.path.file_name(),
         Match::CreateNew(project_path) => project_path.path.file_name(),
-        Match::Channel { channel_name, .. } => Some(channel_name.as_str()),
     }
     .unwrap();
     assert_eq!(match_file_name, expected_file_name);
@@ -5253,9 +5251,9 @@ async fn test_start_of_word_preferred_over_scattered_match(cx: &mut TestAppConte
             "/src",
             json!({
                 "crates": {
-                    "livekit_client": {
+                    "remote_client": {
                         "src": {
-                            "livekit_client": {
+                            "remote_client": {
                                 "playback.rs": "",
                             }
                         }
@@ -5276,7 +5274,7 @@ async fn test_start_of_word_preferred_over_scattered_match(cx: &mut TestAppConte
         .update_in(cx, |picker, window, cx| {
             picker
                 .delegate
-                .spawn_search(test_path_position("live pla"), window, cx)
+                .spawn_search(test_path_position("remote pla"), window, cx)
         })
         .await;
     picker.update(cx, |picker, _| {
@@ -5284,7 +5282,7 @@ async fn test_start_of_word_preferred_over_scattered_match(cx: &mut TestAppConte
         assert!(!matches.is_empty(),);
         assert_eq!(
             matches[0].path.as_unix_str(),
-            "crates/livekit_client/src/livekit_client/playback.rs",
+            "crates/remote_client/src/remote_client/playback.rs",
         );
     });
 }

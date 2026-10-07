@@ -49,6 +49,5 @@ Administrators have additional options in [Admin Controls](./admin-controls.md):
 - Disable Edit Predictions org-wide
 - Disable Edit Prediction Feedback
 - Disable Agent Thread Feedback
-- Disable real-time collaboration
 
 See [Admin Controls](./admin-controls.md) for the full list.

@@ -90,6 +90,7 @@ pub struct ServerRequest {
 enum RequestKind {
     Initialize,
     Account,
+    RateLimits,
     StartThread,
     ResumeThread,
     StartTurn,
@@ -104,6 +105,9 @@ pub struct Session {
     pub needs_sign_in: bool,
     pub signing_in: bool,
     pub model: Option<String>,
+    pub five_hour_usage: Option<f32>,
+    pub weekly_usage: Option<f32>,
+    pub usage_error: Option<String>,
     pub thread_id: Option<String>,
     pub turn_id: Option<String>,
     pub messages: Vec<Message>,
@@ -126,6 +130,9 @@ impl Session {
             needs_sign_in: false,
             signing_in: false,
             model: None,
+            five_hour_usage: None,
+            weekly_usage: None,
+            usage_error: None,
             thread_id: None,
             turn_id: None,
             messages: Vec::new(),
@@ -233,6 +240,8 @@ impl Session {
         self.signing_in = false;
         self.turn_id = None;
         self.requests.clear();
+        self.five_hour_usage = None;
+        self.weekly_usage = None;
         self.error = Some(error);
     }
 
@@ -252,6 +261,18 @@ impl Session {
             return Vec::new();
         };
         if let Some(error) = message.get("error") {
+            if matches!(kind, RequestKind::RateLimits) {
+                self.five_hour_usage = None;
+                self.weekly_usage = None;
+                self.usage_error = Some(
+                    error
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("Could not read Codex usage")
+                        .to_owned(),
+                );
+                return Vec::new();
+            }
             self.error = Some(
                 error
                     .get("message")
@@ -296,6 +317,26 @@ impl Session {
                     .and_then(Value::as_bool)
                     .unwrap_or(true)
                     && result.get("account").is_none_or(Value::is_null);
+                self.five_hour_usage = None;
+                self.weekly_usage = None;
+                self.usage_error = None;
+                if result.pointer("/account/type").and_then(Value::as_str) == Some("chatgpt") {
+                    vec![self.request(
+                        RequestKind::RateLimits,
+                        "account/rateLimits/read",
+                        Value::Null,
+                    )]
+                } else {
+                    Vec::new()
+                }
+            }
+            RequestKind::RateLimits => {
+                if let Some(limits) = result
+                    .pointer("/rateLimitsByLimitId/codex")
+                    .or_else(|| result.get("rateLimits"))
+                {
+                    self.update_rate_limits(limits);
+                }
                 Vec::new()
             }
             RequestKind::StartThread | RequestKind::ResumeThread => {
@@ -417,6 +458,11 @@ impl Session {
             }
         }
         match method {
+            "account/rateLimits/updated" => {
+                if let Some(limits) = params.get("rateLimits") {
+                    self.update_rate_limits(limits);
+                }
+            }
             "turn/started" => {
                 self.busy = true;
                 self.turn_id = params
@@ -520,6 +566,37 @@ impl Session {
             _ => {}
         }
         Vec::new()
+    }
+
+    fn update_rate_limits(&mut self, limits: &Value) {
+        if limits
+            .get("limitId")
+            .and_then(Value::as_str)
+            .is_some_and(|id| id != "codex")
+        {
+            return;
+        }
+        self.five_hour_usage = None;
+        self.weekly_usage = None;
+        self.usage_error = None;
+        for window in ["primary", "secondary"]
+            .into_iter()
+            .filter_map(|key| limits.get(key))
+        {
+            let Some(used_percent) = window
+                .get("usedPercent")
+                .and_then(Value::as_f64)
+                .filter(|percent| percent.is_finite())
+            else {
+                continue;
+            };
+            let used_percent = used_percent.clamp(0.0, 100.0) as f32;
+            match window.get("windowDurationMins").and_then(Value::as_u64) {
+                Some(300) => self.five_hour_usage = Some(used_percent),
+                Some(10080) => self.weekly_usage = Some(used_percent),
+                _ => {}
+            }
+        }
     }
 
     fn message(&mut self, id: &str, kind: MessageKind) -> &mut Message {
@@ -648,6 +725,85 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codex_reads_usage_after_chatgpt_account_and_updates_live() -> Result<()> {
+        let mut session = Session::new("/tmp/project".into());
+        let initialize = session.initialize();
+        let followups = session.receive(json!({"id": initialize["id"], "result": {}}));
+        let account = followups
+            .iter()
+            .find(|request| request["method"] == "account/read")
+            .context("account request")?;
+        let followups = session.receive(json!({"id": account["id"], "result": {
+            "requiresOpenaiAuth": true, "account": {"type": "chatgpt"}
+        }}));
+        let limits = followups.first().context("rate limits request")?;
+        assert_eq!(limits["method"], "account/rateLimits/read");
+        session.receive(json!({"id": limits["id"], "result": {"rateLimits": {
+            "primary": {"usedPercent": 25, "windowDurationMins": 300},
+            "secondary": {"usedPercent": 60, "windowDurationMins": 10080}
+        }}}));
+        assert_eq!(session.five_hour_usage, Some(25.0));
+        assert_eq!(session.weekly_usage, Some(60.0));
+        session.receive(
+            json!({"method": "account/rateLimits/updated", "params": {"rateLimits": {
+                "limitId": "codex", "primary": {"usedPercent": 75, "windowDurationMins": 10080},
+                "secondary": null
+            }}}),
+        );
+        assert_eq!(session.five_hour_usage, None);
+        assert_eq!(session.weekly_usage, Some(75.0));
+        session.receive(
+            json!({"method": "account/rateLimits/updated", "params": {"rateLimits": {
+                "limitId": "other", "primary": {"usedPercent": 10, "windowDurationMins": 10080}
+            }}}),
+        );
+        assert_eq!(session.weekly_usage, Some(75.0));
+        session.disconnected("Connection closed".into());
+        assert_eq!(session.weekly_usage, None);
+        Ok(())
+    }
+
+    #[test]
+    fn codex_usage_prefers_codex_bucket_and_validates_windows() {
+        let mut session = ready_session();
+        let request = session.request(
+            RequestKind::RateLimits,
+            "account/rateLimits/read",
+            Value::Null,
+        );
+        session.receive(json!({"id": request["id"], "result": {
+            "rateLimits": {"primary": {"usedPercent": 10, "windowDurationMins": 300}},
+            "rateLimitsByLimitId": {"codex": {
+                "primary": {"usedPercent": 120, "windowDurationMins": 300},
+                "secondary": {"usedPercent": -5, "windowDurationMins": 10080}
+            }}
+        }}));
+        assert_eq!(session.five_hour_usage, Some(100.0));
+        assert_eq!(session.weekly_usage, Some(0.0));
+        session.update_rate_limits(&json!({
+            "primary": {"usedPercent": 20, "windowDurationMins": 60},
+            "secondary": {"usedPercent": "invalid", "windowDurationMins": 10080}
+        }));
+        assert_eq!(session.five_hour_usage, None);
+        assert_eq!(session.weekly_usage, None);
+    }
+
+    #[test]
+    fn codex_usage_failure_does_not_block_chat() {
+        let mut session = ready_session();
+        let request = session.request(
+            RequestKind::RateLimits,
+            "account/rateLimits/read",
+            Value::Null,
+        );
+        session.receive(json!({"id": request["id"], "error": {"message": "Usage unavailable"}}));
+        assert_eq!(session.usage_error.as_deref(), Some("Usage unavailable"));
+        assert!(session.error.is_none());
+        assert!(session.ready);
+        assert!(session.send_prompt("hello".into()).is_some());
+    }
 
     fn ready_session() -> Session {
         let mut session = Session::new("/tmp/project".into());
@@ -867,7 +1023,11 @@ mod tests {
                 }
             }));
         }
-        let msg = session.messages.iter().find(|m| m.id == "cmd-1").context("cmd msg")?;
+        let msg = session
+            .messages
+            .iter()
+            .find(|m| m.id == "cmd-1")
+            .context("cmd msg")?;
         assert!(msg.text.len() <= MAX_ACTIVITY_TEXT_LEN + chunk.len() + 40);
         assert!(msg.text.starts_with("[... output truncated ...]\n"));
         Ok(())

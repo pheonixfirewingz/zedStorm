@@ -230,8 +230,6 @@
   // ${appName}, ${branch}, and ${separator}.
   // ${separator} is omitted when adjacent variables are empty,
   // but literal text is preserved.
-  // The collaboration indicator, when present, is appended after the
-  // rendered template.
   // If the template renders to nothing, the default template is used instead.
   //
   // Default: "${projectName}${separator}${fileName}"
@@ -559,13 +557,6 @@
     "space": "•",
     "tab": "→",
   },
-  // Settings related to calls in Zed
-  "calls": {
-    // Join calls with the microphone live by default
-    "mute_on_join": false,
-    // Share your project when you are the first to join a channel
-    "share_on_join": false,
-  },
   // Toolbar related settings
   "toolbar": {
     // Whether to show breadcrumbs.
@@ -613,16 +604,6 @@
     "open_menus_on_hover": false,
     // The layout of window control buttons in the title bar (Linux only).
     "button_layout": "platform_default",
-  },
-  "audio": {
-    // Select specific output audio device.
-    // `null` means use system default.
-    // Any unrecognized output device will fall back to system default.
-    "experimental.output_audio_device": null,
-    // Select specific input audio device.
-    // `null` means use system default.
-    // Any unrecognized input device will fall back to system default.
-    "experimental.input_audio_device": null,
   },
   // Scrollbar related settings
   "scrollbar": {
@@ -1044,14 +1025,6 @@
     // Does not affect single-file views.
     "multi_buffer_hide_symbols": false,
   },
-  "collaboration_panel": {
-    // Whether to show the collaboration panel button in the status bar.
-    "button": true,
-    // Where to dock the collaboration panel. Can be 'left' or 'right'.
-    "dock": "right",
-    // Default width of the collaboration panel.
-    "default_width": 240,
-  },
   "git_panel": {
     // Whether to show the git panel button in the status bar.
     "button": true,
@@ -1310,8 +1283,6 @@
     //   * "indexed": Use only the files Zed had indexed
     //   * "smart": Be smart and search for ignored when called from a gitignored worktree
     "include_ignored": "smart",
-    // Whether to include text channels in file finder results.
-    "include_channels": false,
     // Whether to pre-fill the file finder's query with the text selected in the
     // focused item (e.g. an editor or a terminal) when it is opened.
     //

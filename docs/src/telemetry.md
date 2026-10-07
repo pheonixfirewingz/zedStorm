@@ -10,7 +10,7 @@ Zed collects anonymous telemetry to understand usage patterns and diagnose issue
 Telemetry falls into two categories:
 
 - **Client-side**: Usage metrics and crash reports. You can disable these in settings.
-- **Server-side**: Collected when using hosted services like AI or Collaboration. Required for these features to function.
+- **Server-side**: Collected when using hosted services like AI. Required for these features to function.
 
 ## Configuring Telemetry Settings
 

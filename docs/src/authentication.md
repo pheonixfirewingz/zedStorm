@@ -1,6 +1,6 @@
 ---
 title: Authenticate with Zed
-description: "Sign in to Zed to access collaboration features and AI services."
+description: "Sign in to Zed to access AI services."
 ---
 
 # Authenticate with Zed
@@ -9,8 +9,7 @@ Signing in to Zed is not required. You can use most features you'd expect in a c
 
 ## What Features Require Signing In?
 
-1. All real-time [collaboration features](./collaboration/overview.md).
-2. [LLM-powered features](./ai/overview.md), if you are using Zed as the provider of your LLM models. To use AI without signing in, you can [bring and configure your own API keys](./ai/use-api-access.md).
+1. [LLM-powered features](./ai/overview.md), if you are using Zed as the provider of your LLM models. To use AI without signing in, you can [bring and configure your own API keys](./ai/use-api-access.md).
 
 ## Signing In
 

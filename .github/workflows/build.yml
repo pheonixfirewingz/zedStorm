@@ -106,7 +106,7 @@ jobs:
         run: |
           flatpak-builder --user --force-clean --disable-rofiles-fuse --state-dir=target/flatpak-state --repo=target/flatpak-repo \
             target/flatpak-build packaging/flatpak/dev.zedstorm.ZedStorm.yml
-          flatpak build --runtime target/flatpak-build /app/bin/zedstorm --version
+          flatpak build --runtime target/flatpak-build /app/bin/zedstorm --help
           mkdir -p dist
           flatpak build-bundle target/flatpak-repo dist/zedstorm-linux-x86_64.flatpak dev.zedstorm.ZedStorm \
             --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
