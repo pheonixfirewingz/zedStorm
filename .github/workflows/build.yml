@@ -1,0 +1,133 @@
+name: Build ZedStorm
+
+on:
+  push:
+    branches: [custom]
+  pull_request:
+    branches: [custom]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_BUILD_JOBS: "2"
+  CARGO_PROFILE_RELEASE_DEBUG: "0"
+  CARGO_PROFILE_RELEASE_LTO: "false"
+
+jobs:
+  build:
+    if: github.ref == 'refs/heads/custom' || (github.event_name == 'pull_request' && github.base_ref == 'custom')
+    name: ${{ matrix.platform }} x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            runner: ubuntu-24.04
+          - platform: windows
+            runner: windows-2022
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Flatpak build tools and SDK
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive -y flathub org.freedesktop.Platform//25.08 org.freedesktop.Sdk//25.08 org.freedesktop.Sdk.Extension.llvm20//25.08
+
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Generate third-party licences
+        run: |
+          cargo install cargo-about --version 0.8.2 --locked
+          ./script/generate-licenses
+
+      - name: Build Linux editor in Flatpak SDK
+        if: runner.os == 'Linux'
+        run: |
+          flatpak run --user --command=bash --share=network \
+            --filesystem="$GITHUB_WORKSPACE" \
+            --filesystem="$HOME/.cargo" --filesystem="$HOME/.rustup" \
+            --env=CARGO_HOME="$HOME/.cargo" --env=RUSTUP_HOME="$HOME/.rustup" \
+            --env=CARGO_BUILD_JOBS="$CARGO_BUILD_JOBS" \
+            --env=CARGO_INCREMENTAL="$CARGO_INCREMENTAL" \
+            --env=CARGO_PROFILE_RELEASE_DEBUG="$CARGO_PROFILE_RELEASE_DEBUG" \
+            --env=CARGO_PROFILE_RELEASE_LTO="$CARGO_PROFILE_RELEASE_LTO" \
+            --env=CC=/usr/lib/sdk/llvm20/bin/clang \
+            --env=CXX=/usr/lib/sdk/llvm20/bin/clang++ \
+            --env=LIBCLANG_PATH=/usr/lib/sdk/llvm20/lib \
+            org.freedesktop.Sdk//25.08 -c \
+            'set -euo pipefail; export PATH="$CARGO_HOME/bin:/usr/lib/sdk/llvm20/bin:$PATH"; cd "$1"; cargo build --release --locked --package zed --bin zed' \
+            bash "$GITHUB_WORKSPACE"
+
+      - name: Build Windows editor
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $visualStudio = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $visualStudio) { throw 'Visual Studio C++ tools were not found' }
+          & "$visualStudio\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+          $env:LIBCLANG_PATH = 'C:\Program Files\LLVM\bin'
+          cargo build --release --locked --package zed --bin zed
+
+      - name: Package Linux Flatpak
+        if: runner.os == 'Linux'
+        run: |
+          flatpak-builder --user --force-clean --disable-rofiles-fuse --state-dir=target/flatpak-state --repo=target/flatpak-repo \
+            target/flatpak-build packaging/flatpak/dev.zedstorm.ZedStorm.yml
+          flatpak build --runtime target/flatpak-build /app/bin/zedstorm --version
+          mkdir -p dist
+          flatpak build-bundle target/flatpak-repo dist/zedstorm-linux-x86_64.flatpak dev.zedstorm.ZedStorm \
+            --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
+
+      - name: Package Windows editor
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path dist/zedstorm-windows-x86_64 -Force
+          Copy-Item target/release/zed.exe, target/release/conpty.dll, target/release/OpenConsole.exe -Destination dist/zedstorm-windows-x86_64
+          Copy-Item LICENSE-GPL, LICENSE-APACHE, assets/licenses.md -Destination dist/zedstorm-windows-x86_64
+          Compress-Archive -Path dist/zedstorm-windows-x86_64 -DestinationPath dist/zedstorm-windows-x86_64.zip
+
+      - name: Upload build archive
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: zedstorm-${{ matrix.platform }}-x86_64
+          path: |
+            dist/*.flatpak
+            dist/*.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

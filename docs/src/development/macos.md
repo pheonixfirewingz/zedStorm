@@ -1,13 +1,13 @@
 ---
-title: Building Zed for macOS
-description: "Guide to building zed for macos for Zed development."
+title: Building ZedStorm for macOS
+description: "Build ZedStorm locally on macOS with Cargo."
 ---
 
-# Building Zed for macOS
+# Building ZedStorm for macOS
 
 ## Repository
 
-Clone the [Zed repository](https://github.com/zed-industries/zed).
+Open your ZedStorm checkout and run these commands from the repository root.
 
 ## Dependencies
 
@@ -43,13 +43,13 @@ Once you have the dependencies installed, you can build Zed using [Cargo](https:
 For a debug build:
 
 ```sh
-cargo run
+cargo run -p zed
 ```
 
 For a release build:
 
 ```sh
-cargo run --release
+cargo run -p zed --release
 ```
 
 And to run the tests:
@@ -106,39 +106,10 @@ UPDATE_BASELINE=1 cargo run -p zed --bin zed_visual_test_runner --features visua
 > **Note:** In the future, baselines may be stored externally. For now, they
 > remain local-only to keep the git repository lightweight.
 
-## Sampling released builds
+## Local release builds
 
-How to get a symbolicated CPU profile from a released (non-dev) Zed instance.
-Use this when Zed is using a lot of CPU.
-
-Released macOS binaries are stripped of local symbols, so `sample` and Instruments show raw addresses for most frames.
-The debug symbols for every release are archived: `script/bundle-mac` uploads `zed.dwarf` to Sentry before stripping.
-
-### During the incident
-
-- Run `sample Zed 10 -f zed-sample.txt` (adjust the process name for Preview or Nightly).
-- Get the exact build: type {#action zed::About} in the command palette and copy the version and commit.
-
-The `zed-sample.txt` file can be sent to Zed together with the exact version.
-
-### Later
-
-This can be done by Zed staff.
-
-- Find the binary UUID in the `Binary Images` section at the bottom of the sample output.
-- Download the matching `zed.dwarf` from the Sentry project's Debug Files page by searching for that UUID.
-- Resolve the addresses:
-  `atos -o zed.dwarf -l <load address> <address...>`
-  Each unresolved frame in the sample output prints its `load address` and absolute address.
-
-To profile a released build on your own machine with full symbols, download the matching `zed.dwarf`, convert it into a `.dSYM` bundle Spotlight can index, and re-run `sample`:
-
-```sh
-mkdir -p Zed.dSYM/Contents/Resources/DWARF
-cp zed.dwarf Zed.dSYM/Contents/Resources/DWARF/zed
-```
-
-Frames then resolve automatically, including file and line information.
+Build a release executable with `cargo build -p zed --release`.
+The upstream bundling, signing, and release-symbol upload scripts are removed.
 
 ## Troubleshooting
 
@@ -195,7 +166,7 @@ Then clean and rebuild the project:
 
 ```sh
 cargo clean
-cargo run
+cargo run -p zed
 ```
 
 ### Tests failing due to `Too many open files (os error 24)`

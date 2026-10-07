@@ -1,33 +1,42 @@
-# ZedStorm development scope
+# Developing ZedStorm
 
-Build the desktop editor with `cargo build -p zed`. Building the whole workspace also builds tools and services that the desktop editor does not need.
+Build and run the desktop editor with Cargo from the repository root:
 
-The colour palette lives in `assets/themes/islands/islands.json`. It is compiled into the application; editing it requires a rebuild. Fonts and file icon themes remain configurable.
+```sh
+cargo build -p zed
+cargo run -p zed
+cargo check -p zed
+```
 
-## Optional files for desktop development
+Build the command-line launcher separately with `cargo build -p cli`.
+The pinned Rust toolchain is declared in `rust-toolchain.toml`.
+For native dependencies, see the guides for [Linux](./linux.md),
+[macOS](./macos.md), [Windows](./windows.md), and [FreeBSD](./freebsd.md).
 
-The following are outside the normal desktop application dependency graph or support a separate workflow. They are retained unless specifically removed below.
+Run tests for the package you are changing with `cargo test -p <package>`.
+Use `./script/clippy -p <package>` for Clippy checks.
+Licence generation remains available through `script/generate-licenses`
+and `script/generate-licenses.ps1`.
 
-| Files | Purpose | Needed when |
-| --- | --- | --- |
-| `target/` | Generated build outputs and caches | Cargo recreates these; retaining them speeds up builds |
-| `crates/collab/`, `Dockerfile-collab`, `.cargo/collab-config.toml`, `Procfile`, `compose.yml` | Upstream server and local service infrastructure | Developing or deploying upstream services |
-| `Procfile.web` | Runs a sibling upstream website checkout | Developing that website |
-| `crates/theme_importer/` | Converts external themes | Maintaining upstream theme tooling; ZedStorm uses its compiled palette |
-| `crates/benchmarks/`, `crates/editor_benchmarks/`, `crates/fs_benchmarks/`, `crates/project_benchmarks/`, `crates/worktree_benchmarks/` | Performance benchmarks | Measuring regressions |
-| `crates/docs_preprocessor/`, `crates/schema_generator/` | Documentation and schema tooling | Building docs or exporting schemas |
-| `crates/extension_cli/`, `crates/extension_api/`, `extensions/glsl/`, `extensions/html/` | Extension development packages | Building or publishing extensions |
-| `nix/`, `flake.nix`, `flake.lock`, `default.nix`, `shell.nix` | Nix development environment | Using Nix |
-| `ci/`, `.github/` | CI and release automation | Running hosted checks or releasing |
+## Fixed theme
 
-The crate assessment follows local workspace dependencies from `zed`, including normal and build dependencies and excluding dev dependencies. It is not proof that a package can be deleted: tests, scripts, packaging, cross-platform builds, and Cargo workspace membership may still refer to it. Remove the corresponding manifest entries and workflow references before deleting a crate. Server deployment files do not determine whether shared editor libraries are removable.
+The Islands Dark palette lives in `assets/themes/islands/islands.json` and is
+compiled into the application. Edit it and rebuild to change colours.
+Fonts and file icon themes remain configurable.
 
-## Removed for the fixed theme
+## Build infrastructure
 
-- The unused Ayu, Gruvbox, and One JSON palettes, and the Islands Light variant.
-- The colour-theme picker in the command palette and Settings, including previews and persistence.
-- The colour-theme mode action, shortcuts, menu item, and OS appearance reload.
-- User-theme directory loading and watching, and active extension colour-theme loading.
-- Runtime colour-theme overrides and separate Markdown preview themes.
+The upstream GitHub workflows, release publishing, signing and packaging
+scripts, server deployment files, Cloudflare deployment configuration, Nix
+configuration, Corgi configuration, and workflow-generation tools are removed.
+Builds use Cargo directly.
 
-Keep `Cargo.toml`, `Cargo.lock`, `.cargo/config.toml`, `rust-toolchain.toml`, editor dependencies, language resources, fonts, icons, build scripts, and licence/attribution files. Shared libraries such as `client`, `call`, and collaboration data types still support editor infrastructure even though account and collaboration UI are disabled.
+The local `scratch` dependency patch remains in `tooling/patches/scratch` because
+native build scripts need separate working directories. Native `build.rs` files,
+platform resources, local testing tools, and licence files remain part of the
+project.
+
+`target/` contains generated build output and caches. Cargo recreates it when
+needed; retaining it speeds up local builds. Benchmark and extension-development
+crates are optional for day-to-day editor work. Shared libraries such as `client`
+and collaboration data types still support editor infrastructure.

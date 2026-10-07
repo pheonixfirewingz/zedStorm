@@ -213,9 +213,7 @@ members = [
     # Tooling
     #
 
-    "tooling/compliance",
     "tooling/perf",
-    "tooling/xtask",
 ]
 default-members = ["crates/zed"]
 
@@ -251,7 +249,6 @@ collab_ui = { path = "crates/collab_ui" }
 collections = { path = "crates/collections", version = "0.1.0" }
 command_palette = { path = "crates/command_palette" }
 command_palette_hooks = { path = "crates/command_palette_hooks" }
-compliance = { path = "tooling/compliance" }
 component = { path = "crates/component" }
 component_preview = { path = "crates/component_preview" }
 crashes = { path = "crates/crashes" }
@@ -473,8 +470,6 @@ block2 = "0.6"
 brush-parser = "0.3"
 bytemuck = "1"
 bytes = "1.0"
-cargo_metadata = "0.23"
-cargo_toml = "0.21"
 cbindgen = { version = "0.28.0", default-features = false }
 chardetng = "0.1"
 chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
@@ -524,7 +519,6 @@ fork = "0.4.0"
 futures = "0.3.34"
 futures-concurrency = "7.7.1"
 futures-lite = "2"
-gh-workflow = { git = "https://github.com/zed-industries/gh-workflow", rev = "37f3c0575d379c218a9c455ee67585184e40d43f" }
 globset = "0.4"
 handlebars = "4.3"
 hdrhistogram = { version = "7", default-features = false }
@@ -662,7 +656,6 @@ objc2-user-notifications = { version = "0.3", default-features = false, features
     "UNNotificationTrigger",
     "UNUserNotificationCenter",
 ] }
-octocrab = { version = "0.49", default-features = false }
 oo7 = { version = "0.6", default-features = false }
 open = "5.0.0"
 ordered-float = "5"
@@ -885,17 +878,9 @@ notify = { git = "https://github.com/zed-industries/notify", rev = "d842f16b2716
 notify-types = { git = "https://github.com/zed-industries/notify", rev = "d842f16b2716bd60f09caf3ae3a894237ab38f54" }
 webrtc-sys = { git = "https://github.com/zed-industries/livekit-rust-sdks", rev = "0a1c519cfce9b365229026b55de9b9dbdb6fed3c" }
 
-# corgi runs build.rs/proc-macros in a sandbox with no write access outside the
-# action's own OUT_DIR. Upstream `scratch` bakes its build-time OUT_DIR in via
-# `env!` and hands every crate one shared directory, which the sandbox can't
-# grant and a content-addressed build can't share. This patch reads OUT_DIR at
-# runtime, so each build script gets a private, writable dir in its own entry —
-# where cxx-build writes its shared cxxbridge headers. Kept local rather than a
-# cxx git fork so Windows cargo builds are unaffected (a git checkout of cxx
-# needs symlink support that Windows CI lacks). webrtc-sys is self-contained, so
-# per-crate scratch dirs are sufficient. Upstream issue:
-# https://github.com/dtolnay/cxx/issues/1752
-scratch = { path = "tooling/corgi/patches/scratch" }
+# Each native build script needs its own scratch directory rather than a path
+# embedded from a different checkout at dependency build time.
+scratch = { path = "tooling/patches/scratch" }
 
 [profile.dev]
 split-debuginfo = "unpacked"

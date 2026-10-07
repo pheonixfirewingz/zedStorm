@@ -47,7 +47,6 @@ extend-exclude = [
     # Automatically generated JS.
     "docs/theme/c15t@*.js",
     # Spellcheck triggers on `|Fixe[sd]|` regex part.
-    "script/danger/dangerfile.ts",
     # File type extensions are not typos
     "crates/zed/resources/windows/zed.iss",
     # typos-cli doesn't understand our `vˇariable` markup

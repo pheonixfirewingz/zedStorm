@@ -1,15 +1,15 @@
 ---
-title: Building Zed for Windows
+title: Building ZedStorm for Windows
 description: "Guide to building zed for windows for Zed development."
 ---
 
-# Building Zed for Windows
+# Building ZedStorm for Windows
 
 > The following commands may be executed in any shell.
 
 ## Repository
 
-Clone the [Zed repository](https://github.com/zed-industries/zed).
+Open your ZedStorm checkout and run these commands from the repository root.
 
 ## Dependencies
 
@@ -73,26 +73,6 @@ You can export this component list as follows:
 - Click on `More` in the `Installed` tab
 - Click on `Export configuration`
 
-### Notes
-
-Update `pg_hba.conf` in the `data` directory to use `trust` instead of `scram-sha-256` for the `host` method. Otherwise, the connection fails with `password authentication failed`. The file is typically at `C:\Program Files\PostgreSQL\17\data\pg_hba.conf`. After the change, it should look like this:
-
-```conf
-# IPv4 local connections:
-host    all             all             127.0.0.1/32            trust
-# IPv6 local connections:
-host    all             all             ::1/128                 trust
-```
-
-If you are using a non-Latin Windows locale, set the `lc_messages` parameter in `postgresql.conf` (in the `data` directory) to `English_United States.1252` (or another UTF-8-compatible encoding available on your system). Otherwise, the database may panic. The file should look like this:
-
-```conf
-# lc_messages = 'Chinese (Simplified)_China.936' # locale for system error message strings
-lc_messages = 'English_United States.1252'
-```
-
-After this, restart the `postgresql` service. Press `Win`+`R` to open the Run dialog, enter `services.msc`, and select **OK**. In Services Manager, find `postgresql-x64-XX`, right-click it, and select **Restart**.
-
 ## Building from source
 
 Once you have the dependencies installed, you can build Zed using [Cargo](https://doc.rust-lang.org/cargo/).
@@ -100,19 +80,19 @@ Once you have the dependencies installed, you can build Zed using [Cargo](https:
 For a debug build:
 
 ```sh
-cargo run
+cargo run -p zed
 ```
 
 For a release build:
 
 ```sh
-cargo run --release
+cargo run -p zed --release
 ```
 
 And to run the tests:
 
 ```sh
-cargo test --workspace
+cargo test -p <package>
 ```
 
 > **Note:** Visual regression tests are currently macOS-only and require Screen Recording permission. See [Building Zed for macOS](./macos.md#visual-regression-tests) for details.

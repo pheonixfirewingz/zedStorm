@@ -16,7 +16,6 @@ util::fs_embed! {
         "icons/**/*",
         "images/**/*",
         "sounds/**/*",
-        "prompts/**/*",
         "*.md",
     ],
     exclude = ["*.DS_Store"],

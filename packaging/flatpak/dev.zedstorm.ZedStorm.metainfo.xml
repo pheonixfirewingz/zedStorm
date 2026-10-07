@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>dev.zedstorm.ZedStorm</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>ZedStorm</name>
+  <summary>An opinionated code editor with Codex CLI chat</summary>
+  <url type="homepage">https://github.com/pheonixfirewingz/zedStorm</url>
+  <developer id="dev.zedstorm">
+    <name>ZedStorm contributors</name>
+  </developer>
+  <content_rating type="oars-1.1" />
+  <description>
+    <p>ZedStorm is a stripped-down version of Zed with a fixed Islands Dark theme and integrated Codex CLI chat.</p>
+    <p>Install Codex CLI on your host to use the chat panel.</p>
+  </description>
+  <launchable type="desktop-id">dev.zedstorm.ZedStorm.desktop</launchable>
+  <provides>
+    <binary>zedstorm</binary>
+  </provides>
+</component>
