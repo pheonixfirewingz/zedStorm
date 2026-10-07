@@ -413,51 +413,9 @@ If you encounter issues with formatting or linting:
 
 ## Syntax Highlighting and Themes
 
-Zed offers customization options for syntax highlighting and themes, allowing you to tailor the visual appearance of your code.
+ZedStorm uses Tree-sitter and optional language-server semantic tokens for highlighting. Its colours and syntax styles come from the compiled Islands Dark palette.
 
-### Customizing Syntax Highlighting
-
-Zed uses Tree-sitter grammars for syntax highlighting. Override the default highlighting using the `theme_overrides` setting.
-
-This example makes comments italic and changes the color of strings:
-
-```json [settings]
-"theme_overrides": {
-  "One Dark": {
-    "syntax": {
-      "comment": {
-        "font_style": "italic"
-      },
-      "string": {
-        "color": "#00AA00"
-      }
-    }
-  }
-}
-```
-
-### Selecting and Customizing Themes
-
-Change your theme:
-
-1. Use the theme selector ({#kb theme_selector::Toggle})
-2. Or set it in your `settings.json`:
-
-```json [settings]
-"theme": {
-  "mode": "dark",
-  "dark": "One Dark",
-  "light": "GitHub Light"
-}
-```
-
-Create custom themes by creating a JSON file in `~/.config/zed/themes/`. Zed will automatically detect and make available any themes in this directory.
-
-### Using Theme Extensions
-
-Zed supports theme extensions. Browse and install theme extensions from the Extensions panel ({#kb zed::Extensions}).
-
-To create your own theme extension, refer to the [Developing Theme Extensions](./extensions/themes.md) guide.
+Edit `assets/themes/islands/islands.json` and rebuild to change the palette. Runtime theme overrides and theme extensions do not replace it. See [Themes](./themes.md).
 
 ## Using Language Server Features
 

@@ -433,7 +433,7 @@ mod tests {
         let bindings = prepare_pending_bindings(
             vec![
                 binding_after_first_keystroke("cmd-k z a", "zed::OpenSettings"),
-                binding_after_first_keystroke("cmd-k cmd-shift-t", "theme::ToggleMode"),
+                binding_after_first_keystroke("cmd-k cmd-shift-t", "icon_theme_selector::Toggle"),
             ],
             cx,
         );
@@ -551,7 +551,7 @@ mod tests {
             vec![
                 binding_after_first_keystroke("cmd-k cmd-s", "zed::OpenKeymap"),
                 binding_after_first_keystroke("cmd-k cmd-s cmd-,", "zed::OpenSettings"),
-                binding_after_first_keystroke("cmd-k cmd-t", "theme_selector::Toggle"),
+                binding_after_first_keystroke("cmd-k cmd-t", "icon_theme_selector::Toggle"),
             ],
             cx,
         );
@@ -565,7 +565,11 @@ mod tests {
                 ))
                 .collect::<Vec<_>>(),
             vec![
-                (parse_keystrokes("cmd-t"), "theme selector: toggle", false),
+                (
+                    parse_keystrokes("cmd-t"),
+                    "icon theme selector: toggle",
+                    false
+                ),
                 (parse_keystrokes("cmd-s"), "+2 keybinds", true),
             ],
         );

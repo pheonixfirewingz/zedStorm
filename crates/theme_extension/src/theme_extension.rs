@@ -48,8 +48,8 @@ impl ExtensionThemeProxy for ThemeRegistryProxy {
         })
     }
 
-    fn reload_current_theme(&self, cx: &mut App) {
-        theme_settings::reload_theme(cx)
+    fn reload_current_theme(&self, _cx: &mut App) {
+        // Extension theme callbacks remain compatible, but cannot replace the compiled palette.
     }
 
     fn list_icon_theme_names(

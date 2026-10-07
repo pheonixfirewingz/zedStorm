@@ -162,7 +162,7 @@ pub use workspace_settings::{
     RestoreOnStartupBehavior, StatusBarSettings, TabBarSettings, WorkspaceSettings,
     closing_last_window_quits_app, observe_accessible_mode,
 };
-use zed_actions::{Spawn, feedback::FileBugReport, theme::ToggleMode};
+use zed_actions::{Spawn, feedback::FileBugReport};
 
 use crate::{dock::PanelSizeState, item::ItemBufferKind, notifications::NotificationId};
 use crate::{
@@ -2063,7 +2063,6 @@ impl Workspace {
 
                 *SystemAppearance::global_mut(cx) = SystemAppearance(window_appearance.into());
 
-                theme_settings::reload_theme(cx);
                 theme_settings::reload_icon_theme(cx);
             }),
             cx.on_release({
@@ -8085,7 +8084,6 @@ impl Workspace {
             .on_action(cx.listener(Self::move_focused_panel_to_next_position))
             .on_action(cx.listener(Self::reopen_last_picker))
             .on_action(cx.listener(Self::toggle_edit_predictions_all_files))
-            .on_action(cx.listener(Self::toggle_theme_mode))
             .on_action(cx.listener(|workspace, _: &Unfollow, window, cx| {
                 let pane = workspace.active_pane().clone();
                 workspace.unfollow_in_pane(&pane, window, cx);
@@ -9035,29 +9033,6 @@ impl Workspace {
         let show_edit_predictions = all_language_settings(None, cx).show_edit_predictions(None, cx);
         update_settings_file(fs, cx, move |file, _| {
             file.project.all_languages.defaults.show_edit_predictions = Some(!show_edit_predictions)
-        });
-    }
-
-    fn toggle_theme_mode(&mut self, _: &ToggleMode, _window: &mut Window, cx: &mut Context<Self>) {
-        let current_mode = ThemeSettings::get_global(cx).theme.mode();
-        let next_mode = match current_mode {
-            Some(theme_settings::ThemeAppearanceMode::Light) => {
-                theme_settings::ThemeAppearanceMode::Dark
-            }
-            Some(theme_settings::ThemeAppearanceMode::Dark) => {
-                theme_settings::ThemeAppearanceMode::Light
-            }
-            Some(theme_settings::ThemeAppearanceMode::System) | None => {
-                match cx.theme().appearance() {
-                    theme::Appearance::Light => theme_settings::ThemeAppearanceMode::Dark,
-                    theme::Appearance::Dark => theme_settings::ThemeAppearanceMode::Light,
-                }
-            }
-        };
-
-        let fs = self.project().read(cx).fs().clone();
-        settings::update_settings_file(fs, cx, move |settings, _cx| {
-            theme_settings::set_mode(settings, next_mode);
         });
     }
 
@@ -19280,74 +19255,6 @@ mod tests {
             cx.set_global(db::AppDatabase::test_new());
             theme_settings::init(theme::LoadThemes::JustBase, cx);
         });
-    }
-
-    #[gpui::test]
-    async fn test_toggle_theme_mode_persists_and_updates_active_theme(cx: &mut TestAppContext) {
-        use settings::{ThemeName, ThemeSelection};
-        use theme::SystemAppearance;
-        use zed_actions::theme::ToggleMode;
-
-        init_test(cx);
-
-        let fs = FakeFs::new(cx.executor());
-        let settings_fs: Arc<dyn fs::Fs> = fs.clone();
-
-        fs.insert_tree(path!("/root"), json!({ "file.rs": "fn main() {}\n" }))
-            .await;
-
-        // Build a test project and workspace view so the test can invoke
-        // the workspace action handler the same way the UI would.
-        let project = Project::test(fs.clone(), [path!("/root").as_ref()], cx).await;
-        let (workspace, cx) =
-            cx.add_window_view(|window, cx| Workspace::test_new(project.clone(), window, cx));
-
-        // Seed the settings file with a plain static light theme so the
-        // first toggle always starts from a known persisted state.
-        workspace.update_in(cx, |_workspace, _window, cx| {
-            *SystemAppearance::global_mut(cx) = SystemAppearance(theme::Appearance::Light);
-            settings::update_settings_file(settings_fs.clone(), cx, |settings, _cx| {
-                settings.theme.theme = Some(ThemeSelection::Static(ThemeName("One Light".into())));
-            });
-        });
-        cx.executor().advance_clock(Duration::from_millis(200));
-        cx.run_until_parked();
-
-        // Confirm the initial persisted settings contain the static theme
-        // we just wrote before any toggling happens.
-        let settings_text = SettingsStore::load_settings(&settings_fs).await.unwrap();
-        assert!(settings_text.contains(r#""theme": "One Light""#));
-
-        // Toggle once. This should migrate the persisted theme settings
-        // into light/dark slots and enable system mode.
-        workspace.update_in(cx, |workspace, window, cx| {
-            workspace.toggle_theme_mode(&ToggleMode, window, cx);
-        });
-        cx.executor().advance_clock(Duration::from_millis(200));
-        cx.run_until_parked();
-
-        // 1. Static -> Dynamic
-        // this assertion checks theme changed from static to dynamic.
-        let settings_text = SettingsStore::load_settings(&settings_fs).await.unwrap();
-        let parsed: serde_json::Value = settings::parse_json_with_comments(&settings_text).unwrap();
-        assert_eq!(
-            parsed["theme"],
-            serde_json::json!({
-                "mode": "system",
-                "light": "One Light",
-                "dark": "One Dark"
-            })
-        );
-
-        // 2. Toggle again, suppose it will change the mode to light
-        workspace.update_in(cx, |workspace, window, cx| {
-            workspace.toggle_theme_mode(&ToggleMode, window, cx);
-        });
-        cx.executor().advance_clock(Duration::from_millis(200));
-        cx.run_until_parked();
-
-        let settings_text = SettingsStore::load_settings(&settings_fs).await.unwrap();
-        assert!(settings_text.contains(r#""mode": "light""#));
     }
 
     fn dirty_project_item(id: u64, path: &str, cx: &mut App) -> Entity<TestProjectItem> {

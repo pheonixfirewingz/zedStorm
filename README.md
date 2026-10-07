@@ -11,7 +11,11 @@ The Codex button opens a native chat panel in the right dock. Send prompts with 
 
 The upstream AI crates and provider SDK dependencies are removed from the workspace and application dependency graph. This includes Zed agents, edit predictions, model providers, web search, sandbox launchers, and editor-managed MCP/ACP servers. Codex CLI owns the AI runtime, authentication, tools, and server configuration. Shared collaboration libraries remain for editor infrastructure, with their account and collaboration UI disabled.
 
+ZedStorm uses a single compiled **Islands Dark** colour theme. Edit `assets/themes/islands/islands.json` and rebuild to change the palette. Theme selection, OS light/dark switching, user theme files, theme overrides, and Markdown preview theme selection do not change the application palette. Font and file icon settings remain configurable.
+
 ### Developing Zed
+
+See [ZedStorm development scope](./docs/src/development/zedstorm.md) for optional tools, generated files, and the fixed theme location.
 
 - [Building Zed for macOS](./docs/src/development/macos.md)
 - [Building Zed for Linux](./docs/src/development/linux.md)

@@ -11,14 +11,14 @@ mod settings;
 use std::sync::Arc;
 
 use ::settings::{IntoGpui, Settings, SettingsStore};
-use anyhow::{Context as _, Result};
+use anyhow::Result;
 use gpui::{App, Font, HighlightStyle, Pixels, Refineable, px};
 use gpui_util::ResultExt;
 use theme::{
-    AccentColors, Appearance, AppearanceContent, DEFAULT_DARK_THEME, DEFAULT_ICON_THEME_NAME,
-    GlobalTheme, LoadThemes, PlayerColor, PlayerColors, StatusColors, SyntaxTheme,
-    SystemAppearance, SystemColors, Theme, ThemeColors, ThemeFamily, ThemeRegistry,
-    ThemeSettingsProvider, ThemeStyles, default_color_scales, try_parse_color,
+    AccentColors, Appearance, AppearanceContent, DEFAULT_ICON_THEME_NAME, GlobalTheme, LoadThemes,
+    PlayerColor, PlayerColors, StatusColors, SyntaxTheme, SystemAppearance, SystemColors, Theme,
+    ThemeColors, ThemeFamily, ThemeRegistry, ThemeSettingsProvider, ThemeStyles,
+    default_color_scales, try_parse_color,
 };
 
 pub use crate::schema::{
@@ -30,13 +30,12 @@ use crate::settings::adjust_buffer_font_size;
 pub use crate::settings::{
     AgentBufferFontSize, AgentUiFontSize, BufferLineHeight, FontFamilyName,
     GitCommitBufferFontSize, IconThemeName, IconThemeSelection, MarkdownPreviewFontSize,
-    ThemeAppearanceMode, ThemeName, ThemeSelection, ThemeSettings, adjust_agent_buffer_font_size,
-    adjust_agent_ui_font_size, adjust_git_commit_buffer_font_size,
-    adjust_markdown_preview_font_size, adjust_ui_font_size, adjusted_font_size, appearance_to_mode,
-    buffer_line_height_from_settings, clamp_font_size, default_theme,
+    ThemeAppearanceMode, ThemeSettings, adjust_agent_buffer_font_size, adjust_agent_ui_font_size,
+    adjust_git_commit_buffer_font_size, adjust_markdown_preview_font_size, adjust_ui_font_size,
+    adjusted_font_size, buffer_line_height_from_settings, clamp_font_size,
     observe_buffer_font_size_adjustment, reset_agent_buffer_font_size, reset_agent_ui_font_size,
     reset_buffer_font_size, reset_git_commit_buffer_font_size, reset_markdown_preview_font_size,
-    reset_ui_font_size, set_icon_theme, set_mode, set_theme, setup_ui_font,
+    reset_ui_font_size, set_icon_theme, setup_ui_font,
 };
 pub use theme::UiDensity;
 
@@ -67,22 +66,20 @@ impl ThemeSettingsProvider for ThemeSettingsProviderImpl {
 /// Initialize the theme system with settings integration.
 ///
 /// This is the full initialization for the application. It calls [`theme::init`]
-/// and then wires up settings observation for theme/font changes.
+/// and then installs the compiled Islands Dark palette and observes font and icon settings.
+/// [`LoadThemes::JustBase`] preserves the base palette for isolated test fixtures.
 pub fn init(themes_to_load: LoadThemes, cx: &mut App) {
-    let load_user_themes = matches!(&themes_to_load, LoadThemes::All(_));
-
+    let use_compiled_palette = matches!(&themes_to_load, LoadThemes::All(_));
     theme::init(themes_to_load, cx);
     theme::set_theme_settings_provider(Box::new(ThemeSettingsProviderImpl), cx);
 
-    if load_user_themes {
-        let registry = ThemeRegistry::global(cx);
-        load_bundled_themes(&registry);
+    if use_compiled_palette {
+        let Some(theme) = islands_theme().log_err() else {
+            return;
+        };
+        let icon_theme = configured_icon_theme(cx);
+        cx.set_global(GlobalTheme::new(theme, icon_theme));
     }
-
-    let theme = configured_theme(cx);
-    let icon_theme = configured_icon_theme(cx);
-    GlobalTheme::update_theme(cx, theme);
-    GlobalTheme::update_icon_theme(cx, icon_theme);
 
     let settings = ThemeSettings::get_global(cx);
 
@@ -94,13 +91,7 @@ pub fn init(themes_to_load: LoadThemes, cx: &mut App) {
         settings.git_commit_buffer_font_size_settings();
     let mut prev_markdown_preview_font_size_settings =
         settings.markdown_preview_font_size_settings();
-    let mut prev_theme_name = settings.theme.name(SystemAppearance::global(cx).0);
     let mut prev_icon_theme_name = settings.icon_theme.name(SystemAppearance::global(cx).0);
-    let mut prev_theme_overrides = (
-        settings.experimental_theme_overrides.clone(),
-        settings.theme_overrides.clone(),
-    );
-
     cx.observe_global::<SettingsStore>(move |cx| {
         let settings = ThemeSettings::get_global(cx);
 
@@ -110,13 +101,7 @@ pub fn init(themes_to_load: LoadThemes, cx: &mut App) {
         let agent_buffer_font_size_settings = settings.agent_buffer_font_size_settings();
         let git_commit_buffer_font_size_settings = settings.git_commit_buffer_font_size_settings();
         let markdown_preview_font_size_settings = settings.markdown_preview_font_size_settings();
-        let theme_name = settings.theme.name(SystemAppearance::global(cx).0);
         let icon_theme_name = settings.icon_theme.name(SystemAppearance::global(cx).0);
-        let theme_overrides = (
-            settings.experimental_theme_overrides.clone(),
-            settings.theme_overrides.clone(),
-        );
-
         if buffer_font_size_settings != prev_buffer_font_size_settings {
             prev_buffer_font_size_settings = buffer_font_size_settings;
             reset_buffer_font_size(cx);
@@ -147,12 +132,6 @@ pub fn init(themes_to_load: LoadThemes, cx: &mut App) {
             reset_markdown_preview_font_size(cx);
         }
 
-        if theme_name != prev_theme_name || theme_overrides != prev_theme_overrides {
-            prev_theme_name = theme_name;
-            prev_theme_overrides = theme_overrides;
-            reload_theme(cx);
-        }
-
         if icon_theme_name != prev_icon_theme_name {
             prev_icon_theme_name = icon_theme_name;
             reload_icon_theme(cx);
@@ -161,25 +140,15 @@ pub fn init(themes_to_load: LoadThemes, cx: &mut App) {
     .detach();
 }
 
-fn configured_theme(cx: &mut App) -> Arc<Theme> {
-    let themes = ThemeRegistry::default_global(cx);
-    let theme_settings = ThemeSettings::get_global(cx);
-    let system_appearance = SystemAppearance::global(cx);
-
-    let theme_name = theme_settings.theme.name(*system_appearance);
-
-    let theme = match themes.get(&theme_name.0) {
-        Ok(theme) => theme,
-        Err(err) => {
-            if themes.extensions_loaded() {
-                log::error!("{err}");
-            }
-            themes
-                .get(default_theme(*system_appearance))
-                .unwrap_or_else(|_| themes.get(DEFAULT_DARK_THEME).unwrap())
-        }
-    };
-    theme_settings.apply_theme_overrides(theme)
+fn islands_theme() -> Result<Arc<Theme>> {
+    let family: ThemeFamilyContent =
+        serde_json::from_str(include_str!("../../../assets/themes/islands/islands.json"))?;
+    let content = family
+        .themes
+        .into_iter()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("The compiled Islands palette must contain a theme"))?;
+    Ok(Arc::new(refine_theme(&content)))
 }
 
 fn configured_icon_theme(cx: &mut App) -> Arc<theme::IconTheme> {
@@ -200,44 +169,11 @@ fn configured_icon_theme(cx: &mut App) -> Arc<theme::IconTheme> {
     }
 }
 
-/// Reloads the current theme from settings.
-pub fn reload_theme(cx: &mut App) {
-    let theme = configured_theme(cx);
-    GlobalTheme::update_theme(cx, theme);
-    cx.refresh_windows();
-}
-
 /// Reloads the current icon theme from settings.
 pub fn reload_icon_theme(cx: &mut App) {
     let icon_theme = configured_icon_theme(cx);
     GlobalTheme::update_icon_theme(cx, icon_theme);
     cx.refresh_windows();
-}
-
-/// Loads the themes bundled with the Zed binary into the registry.
-pub fn load_bundled_themes(registry: &ThemeRegistry) {
-    let theme_paths = registry
-        .assets()
-        .list("themes/")
-        .expect("failed to list theme assets")
-        .into_iter()
-        .filter(|path| path.ends_with(".json"));
-
-    for path in theme_paths {
-        let Some(theme) = registry.assets().load(&path).log_err().flatten() else {
-            continue;
-        };
-
-        let Some(theme_family) = serde_json::from_slice(&theme)
-            .with_context(|| format!("failed to parse theme at path \"{path}\""))
-            .log_err()
-        else {
-            continue;
-        };
-
-        let refined = refine_theme_family(theme_family);
-        registry.insert_theme_families([refined]);
-    }
 }
 
 /// Loads a user theme from the given bytes into the registry.
@@ -444,4 +380,61 @@ pub fn increase_buffer_font_size(cx: &mut App) {
 /// This will be effective until the app is restarted.
 pub fn decrease_buffer_font_size(cx: &mut App) {
     adjust_buffer_font_size(cx, |size| size - px(1.0));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{TestAppContext, UpdateGlobal};
+    use theme::ActiveTheme;
+
+    #[test]
+    fn compiled_palette_contains_only_islands_dark() -> Result<()> {
+        let family: ThemeFamilyContent =
+            serde_json::from_str(include_str!("../../../assets/themes/islands/islands.json"))?;
+        assert_eq!(family.themes.len(), 1);
+        let theme = islands_theme()?;
+        assert_eq!(theme.name.as_ref(), "Islands Dark");
+        assert_eq!(theme.appearance, Appearance::Dark);
+        assert_eq!(
+            theme.colors().editor_background,
+            try_parse_color("#191a1c")?
+        );
+        Ok(())
+    }
+
+    #[gpui::test]
+    fn settings_cannot_replace_compiled_palette(cx: &mut TestAppContext) {
+        let original = cx.update(|cx| {
+            let store = SettingsStore::test(cx);
+            cx.set_global(store);
+            init(LoadThemes::All(Box::new(())), cx);
+            cx.theme().clone()
+        });
+        cx.update(|cx| {
+            SettingsStore::update_global(cx, |store, cx| {
+                store
+                    .set_user_settings(
+                        r##"{
+                        "theme": {"mode": "system", "light": "One Light", "dark": "One Dark"},
+                        "experimental.theme_overrides": {"editor.background": "#ff0000"},
+                        "theme_overrides": {"Islands Dark": {"editor.background": "#00ff00"}},
+                        "markdown_preview": {"theme": "One Light"},
+                        "ui_font_size": 18
+                    }"##,
+                        cx,
+                    )
+                    .result()
+                    .expect("valid test settings");
+            });
+            *SystemAppearance::global_mut(cx) = SystemAppearance(Appearance::Light);
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert!(Arc::ptr_eq(&original, cx.theme()));
+            assert_eq!(cx.theme().appearance, Appearance::Dark);
+            let settings = ThemeSettings::get_global(cx);
+            assert_eq!(settings.ui_font_size(cx), px(18.0));
+        });
+    }
 }

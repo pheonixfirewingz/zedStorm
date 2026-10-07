@@ -11,33 +11,13 @@ See [All Settings](./reference/all-settings.md) for additional information and o
 
 ## Themes
 
-You can install many [themes](./themes.md) and [icon themes](./icon-themes.md) in form of [extensions](./extensions.md) by running {#action zed::Extensions} from the command palette.
+ZedStorm uses one compiled [Islands Dark palette](./themes.md). Edit `assets/themes/islands/islands.json` and rebuild to change its colours.
 
-You can preview/choose amongst your installed themes and icon themes with {#action theme_selector::Toggle} ({#kb theme_selector::Toggle}) and {#action icon_theme_selector::Toggle} which will modify the following settings:
+[File icon themes](./icon-themes.md) remain configurable with {#action icon_theme_selector::Toggle}:
 
 ```json [settings]
 {
-  "theme": "One Dark",
   "icon_theme": "Zed (Default)"
-}
-```
-
-If you would like to use distinct themes for light mode/dark mode that can be set with:
-
-```json [settings]
-{
-  "theme": {
-    "dark": "One Dark",
-    "light": "One Light",
-    // Mode to use (dark, light) or "system" to follow the OS's light/dark mode (default)
-    "mode": "system"
-  },
-  "icon_theme": {
-    "dark": "Zed (Default)",
-    "light": "Zed (Default)",
-    // Mode to use (dark, light) or "system" to follow the OS's light/dark mode (default)
-    "mode": "system"
-  }
 }
 ```
 

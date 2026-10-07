@@ -489,25 +489,6 @@ impl ExtensionsPage {
         cx: &mut Context<Self>,
     ) {
         let extension_store = self.extension_store.read(cx);
-        let themes = extension_store
-            .extension_themes(extension_id)
-            .map(|name| name.to_string())
-            .collect::<Vec<_>>();
-        if !themes.is_empty() {
-            workspace
-                .update(cx, |_workspace, cx| {
-                    window.dispatch_action(
-                        zed_actions::theme_selector::Toggle {
-                            themes_filter: Some(themes),
-                        }
-                        .boxed_clone(),
-                        cx,
-                    );
-                })
-                .ok();
-            return;
-        }
-
         let icon_themes = extension_store
             .extension_icon_themes(extension_id)
             .map(|name| name.to_string())

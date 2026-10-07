@@ -13,43 +13,21 @@ For information on how the settings system works, see [All Settings](./reference
 
 Here's how to make Zed feel like home:
 
-1. **Pick a theme**: Press {#kb theme_selector::Toggle} to open the Theme Selector. Arrow through the list to preview themes in real time, and press Enter to apply.
-
-2. **Toggle light/dark mode quickly**: Press {#kb theme::ToggleMode}. If you currently use a static `"theme": "..."` value, the first toggle converts it to dynamic mode settings with default themes.
-
-3. **Choose an icon theme**: Run {#action icon_theme_selector::Toggle} from the command palette to browse icon themes.
-
-4. **Set your font**: Open the Settings Editor with {#kb zed::OpenSettings} and search for `buffer_font_family`. Set it to your preferred coding font.
-
-5. **Adjust font size**: In the same Settings Editor, search for `buffer_font_size` and `ui_font_size` to tweak the editor and interface text sizes.
-
-That's it. You now have a personalized Zed setup.
+1. **Choose an icon theme**: Run {#action icon_theme_selector::Toggle} from the command palette.
+2. **Set your font**: Open Settings with {#kb zed::OpenSettings} and search for `buffer_font_family`.
+3. **Adjust font size**: Change `buffer_font_size` and `ui_font_size` in Settings.
 
 ## Themes
 
-Install themes from the Extensions page ({#action zed::Extensions}), then switch between them with the Theme Selector ({#kb theme_selector::Toggle}).
+ZedStorm uses the compiled **Islands Dark** palette. To change the colours during development, edit `assets/themes/islands/islands.json` and rebuild. Theme settings and OS appearance changes do not replace the palette.
 
-Zed supports separate themes for light and dark mode with automatic switching based on your system preference:
-
-```json [settings]
-{
-  "theme": {
-    "mode": "system",
-    "light": "One Light",
-    "dark": "One Dark"
-  }
-}
-```
-
-You can also override specific theme attributes for fine-grained control.
-
-→ [Themes documentation](./themes.md)
+See [Themes](./themes.md) for details.
 
 ## Icon Themes
 
 Customize file and folder icons in the Project Panel and tabs. Browse available icon themes with the Icon Theme Selector ({#action icon_theme_selector::Toggle} in the command palette).
 
-Like color themes, icon themes support separate light and dark variants:
+Icon themes support separate light and dark variants:
 
 ```json [settings]
 {

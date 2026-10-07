@@ -15,12 +15,11 @@ util::fs_embed! {
         "fonts/**/*",
         "icons/**/*",
         "images/**/*",
-        "themes/**/*",
         "sounds/**/*",
         "prompts/**/*",
         "*.md",
     ],
-    exclude = ["themes/src/*", "*.DS_Store"],
+    exclude = ["*.DS_Store"],
 }
 
 impl AssetSource for Assets {

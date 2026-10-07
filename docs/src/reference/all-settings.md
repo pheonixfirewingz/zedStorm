@@ -5387,89 +5387,9 @@ Processing stops at the first regex that matches the terminal line, even if the 
 
 ## Theme
 
-- Description: The theme setting can be specified in two forms - either as the name of a theme or as an object containing the `mode`, `dark`, and `light` themes for the Zed UI.
-- Setting: `theme`
-- Default: `One Dark`
+ZedStorm always uses the compiled Islands Dark palette. `theme`, `theme_overrides`, `experimental.theme_overrides`, and `markdown_preview.theme` remain readable as legacy settings, but do not change the application colours.
 
-### Theme Object
-
-- Description: Specify the theme using an object that includes the `mode`, `dark`, and `light` themes.
-- Setting: `theme`
-- Default:
-
-```json [settings]
-{
-  "theme": {
-    "mode": "system",
-    "dark": "One Dark",
-    "light": "One Light"
-  }
-}
-```
-
-### Mode
-
-- Description: Specify theme mode.
-- Setting: `mode`
-- Default: `system`
-
-**Options**
-
-1. Set the theme to dark mode
-
-```json [settings]
-{
-  "theme": {
-    "mode": "dark",
-    "dark": "One Dark",
-    "light": "One Light"
-  }
-}
-```
-
-2. Set the theme to light mode
-
-```json [settings]
-{
-  "theme": {
-    "mode": "light",
-    "dark": "One Dark",
-    "light": "One Light"
-  }
-}
-```
-
-3. Set the theme to system mode
-
-```json [settings]
-{
-  "theme": {
-    "mode": "system",
-    "dark": "One Dark",
-    "light": "One Light"
-  }
-}
-```
-
-### Dark
-
-- Description: The name of the dark Zed theme to use for the UI.
-- Setting: `dark`
-- Default: `One Dark`
-
-**Options**
-
-Run the {#action theme_selector::Toggle} action in the command palette to see a current list of valid theme names.
-
-### Light
-
-- Description: The name of the light Zed theme to use for the UI.
-- Setting: `light`
-- Default: `One Light`
-
-**Options**
-
-Run the {#action theme_selector::Toggle} action in the command palette to see a current list of valid theme names.
+To change the palette during development, edit `assets/themes/islands/islands.json` and rebuild. See [Themes](../themes.md).
 
 ## Title Bar
 

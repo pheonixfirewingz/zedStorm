@@ -3521,7 +3521,7 @@ pub mod tests {
     use serde_json::json;
     use settings::{
         InlayHintSettingsContent, SearchSettingsContent, SeedQuerySetting, SettingsStore,
-        SplicingVec, ThemeColorsContent, ThemeStyleContent,
+        SplicingVec,
     };
     use util::{path, paths::PathStyle, rel_path::rel_path};
     use util_macros::perf;
@@ -3805,20 +3805,13 @@ pub mod tests {
 
         init_test(cx);
 
-        // Override active search match color since the fallback theme uses the same color
-        // for normal search match and active one, which can make this test less robust.
         cx.update(|cx| {
-            SettingsStore::update_global(cx, |settings, cx| {
-                settings.update_user_settings(cx, |settings| {
-                    settings.theme.experimental_theme_overrides = Some(ThemeStyleContent {
-                        colors: ThemeColorsContent {
-                            search_active_match_background: Some("#ff0000ff".into()),
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    });
-                });
-            });
+            let mut theme = (**cx.theme()).clone();
+            // Distinct colours make selection mistakes visible with the base test palette.
+            theme.styles.colors.search_active_match_background =
+                theme::try_parse_color("#ff0000ff").expect("valid test colour");
+            let icon_theme = theme::GlobalTheme::icon_theme(cx).clone();
+            cx.set_global(theme::GlobalTheme::new(Arc::new(theme), icon_theme));
         });
 
         let fs = FakeFs::new(cx.background_executor.clone());

@@ -59,8 +59,7 @@ use std::{
     sync::{Arc, LazyLock, OnceLock},
     time::Instant,
 };
-use theme::{ActiveTheme, GlobalTheme, ThemeRegistry};
-use theme_settings::load_user_theme;
+use theme::{ActiveTheme, ThemeRegistry};
 use util::{ResultExt, maybe};
 use uuid::Uuid;
 use workspace::{
@@ -75,7 +74,7 @@ use zed::{
     initialize_workspace, open_paths_with_positions,
 };
 
-use crate::zed::{CrashHandler, OpenRequestKind, eager_load_active_theme_and_icon_theme};
+use crate::zed::{CrashHandler, OpenRequestKind, eager_load_active_icon_theme};
 
 #[cfg(feature = "mimalloc")]
 #[global_allocator]
@@ -657,7 +656,7 @@ fn main() {
         );
 
         theme_settings::init(theme::LoadThemes::All(Box::new(Assets)), cx);
-        eager_load_active_theme_and_icon_theme(fs.clone(), cx);
+        eager_load_active_icon_theme(fs.clone(), cx);
         theme_extension::init(
             extension_host_proxy,
             ThemeRegistry::global(cx),
@@ -769,13 +768,6 @@ fn main() {
         })
         .detach();
         app_state.languages.set_theme(cx.theme().clone());
-        cx.observe_global::<GlobalTheme>({
-            let languages = app_state.languages.clone();
-            move |cx| {
-                languages.set_theme(cx.theme().clone());
-            }
-        })
-        .detach();
         telemetry::event!(
             "Settings Changed",
             setting = "theme",
@@ -785,8 +777,6 @@ fn main() {
         telemetry.flush_events().detach();
 
         let fs = app_state.fs.clone();
-        load_user_themes_in_background(fs.clone(), cx);
-        watch_themes(fs.clone(), cx);
         #[cfg(debug_assertions)]
         watch_languages(fs.clone(), app_state.languages.clone(), cx);
 
@@ -1753,83 +1743,6 @@ fn prewarm_fonts(cx: &mut App) {
         text_system.prewarm_fonts(&fonts);
     })
     .detach();
-}
-
-/// Spawns a background task to load the user themes from the themes directory.
-fn load_user_themes_in_background(fs: Arc<dyn fs::Fs>, cx: &mut App) {
-    cx.spawn({
-        let fs = fs.clone();
-        async move |cx| {
-            let theme_registry = cx.update(|cx| ThemeRegistry::global(cx));
-            let themes_dir = paths::themes_dir().as_ref();
-            match fs
-                .metadata(themes_dir)
-                .await
-                .ok()
-                .flatten()
-                .map(|m| m.is_dir)
-            {
-                Some(is_dir) => {
-                    anyhow::ensure!(is_dir, "Themes dir path {themes_dir:?} is not a directory")
-                }
-                None => {
-                    fs.create_dir(themes_dir).await.with_context(|| {
-                        format!("Failed to create themes dir at path {themes_dir:?}")
-                    })?;
-                }
-            }
-
-            let mut theme_paths = fs
-                .read_dir(themes_dir)
-                .await
-                .with_context(|| format!("reading themes from {themes_dir:?}"))?;
-
-            while let Some(theme_path) = theme_paths.next().await {
-                let Some(theme_path) = theme_path.log_err() else {
-                    continue;
-                };
-                let Some(bytes) = fs.load_bytes(&theme_path).await.log_err() else {
-                    continue;
-                };
-
-                load_user_theme(&theme_registry, &bytes).log_err();
-            }
-
-            cx.update(theme_settings::reload_theme);
-            anyhow::Ok(())
-        }
-    })
-    .detach_and_log_err(cx);
-}
-
-/// Spawns a background task to watch the themes directory for changes.
-fn watch_themes(fs: Arc<dyn fs::Fs>, cx: &mut App) {
-    use std::time::Duration;
-    cx.spawn(async move |cx| {
-        let (mut events, _) = fs
-            .watch(paths::themes_dir(), Duration::from_millis(100))
-            .await;
-
-        while let Some(paths) = events.next().await {
-            for event in paths {
-                if fs
-                    .metadata(&event.path)
-                    .await
-                    .ok()
-                    .flatten()
-                    .is_some_and(|m| !m.is_dir)
-                {
-                    let theme_registry = cx.update(|cx| ThemeRegistry::global(cx));
-                    if let Some(bytes) = fs.load_bytes(&event.path).await.log_err()
-                        && load_user_theme(&theme_registry, &bytes).log_err().is_some()
-                    {
-                        cx.update(theme_settings::reload_theme);
-                    }
-                }
-            }
-        }
-    })
-    .detach()
 }
 
 #[cfg(debug_assertions)]

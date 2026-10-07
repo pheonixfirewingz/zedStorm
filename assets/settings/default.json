@@ -1,16 +1,7 @@
 {
   "$schema": "zed://schemas/settings",
-  // The name of the Zed theme to use for the UI.
-  //
-  // `mode` is one of:
-  // - "system": Use the theme that corresponds to the system's appearance
-  // - "light": Use the theme indicated by the "light" field
-  // - "dark": Use the theme indicated by the "dark" field
-  "theme": {
-    "mode": "system",
-    "light": "Islands Light",
-    "dark": "Islands Dark",
-  },
+  // ZedStorm uses the compiled Islands Dark palette.
+  "theme": "Islands Dark",
   "icon_theme": "Zed (Default)",
   // The name of a font to use for rendering text in the editor
   // ".ZedMono" currently aliases to Lilex
@@ -370,7 +361,7 @@
   // (also known as "rainbow brackets")
   //
   // The colors that are used for different indentation levels are defined in the theme (theme key: `accents`).
-  // They can be customized by using theme overrides.
+  // Edit the compiled Islands palette to customize these colors.
   "colorize_brackets": false,
   // When to show the scrollbar in the completion menu.
   // This setting can take four values:

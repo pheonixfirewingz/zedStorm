@@ -51,7 +51,7 @@ use zed_actions::{
 
 use crate::components::{
     EnumVariantDropdown, NumberField, NumberFieldMode, NumberFieldType, SettingsInputField,
-    SettingsSectionHeader, font_picker, icon_theme_picker, text_field_a11y_state, theme_picker,
+    SettingsSectionHeader, font_picker, icon_theme_picker, text_field_a11y_state,
 };
 use crate::pages::{render_input_audio_device_dropdown, render_output_audio_device_dropdown};
 
@@ -612,9 +612,7 @@ fn init_renderers(cx: &mut App) {
         .add_basic_renderer::<settings::PaneSplitDirectionVertical>(render_dropdown)
         .add_basic_renderer::<settings::CodeLens>(render_dropdown)
         .add_basic_renderer::<settings::DocumentColorsRenderMode>(render_dropdown)
-        .add_basic_renderer::<settings::ThemeSelectionDiscriminants>(render_dropdown)
         .add_basic_renderer::<settings::ThemeAppearanceMode>(render_dropdown)
-        .add_basic_renderer::<settings::ThemeName>(render_theme_picker)
         .add_basic_renderer::<settings::IconThemeSelectionDiscriminants>(render_dropdown)
         .add_basic_renderer::<settings::IconThemeName>(render_icon_theme_picker)
         .add_basic_renderer::<settings::BufferLineHeightDiscriminants>(render_dropdown)
@@ -4906,67 +4904,6 @@ fn render_font_picker(
                             cx,
                             move |settings, app| {
                                 (field.write)(settings, Some(font_name.to_string().into()), app);
-                            },
-                        )
-                        .log_err(); // todo(settings_ui) don't log err
-                    },
-                    window,
-                    cx,
-                )
-            }))
-        })
-        .anchor(gpui::Anchor::TopLeft)
-        .offset(gpui::Point {
-            x: px(0.0),
-            y: px(2.0),
-        })
-        .with_handle(handle)
-        .into_any_element()
-}
-
-fn render_theme_picker(
-    field: SettingField<settings::ThemeName>,
-    file: SettingsUiFile,
-    _metadata: Option<&SettingsFieldMetadata>,
-    title: &'static str,
-    description: &'static str,
-    _window: &mut Window,
-    cx: &mut App,
-) -> AnyElement {
-    let (_, value) = SettingsStore::global(cx).get_value_from_file(file.to_settings(), field.pick);
-    let current_value = value
-        .cloned()
-        .map(|theme_name| theme_name.0.into())
-        .unwrap_or_else(|| cx.theme().name.clone());
-
-    let handle = ui::PopoverMenuHandle::default();
-    PopoverMenu::new("theme-picker")
-        .trigger(wire_picker_trigger_a11y(
-            render_picker_trigger_button("theme_picker_trigger".into(), current_value.clone())
-                .aria_label(title)
-                .when(!description.is_empty(), |this| {
-                    this.aria_description(description)
-                }),
-            handle.clone(),
-        ))
-        .menu(move |window, cx| {
-            Some(cx.new(|cx| {
-                let file = file.clone();
-                let current_value = current_value.clone();
-                theme_picker(
-                    current_value,
-                    move |theme_name, window, cx| {
-                        update_settings_file(
-                            file.clone(),
-                            field.json_path,
-                            window,
-                            cx,
-                            move |settings, app| {
-                                (field.write)(
-                                    settings,
-                                    Some(settings::ThemeName(theme_name.into())),
-                                    app,
-                                );
                             },
                         )
                         .log_err(); // todo(settings_ui) don't log err

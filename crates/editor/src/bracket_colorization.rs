@@ -411,11 +411,9 @@ mod tests {
     use project::Project;
     use rope::Point;
     use serde_json::json;
-    use settings::{AccentContent, SettingsStore};
+    use settings::SettingsStore;
     use text::{Bias, OffsetRangeExt, ToOffset};
     use theme::Appearance;
-    use theme_settings::ThemeStyleContent;
-    use ui::ActiveTheme;
 
     use util::{path, post_inc};
 
@@ -1840,67 +1838,6 @@ mod foo «1{
 5 hsla(355.00, 65.00%, 65.00%, 1.00)
 "#,},
             &editor_bracket_colors_markup(&editor_snapshot),
-        );
-
-        cx.update(|cx| {
-            let theme = cx.theme().name.clone();
-            SettingsStore::update_global(cx, |store, cx| {
-                store.update_user_settings(cx, |settings| {
-                    settings.theme.theme_overrides = HashMap::from_iter([(
-                        theme.to_string(),
-                        ThemeStyleContent {
-                            accents: vec![
-                                AccentContent(Some("#ff0000".into())),
-                                AccentContent(Some("#0000ff".into())),
-                            ],
-                            ..ThemeStyleContent::default()
-                        },
-                    )]);
-                });
-            });
-        });
-        cx.executor().advance_clock(Duration::from_millis(100));
-        cx.executor().run_until_parked();
-        let editor_snapshot = editor
-            .update(cx, |editor, window, cx| editor.snapshot(window, cx))
-            .unwrap();
-        let adjusted_palette = cx.update(|cx| {
-            bracket_colorization_accents(
-                &[
-                    Hsla::from(Rgba::try_from("#ff0000").expect("valid override accent")),
-                    Hsla::from(Rgba::try_from("#0000ff").expect("valid override accent")),
-                ],
-                cx.theme().appearance,
-                cx.theme().colors().editor_background,
-            )
-        });
-        let expected_markup = format!(
-            "{}\n1 {}\n2 {}\n",
-            indoc! {r#"
-
-
-{«1[]1»fn main«1()1» «1{«2{«1()1»}2»}1»
-
-
-mod foo «1{
-    fn process_data_1«2()2» «2{
-        let map: Option«1<Vec«2<«1()1»>2»>1» = None;
-        // a
-        // b
-        // c
-
-    fn process_data_2«2()2» «2{
-        let other_map: Option«1<Vec«2<«1()1»>2»>1» = None;
-    }2»
-}1»
-"#,},
-            adjusted_palette[0],
-            adjusted_palette[1],
-        );
-        assert_eq!(
-            expected_markup,
-            editor_bracket_colors_markup(&editor_snapshot),
-            "After updating theme accents, the editor should update the bracket coloring"
         );
     }
 

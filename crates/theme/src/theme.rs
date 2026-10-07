@@ -120,8 +120,8 @@ pub enum LoadThemes {
 /// Initialize the theme system with default themes.
 ///
 /// This sets up the [`ThemeRegistry`], [`FontFamilyCache`], [`SystemAppearance`],
-/// and [`GlobalTheme`] with the default dark theme. It does NOT load bundled
-/// themes from JSON or integrate with settings — use `theme_settings::init` for that.
+/// and [`GlobalTheme`] with the base dark palette used by isolated fixtures.
+/// The application installs its compiled Islands palette with `theme_settings::init`.
 pub fn init(themes_to_load: LoadThemes, cx: &mut App) {
     SystemAppearance::init(cx);
     let assets = match themes_to_load {
@@ -329,11 +329,6 @@ impl GlobalTheme {
     /// Creates a new [`GlobalTheme`] with the given theme and icon theme.
     pub fn new(theme: Arc<Theme>, icon_theme: Arc<IconTheme>) -> Self {
         Self { theme, icon_theme }
-    }
-
-    /// Updates the active theme.
-    pub fn update_theme(cx: &mut App, theme: Arc<Theme>) {
-        cx.update_global::<Self, _>(|this, _| this.theme = theme);
     }
 
     /// Updates the active icon theme.

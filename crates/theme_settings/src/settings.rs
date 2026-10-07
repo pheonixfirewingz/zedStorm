@@ -1,19 +1,12 @@
 #![allow(missing_docs)]
 
-use crate::schema::{status_colors_refinement, syntax_overrides, theme_colors_refinement};
-use crate::{merge_accent_colors, merge_player_colors};
-use collections::HashMap;
 use gpui::{
     App, Context, Font, FontFallbacks, FontStyle, FontWeight, Global, Pixels, SharedString,
     Subscription, Window, px,
 };
-use refineable::Refineable;
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-pub use settings::{FontFamilyName, IconThemeName, ThemeAppearanceMode, ThemeName};
+pub use settings::{FontFamilyName, IconThemeName, ThemeAppearanceMode};
 use settings::{IntoGpui, RegisterSetting, Settings, SettingsContent};
-use std::sync::Arc;
-use theme::{Appearance, DEFAULT_ICON_THEME_NAME, SyntaxTheme, Theme, UiDensity};
+use theme::{Appearance, UiDensity};
 
 const MIN_FONT_SIZE: Pixels = px(6.0);
 const MAX_FONT_SIZE: Pixels = px(100.0);
@@ -24,13 +17,6 @@ pub(crate) fn ui_density_from_settings(val: settings::UiDensity) -> UiDensity {
         settings::UiDensity::Compact => UiDensity::Compact,
         settings::UiDensity::Default => UiDensity::Default,
         settings::UiDensity::Comfortable => UiDensity::Comfortable,
-    }
-}
-
-pub fn appearance_to_mode(appearance: Appearance) -> ThemeAppearanceMode {
-    match appearance {
-        Appearance::Light => ThemeAppearanceMode::Light,
-        Appearance::Dark => ThemeAppearanceMode::Dark,
     }
 }
 
@@ -72,9 +58,6 @@ pub struct ThemeSettings {
     /// The font size to use for rendering in the markdown preview.
     /// Falls back to the UI font size if unset.
     markdown_preview_font_size: Option<Pixels>,
-    /// The theme to use for the markdown preview.
-    /// Falls back to the main editor theme if unset.
-    pub markdown_preview_theme: Option<ThemeSelection>,
     /// The font family used for Mermaid diagrams.
     /// Falls back to the UI font family if unset.
     mermaid_font_family: Option<SharedString>,
@@ -86,14 +69,6 @@ pub struct ThemeSettings {
     ///
     /// The terminal font family can be overridden using it's own setting.
     pub buffer_line_height: BufferLineHeight,
-    /// The current theme selection.
-    pub theme: ThemeSelection,
-    /// Manual overrides for the active theme.
-    ///
-    /// Note: This setting is still experimental. See [this tracking issue](https://github.com/zed-industries/zed/issues/18078)
-    pub experimental_theme_overrides: Option<settings::ThemeStyleContent>,
-    /// Manual overrides per theme
-    pub theme_overrides: HashMap<String, settings::ThemeStyleContent>,
     /// The current icon theme selection.
     pub icon_theme: IconThemeSelection,
     /// The density of the UI.
@@ -101,14 +76,6 @@ pub struct ThemeSettings {
     pub ui_density: UiDensity,
     /// The amount of fading applied to unnecessary code.
     pub unnecessary_code_fade: f32,
-}
-
-/// Returns the name of the default theme for the given [`Appearance`].
-pub fn default_theme(appearance: Appearance) -> &'static str {
-    match appearance {
-        Appearance::Light => settings::DEFAULT_LIGHT_THEME,
-        Appearance::Dark => settings::DEFAULT_DARK_THEME,
-    }
 }
 
 #[derive(Default)]
@@ -143,60 +110,6 @@ impl Global for GitCommitBufferFontSize {}
 pub struct MarkdownPreviewFontSize(Pixels);
 
 impl Global for MarkdownPreviewFontSize {}
-
-/// Represents the selection of a theme, which can be either static or dynamic.
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
-#[serde(untagged)]
-pub enum ThemeSelection {
-    /// A static theme selection, represented by a single theme name.
-    Static(ThemeName),
-    /// A dynamic theme selection, which can change based the [ThemeMode].
-    Dynamic {
-        /// The mode used to determine which theme to use.
-        #[serde(default)]
-        mode: ThemeAppearanceMode,
-        /// The theme to use for light mode.
-        light: ThemeName,
-        /// The theme to use for dark mode.
-        dark: ThemeName,
-    },
-}
-
-impl From<settings::ThemeSelection> for ThemeSelection {
-    fn from(selection: settings::ThemeSelection) -> Self {
-        match selection {
-            settings::ThemeSelection::Static(theme) => ThemeSelection::Static(theme),
-            settings::ThemeSelection::Dynamic { mode, light, dark } => {
-                ThemeSelection::Dynamic { mode, light, dark }
-            }
-        }
-    }
-}
-
-impl ThemeSelection {
-    /// Returns the theme name for the selected [ThemeMode].
-    pub fn name(&self, system_appearance: Appearance) -> ThemeName {
-        match self {
-            Self::Static(theme) => theme.clone(),
-            Self::Dynamic { mode, light, dark } => match mode {
-                ThemeAppearanceMode::Light => light.clone(),
-                ThemeAppearanceMode::Dark => dark.clone(),
-                ThemeAppearanceMode::System => match system_appearance {
-                    Appearance::Light => light.clone(),
-                    Appearance::Dark => dark.clone(),
-                },
-            },
-        }
-    }
-
-    /// Returns the [ThemeMode] for the [ThemeSelection].
-    pub fn mode(&self) -> Option<ThemeAppearanceMode> {
-        match self {
-            ThemeSelection::Static(_) => None,
-            ThemeSelection::Dynamic { mode, .. } => Some(*mode),
-        }
-    }
-}
 
 /// Represents the selection of an icon theme, which can be either static or dynamic.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -250,48 +163,6 @@ impl IconThemeSelection {
     }
 }
 
-/// Sets the theme for the given appearance to the theme with the specified name.
-///
-/// The caller should make sure that the [`Appearance`] matches the theme associated with the name.
-///
-/// If the current [`ThemeAppearanceMode`] is set to [`System`] and the user's system [`Appearance`]
-/// is different than the new theme's [`Appearance`], this function will update the
-/// [`ThemeAppearanceMode`] to the new theme's appearance in order to display the new theme.
-///
-/// [`System`]: ThemeAppearanceMode::System
-pub fn set_theme(
-    current: &mut SettingsContent,
-    theme_name: impl Into<Arc<str>>,
-    theme_appearance: Appearance,
-    system_appearance: Appearance,
-) {
-    let theme_name = ThemeName(theme_name.into());
-
-    let Some(selection) = current.theme.theme.as_mut() else {
-        current.theme.theme = Some(settings::ThemeSelection::Static(theme_name));
-        return;
-    };
-
-    match selection {
-        settings::ThemeSelection::Static(theme) => {
-            *theme = theme_name;
-        }
-        settings::ThemeSelection::Dynamic { mode, light, dark } => {
-            match theme_appearance {
-                Appearance::Light => *light = theme_name,
-                Appearance::Dark => *dark = theme_name,
-            }
-
-            let should_update_mode =
-                !(mode == &ThemeAppearanceMode::System && theme_appearance == system_appearance);
-
-            if should_update_mode {
-                *mode = appearance_to_mode(theme_appearance);
-            }
-        }
-    }
-}
-
 /// Sets the icon theme for the given appearance to the icon theme with the specified name.
 pub fn set_icon_theme(
     current: &mut SettingsContent,
@@ -314,53 +185,6 @@ pub fn set_icon_theme(
         *icon_theme_to_update = icon_theme_name;
     } else {
         current.theme.icon_theme = Some(settings::IconThemeSelection::Static(icon_theme_name));
-    }
-}
-
-/// Sets the mode for the theme.
-pub fn set_mode(content: &mut SettingsContent, mode: ThemeAppearanceMode) {
-    let theme = content.theme.as_mut();
-
-    if let Some(selection) = theme.theme.as_mut() {
-        match selection {
-            settings::ThemeSelection::Static(_) => {
-                *selection = settings::ThemeSelection::Dynamic {
-                    mode: ThemeAppearanceMode::System,
-                    light: ThemeName(settings::DEFAULT_LIGHT_THEME.into()),
-                    dark: ThemeName(settings::DEFAULT_DARK_THEME.into()),
-                };
-            }
-            settings::ThemeSelection::Dynamic {
-                mode: mode_to_update,
-                ..
-            } => *mode_to_update = mode,
-        }
-    } else {
-        theme.theme = Some(settings::ThemeSelection::Dynamic {
-            mode,
-            light: ThemeName(settings::DEFAULT_LIGHT_THEME.into()),
-            dark: ThemeName(settings::DEFAULT_DARK_THEME.into()),
-        });
-    }
-
-    if let Some(selection) = theme.icon_theme.as_mut() {
-        match selection {
-            settings::IconThemeSelection::Static(icon_theme) => {
-                *selection = settings::IconThemeSelection::Dynamic {
-                    mode,
-                    light: icon_theme.clone(),
-                    dark: icon_theme.clone(),
-                };
-            }
-            settings::IconThemeSelection::Dynamic {
-                mode: mode_to_update,
-                ..
-            } => *mode_to_update = mode,
-        }
-    } else {
-        theme.icon_theme = Some(settings::IconThemeSelection::Static(IconThemeName(
-            DEFAULT_ICON_THEME_NAME.into(),
-        )));
     }
 }
 
@@ -519,45 +343,6 @@ impl ThemeSettings {
     /// Returns the buffer's line height.
     pub fn line_height(&self) -> f32 {
         f32::max(self.buffer_line_height.value(), MIN_LINE_HEIGHT)
-    }
-
-    /// Applies the theme overrides, if there are any, to the current theme.
-    pub fn apply_theme_overrides(&self, mut arc_theme: Arc<Theme>) -> Arc<Theme> {
-        if let Some(experimental_theme_overrides) = &self.experimental_theme_overrides {
-            let mut theme = (*arc_theme).clone();
-            ThemeSettings::modify_theme(&mut theme, experimental_theme_overrides);
-            arc_theme = Arc::new(theme);
-        }
-
-        if let Some(theme_overrides) = self.theme_overrides.get(arc_theme.name.as_ref()) {
-            let mut theme = (*arc_theme).clone();
-            ThemeSettings::modify_theme(&mut theme, theme_overrides);
-            arc_theme = Arc::new(theme);
-        }
-
-        arc_theme
-    }
-
-    fn modify_theme(base_theme: &mut Theme, theme_overrides: &settings::ThemeStyleContent) {
-        if let Some(window_background_appearance) = theme_overrides.window_background_appearance {
-            base_theme.styles.window_background_appearance =
-                window_background_appearance.into_gpui();
-        }
-        let status_color_refinement = status_colors_refinement(&theme_overrides.status);
-
-        let theme_color_refinement = theme_colors_refinement(
-            &theme_overrides.colors,
-            &status_color_refinement,
-            base_theme.appearance.is_light(),
-        );
-        base_theme.styles.colors.refine(&theme_color_refinement);
-        base_theme.styles.status.refine(&status_color_refinement);
-        merge_player_colors(&mut base_theme.styles.player, &theme_overrides.players);
-        merge_accent_colors(&mut base_theme.styles.accents, &theme_overrides.accents);
-        base_theme.styles.syntax = SyntaxTheme::merge(
-            base_theme.styles.syntax.clone(),
-            syntax_overrides(theme_overrides),
-        );
     }
 }
 
@@ -723,7 +508,6 @@ impl settings::Settings for ThemeSettings {
     fn from_settings(settings_content: &settings::SettingsContent) -> Self {
         let content = &settings_content.theme;
         let markdown_preview = settings_content.markdown_preview.as_ref();
-        let theme_selection: ThemeSelection = content.theme.clone().unwrap().into();
         let icon_theme_selection: IconThemeSelection = content.icon_theme.clone().unwrap().into();
         Self {
             ui_font_size: clamp_font_size(content.ui_font_size.unwrap().into_gpui()),
@@ -771,9 +555,6 @@ impl settings::Settings for ThemeSettings {
             markdown_preview_font_size: markdown_preview
                 .and_then(|preview| preview.font_size)
                 .map(|size| size.into_gpui()),
-            markdown_preview_theme: markdown_preview
-                .and_then(|preview| preview.theme.clone())
-                .map(ThemeSelection::from),
             mermaid_font_family: content
                 .mermaid_font_family
                 .as_ref()
@@ -782,110 +563,9 @@ impl settings::Settings for ThemeSettings {
                 .and_then(|preview| preview.heading_font_weight)
                 .map(|weight| weight.into_gpui())
                 .unwrap_or(FontWeight::SEMIBOLD),
-            theme: theme_selection,
-            experimental_theme_overrides: content.experimental_theme_overrides.clone(),
-            theme_overrides: content.theme_overrides.clone(),
             icon_theme: icon_theme_selection,
             ui_density: ui_density_from_settings(content.ui_density.unwrap_or_default()),
             unnecessary_code_fade: content.unnecessary_code_fade.unwrap().0.clamp(0.0, 0.9),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn theme_with_colors(colors: ::settings::ThemeColorsContent) -> Theme {
-        crate::refine_theme(&crate::ThemeContent {
-            name: "Test".into(),
-            appearance: ::theme::AppearanceContent::Dark,
-            style: ::settings::ThemeStyleContent {
-                colors,
-                ..Default::default()
-            },
-        })
-    }
-
-    fn style_with_colors(colors: ::settings::ThemeColorsContent) -> ::settings::ThemeStyleContent {
-        ::settings::ThemeStyleContent {
-            colors,
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn code_lens_foreground_from_theme_survives_text_muted_override() {
-        let magenta = ::theme::try_parse_color("#ff00ff").unwrap();
-        let green = ::theme::try_parse_color("#00ff00").unwrap();
-        let mut test_theme = theme_with_colors(::settings::ThemeColorsContent {
-            editor_code_lens_foreground: Some("#ff00ff".into()),
-            ..Default::default()
-        });
-
-        ThemeSettings::modify_theme(
-            &mut test_theme,
-            &style_with_colors(::settings::ThemeColorsContent {
-                text_muted: Some("#00ff00".into()),
-                ..Default::default()
-            }),
-        );
-
-        assert_eq!(
-            test_theme.styles.colors.editor_code_lens_foreground,
-            Some(magenta)
-        );
-        assert_eq!(test_theme.styles.colors.text_muted, green);
-    }
-
-    #[test]
-    fn code_lens_foreground_from_earlier_override_survives_later_muted_override() {
-        let magenta = ::theme::try_parse_color("#ff00ff").unwrap();
-        let green = ::theme::try_parse_color("#00ff00").unwrap();
-        let mut test_theme = theme_with_colors(Default::default());
-
-        ThemeSettings::modify_theme(
-            &mut test_theme,
-            &style_with_colors(::settings::ThemeColorsContent {
-                editor_code_lens_foreground: Some("#ff00ff".into()),
-                ..Default::default()
-            }),
-        );
-        ThemeSettings::modify_theme(
-            &mut test_theme,
-            &style_with_colors(::settings::ThemeColorsContent {
-                text_muted: Some("#00ff00".into()),
-                ..Default::default()
-            }),
-        );
-
-        assert_eq!(
-            test_theme.styles.colors.editor_code_lens_foreground,
-            Some(magenta)
-        );
-        assert_eq!(test_theme.styles.colors.text_muted, green);
-    }
-
-    #[test]
-    fn code_lens_foreground_follows_effective_text_muted_without_explicit_color() {
-        let green = ::theme::try_parse_color("#00ff00").unwrap();
-        let mut test_theme = theme_with_colors(Default::default());
-
-        ThemeSettings::modify_theme(
-            &mut test_theme,
-            &style_with_colors(::settings::ThemeColorsContent {
-                text_muted: Some("#00ff00".into()),
-                ..Default::default()
-            }),
-        );
-
-        assert_eq!(test_theme.styles.colors.editor_code_lens_foreground, None);
-        assert_eq!(
-            test_theme
-                .styles
-                .colors
-                .color(::theme::ThemeColorField::EditorCodeLensForeground),
-            green
-        );
     }
 }
