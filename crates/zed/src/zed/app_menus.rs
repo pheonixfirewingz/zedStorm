@@ -64,27 +64,6 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
             name: "Zed".into(),
             disabled: false,
             items: vec![
-                MenuItem::action("About Zed", zed_actions::About),
-                MenuItem::action("Check for Updates", auto_update::Check),
-                MenuItem::separator(),
-                MenuItem::submenu(Menu::new("Settings").items([
-                    MenuItem::action("Open Settings", zed_actions::OpenSettings),
-                    MenuItem::action("Open Settings File", super::OpenSettingsFile),
-                    MenuItem::action("Open Project Settings", zed_actions::OpenProjectSettings),
-                    MenuItem::action("Open Project Settings File", super::OpenProjectSettingsFile),
-                    MenuItem::action("Open Default Settings", super::OpenDefaultSettings),
-                ])),
-                MenuItem::separator(),
-                MenuItem::action("Extensions", zed_actions::Extensions::default()),
-            ],
-        },
-        Menu {
-            name: "File".into(),
-            disabled: false,
-            items: vec![
-                MenuItem::action("New", workspace::NewFile),
-                MenuItem::action("New Window", workspace::NewWindow),
-                MenuItem::separator(),
                 #[cfg(not(target_os = "macos"))]
                 MenuItem::action("Open File...", workspace::OpenFiles),
                 MenuItem::action(
@@ -96,7 +75,6 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
                     workspace::Open::default(),
                 ),
                 MenuItem::action("Open Recent…", zed_actions::OpenRecent::default()),
-                MenuItem::action("Open Remote…", zed_actions::OpenRemote::default()),
                 MenuItem::separator(),
                 MenuItem::action("Add Folder to Project…", workspace::AddFolderToProject),
                 MenuItem::separator(),
@@ -104,36 +82,17 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
                 MenuItem::action("Save As…", workspace::SaveAs),
                 MenuItem::action("Save All", workspace::SaveAll { save_intent: None }),
                 MenuItem::separator(),
-                MenuItem::action(
-                    "Close Editor",
-                    workspace::CloseActiveItem {
-                        save_intent: None,
-                        close_pinned: true,
-                    },
-                ),
-                MenuItem::action("Close Project", workspace::CloseProject),
-                MenuItem::action("Close Window", workspace::CloseWindow),
-            ],
-        },
-        Menu {
-            name: "Edit".into(),
-            disabled: false,
-            items: vec![
-                MenuItem::os_action("Undo", editor::actions::Undo, OsAction::Undo),
-                MenuItem::os_action("Redo", editor::actions::Redo, OsAction::Redo),
+                MenuItem::action("About Zed", zed_actions::About),
                 MenuItem::separator(),
-                MenuItem::os_action("Cut", editor::actions::Cut, OsAction::Cut),
-                MenuItem::os_action("Copy", editor::actions::Copy, OsAction::Copy),
-                MenuItem::action("Copy and Trim", editor::actions::CopyAndTrim),
-                MenuItem::os_action("Paste", editor::actions::Paste, OsAction::Paste),
+                MenuItem::submenu(Menu::new("Settings").items([
+                    MenuItem::action("Open Settings", zed_actions::OpenSettings),
+                    MenuItem::action("Open Settings File", super::OpenSettingsFile),
+                    MenuItem::action("Open Project Settings", zed_actions::OpenProjectSettings),
+                    MenuItem::action("Open Project Settings File", super::OpenProjectSettingsFile),
+                    MenuItem::action("Open Default Settings", super::OpenDefaultSettings),
+                ])),
                 MenuItem::separator(),
-                MenuItem::action("Find", search::buffer_search::Deploy::find()),
-                MenuItem::action("Find in Project", workspace::DeploySearch::default()),
-                MenuItem::separator(),
-                MenuItem::action(
-                    "Toggle Line Comment",
-                    editor::actions::ToggleComments::default(),
-                ),
+                MenuItem::action("Extensions", zed_actions::Extensions::default()),
             ],
         },
         Menu {
@@ -258,28 +217,10 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
             ],
         },
         Menu {
-            name: "Window".into(),
-            disabled: false,
-            items: vec![
-                MenuItem::action("Minimize", super::Minimize),
-                MenuItem::action("Zoom", super::Zoom),
-                MenuItem::separator(),
-            ],
-        },
-        Menu {
             name: "Help".into(),
             disabled: false,
             items: vec![
-                MenuItem::action(
-                    "View Release Notes Locally",
-                    auto_update_ui::ViewReleaseNotesLocally,
-                ),
-                MenuItem::action("View Telemetry", zed_actions::OpenTelemetryLog),
                 MenuItem::action("View Dependency Licenses", zed_actions::OpenLicenses),
-                MenuItem::separator(),
-                MenuItem::action("File Bug Report...", zed_actions::feedback::FileBugReport),
-                MenuItem::action("Request Feature...", zed_actions::feedback::RequestFeature),
-                MenuItem::action("Email Us...", zed_actions::feedback::EmailZed),
                 MenuItem::separator(),
                 MenuItem::action(
                     "Documentation",
@@ -287,7 +228,6 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
                         url: "https://zed.dev/docs".into(),
                     },
                 ),
-                MenuItem::action("Zed Repository", feedback::OpenZedRepo),
                 MenuItem::action(
                     "Zed Twitter",
                     super::OpenBrowser {

@@ -1,23 +1,14 @@
-use super::{Client, Status, proto};
+use super::{Client, proto};
 use anyhow::{Context as _, Result};
 use chrono::{DateTime, Utc};
-use cloud_api_client::websocket_protocol::MessageToClient;
-use cloud_api_client::{
-    GetAuthenticatedUserResponse, KnownOrUnknown, Organization, OrganizationId, Plan, PlanInfo,
-    UpdateSystemSettingsBody,
-};
 use cloud_api_types::OrganizationConfiguration;
+use cloud_api_types::{Organization, OrganizationId, Plan, PlanInfo};
 use collections::HashMap;
-use feature_flags::FeatureFlagAppExt;
-use futures::{StreamExt, channel::mpsc};
-use gpui::{
-    App, AppContext as _, Context, EventEmitter, SharedString, SharedUri, Task, TaskExt, WeakEntity,
-};
-use postage::{sink::Sink, watch};
+use gpui::{App, Context, EventEmitter, SharedString, SharedUri, Task, TaskExt, WeakEntity};
+use postage::watch;
 use rpc::proto::{RequestMessage, UsersResponse};
 use std::sync::{Arc, Weak};
 use text::ReplicaId;
-use util::ResultExt;
 
 pub type LegacyUserId = u64;
 
@@ -76,13 +67,12 @@ pub struct UserStore {
     participant_indices: HashMap<u64, ParticipantIndex>,
     plan_info: Option<PlanInfo>,
     current_user: watch::Receiver<Option<Arc<User>>>,
+    _current_user_sender: watch::Sender<Option<Arc<User>>>,
     current_organization: Option<Arc<Organization>>,
     organizations: Vec<Arc<Organization>>,
     plans_by_organization: HashMap<OrganizationId, Plan>,
     configuration_by_organization: HashMap<OrganizationId, OrganizationConfiguration>,
     client: Weak<Client>,
-    _maintain_current_user: Task<Result<()>>,
-    _handle_sign_out: Task<()>,
     weak_self: WeakEntity<Self>,
 }
 
@@ -97,118 +87,22 @@ impl EventEmitter<Event> for UserStore {}
 
 impl UserStore {
     pub fn new(client: Arc<Client>, cx: &Context<Self>) -> Self {
-        let (mut current_user_tx, current_user_rx) = watch::channel();
-        let (sign_out_tx, mut sign_out_rx) = mpsc::unbounded();
-        client.sign_out_tx.lock().replace(sign_out_tx);
-        client.add_message_to_client_handler({
-            let this = cx.weak_entity();
-            move |message, cx| Self::handle_message_to_client(this.clone(), message, cx)
-        });
-
+        let (current_user_sender, current_user) = watch::channel_with(None);
         Self {
             users: Default::default(),
-            current_user: current_user_rx,
+            participant_indices: Default::default(),
+            plan_info: None,
+            current_user,
             current_organization: None,
             organizations: Vec::new(),
             plans_by_organization: HashMap::default(),
             configuration_by_organization: HashMap::default(),
-            plan_info: None,
-            participant_indices: Default::default(),
             client: Arc::downgrade(&client),
-            _maintain_current_user: cx.spawn(async move |this, cx| {
-                let mut status = client.status();
-                let weak = Arc::downgrade(&client);
-                drop(client);
-                while let Some(status) = status.next().await {
-                    // If the client is dropped, the app is shutting down.
-                    let Some(client) = weak.upgrade() else {
-                        return Ok(());
-                    };
-                    match status {
-                        Status::Authenticated
-                        | Status::Reauthenticated
-                        | Status::Connected { .. } => {
-                            if let Some(user_id) = client.user_id() {
-                                let system_id =
-                                    client.telemetry().system_id().map(|id| id.to_string());
-                                let response = client
-                                    .cloud_client()
-                                    .get_authenticated_user(system_id)
-                                    .await
-                                    .log_err();
-
-                                let current_user_and_response = if let Some(response) = response {
-                                    let user = Arc::new(User {
-                                        legacy_id: user_id,
-                                        username: response.user.username.clone().into(),
-                                        avatar_uri: response.user.avatar_url.clone().into(),
-                                        name: response.user.name.clone(),
-                                    });
-
-                                    Some((user, response))
-                                } else {
-                                    None
-                                };
-                                current_user_tx
-                                    .send(
-                                        current_user_and_response
-                                            .as_ref()
-                                            .map(|(user, _)| user.clone()),
-                                    )
-                                    .await
-                                    .ok();
-
-                                cx.update(|cx| {
-                                    if let Some((user, response)) = current_user_and_response {
-                                        this.update(cx, |this, cx| {
-                                            this.users.insert(user_id, user);
-                                            this.update_authenticated_user(response, cx)
-                                        })
-                                    } else {
-                                        anyhow::Ok(())
-                                    }
-                                })?;
-
-                                this.update(cx, |_, cx| cx.notify())?;
-                            }
-                        }
-                        Status::SignedOut => {
-                            current_user_tx.send(None).await.ok();
-                            this.update(cx, |this, cx| {
-                                this.clear_organizations();
-                                this.clear_plan_and_usage();
-                                cx.emit(Event::PrivateUserInfoUpdated);
-                                cx.notify();
-                            })?;
-                        }
-                        Status::ConnectionLost => {
-                            this.update(cx, |_, cx| {
-                                cx.notify();
-                            })?;
-                        }
-                        _ => {}
-                    }
-                }
-                Ok(())
-            }),
-            _handle_sign_out: cx.spawn(async move |this, cx| {
-                while let Some(()) = sign_out_rx.next().await {
-                    let Some(client) = this
-                        .read_with(cx, |this, _cx| this.client.upgrade())
-                        .ok()
-                        .flatten()
-                    else {
-                        break;
-                    };
-
-                    client.sign_out(cx).await;
-                }
-            }),
             weak_self: cx.weak_entity(),
+            _current_user_sender: current_user_sender,
         }
     }
 
-    #[cfg(feature = "test-support")]
     pub fn clear_cache(&mut self) {
         self.users.clear();
     }
@@ -308,31 +202,11 @@ impl UserStore {
             return Task::ready(Ok(()));
         }
 
-        let organization_id = organization.id.clone();
         self.current_organization.replace(organization);
         cx.emit(Event::OrganizationChanged);
         cx.notify();
 
-        let Some(client) = self.client.upgrade() else {
-            return Task::ready(Ok(()));
-        };
-        let Some(system_id) = client.telemetry().system_id().map(|id| id.to_string()) else {
-            // Without a system ID we have no addressable target row on the
-            // server, so the selection stays purely session-local.
-            return Task::ready(Ok(()));
-        };
-        let cloud_client = client.cloud_client();
-
-        cx.background_spawn(async move {
-            let body = UpdateSystemSettingsBody {
-                selected_organization_id: Some(organization_id),
-            };
-            cloud_client
-                .update_system_settings(system_id, body)
-                .await
-                .context("failed to persist selected organization")?;
-            Ok(())
-        })
+        Task::ready(Ok(()))
     }
 
     pub fn organizations(&self) -> &Vec<Arc<Organization>> {
@@ -368,7 +242,7 @@ impl UserStore {
     pub fn plan(&self) -> Option<Plan> {
         #[cfg(debug_assertions)]
         if let Ok(plan) = std::env::var("ZED_SIMULATE_PLAN").as_ref() {
-            use cloud_api_client::Plan;
+            use cloud_api_types::Plan;
 
             return match plan.as_str() {
                 "free" => Some(Plan::ZedFree),
@@ -438,82 +312,6 @@ impl UserStore {
 
     pub fn clear_plan_and_usage(&mut self) {
         self.plan_info = None;
-    }
-
-    fn update_authenticated_user(
-        &mut self,
-        response: GetAuthenticatedUserResponse,
-        cx: &mut Context<Self>,
-    ) {
-        let staff = response.user.is_staff && !*feature_flags::ZED_DISABLE_STAFF;
-        cx.update_flags(staff, response.feature_flags);
-        if let Some(client) = self.client.upgrade() {
-            client
-                .telemetry
-                .set_authenticated_user_info(Some(response.user.metrics_id.clone()), staff);
-        }
-
-        self.organizations = response.organizations.into_iter().map(Arc::new).collect();
-
-        self.current_organization = response
-            .default_organization_id
-            .and_then(|default_organization_id| {
-                self.organizations
-                    .iter()
-                    .find(|organization| organization.id == default_organization_id)
-                    .cloned()
-            })
-            .or_else(|| self.organizations.first().cloned());
-        self.plans_by_organization = response
-            .plans_by_organization
-            .into_iter()
-            .map(|(organization_id, plan)| {
-                let plan = match plan {
-                    KnownOrUnknown::Known(plan) => plan,
-                    KnownOrUnknown::Unknown(_) => {
-                        // If we get a plan that we don't recognize, fall back to the Free plan.
-                        Plan::ZedFree
-                    }
-                };
-
-                (organization_id, plan)
-            })
-            .collect();
-        self.configuration_by_organization =
-            response.configuration_by_organization.into_iter().collect();
-
-        self.plan_info = Some(response.plan);
-        cx.emit(Event::PrivateUserInfoUpdated);
-    }
-
-    fn handle_message_to_client(this: WeakEntity<Self>, message: &MessageToClient, cx: &App) {
-        match message {
-            MessageToClient::UserUpdated => {}
-            MessageToClient::NotificationsUpdated | MessageToClient::SettingsUpdated => return,
-        }
-
-        cx.spawn(async move |cx| {
-            let (cloud_client, system_id) = cx
-                .update(|cx| {
-                    this.read_with(cx, |this, _cx| {
-                        this.client.upgrade().map(|client| {
-                            let system_id = client.telemetry().system_id().map(|id| id.to_string());
-                            (client.cloud_client(), system_id)
-                        })
-                    })
-                })?
-                .ok_or(anyhow::anyhow!("Failed to get Cloud client"))?;
-
-            let response = cloud_client.get_authenticated_user(system_id).await?;
-            cx.update(|cx| {
-                this.update(cx, |this, cx| {
-                    this.update_authenticated_user(response, cx);
-                })
-            })?;
-
-            anyhow::Ok(())
-        })
-        .detach_and_log_err(cx);
     }
 
     pub fn watch_current_user(&self) -> watch::Receiver<Option<Arc<User>>> {

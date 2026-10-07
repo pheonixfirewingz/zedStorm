@@ -2,11 +2,9 @@
 resolver = "2"
 members = [
     "crates/activity_indicator",
+    "crates/ai",
     "crates/askpass",
     "crates/assets",
-    "crates/auto_update",
-    "crates/auto_update_helper",
-    "crates/auto_update_ui",
     "crates/bench_metrics",
     "crates/benchmarks",
     "crates/breadcrumbs",
@@ -15,13 +13,13 @@ members = [
     "crates/cli",
     "crates/client",
     "crates/clock",
-    "crates/cloud_api_client",
     "crates/cloud_api_types",
     "crates/collections",
     "crates/command_palette",
     "crates/command_palette_hooks",
     "crates/component",
     "crates/component_preview",
+    "crates/context_mcp",
     "crates/crashes",
     "crates/credentials_provider",
     "crates/dap",
@@ -47,7 +45,6 @@ members = [
     "crates/extensions_ui",
     "crates/feature_flags",
     "crates/feature_flags_macros",
-    "crates/feedback",
     "crates/file_content",
     "crates/file_finder",
     "crates/file_icons",
@@ -221,24 +218,23 @@ edition = "2024"
 #
 
 activity_indicator = { path = "crates/activity_indicator" }
+ai = { path = "crates/ai" }
 askpass = { path = "crates/askpass" }
 assets = { path = "crates/assets" }
 bench_metrics = { path = "crates/bench_metrics" }
-auto_update = { path = "crates/auto_update" }
-auto_update_ui = { path = "crates/auto_update_ui" }
 breadcrumbs = { path = "crates/breadcrumbs" }
 buffer_diff = { path = "crates/buffer_diff" }
 call_hierarchy = { path = "crates/call_hierarchy" }
 cli = { path = "crates/cli", default-features = false }
 client = { path = "crates/client" }
 clock = { path = "crates/clock" }
-cloud_api_client = { path = "crates/cloud_api_client" }
 cloud_api_types = { path = "crates/cloud_api_types" }
 collections = { path = "crates/collections", version = "0.1.0" }
 command_palette = { path = "crates/command_palette" }
 command_palette_hooks = { path = "crates/command_palette_hooks" }
 component = { path = "crates/component" }
 component_preview = { path = "crates/component_preview" }
+context_mcp = { path = "crates/context_mcp" }
 crashes = { path = "crates/crashes" }
 credentials_provider = { path = "crates/credentials_provider" }
 dap = { path = "crates/dap" }
@@ -260,7 +256,6 @@ extension_suggest = { path = "crates/extension_suggest" }
 extensions_ui = { path = "crates/extensions_ui" }
 feature_flags = { path = "crates/feature_flags" }
 feature_flags_macros = { path = "crates/feature_flags_macros" }
-feedback = { path = "crates/feedback" }
 file_content = { path = "crates/file_content" }
 file_finder = { path = "crates/file_finder" }
 file_icons = { path = "crates/file_icons" }

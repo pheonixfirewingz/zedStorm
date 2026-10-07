@@ -7,15 +7,25 @@ ZedStorm is a stripped-down, opinionated version of Zed, focused on a fast edito
 
 It uses a single fixed Islands Dark theme and removes Zed's account, collaboration, built-in agent, model-provider, and edit-prediction features from the application. Codex CLI handles the AI tools and authentication.
 
+Crash dumps and hang reports are kept locally; ZedStorm does not upload them or collect usage telemetry. Zed account, update, feedback, and remote-development integrations are removed. Networking remains available for editor tools and Codex CLI.
+
 The aim is a smaller, simpler editing experience with fewer settings and a consistent look.
 
 ### Builds
 
-The **Build ZedStorm** GitHub Actions workflow builds Linux and Windows x86_64 versions on pushes to `custom` and pull requests targeting `custom`, and can also be run manually on that branch. Download the packages from a successful run's **Artifacts** section.
+The **Build ZedStorm** GitHub Actions workflow builds Linux and Windows x86_64 versions on pushes to `custom` and pull requests targeting `custom`, and can also be run manually on that branch. Successful builds on `custom` replace the downloads in the [latest release](https://github.com/pheonixfirewingz/zedStorm/releases/tag/latest).
 
 Linux produces a Flatpak bundle. Install it with `flatpak install --user zedstorm-linux-x86_64.flatpak` and launch it with `flatpak run dev.zedstorm.ZedStorm`. Install Codex CLI on your host to use the chat panel.
 
 On Windows, extract the ZIP and launch `zed.exe`, keeping the terminal helper files alongside it.
+
+To build a Flatpak locally, install Rust with rustup, `flatpak`, and `flatpak-builder`, then run:
+
+```sh
+./script/build-flatpak
+```
+
+On Ubuntu/Debian, install the Flatpak tools with `sudo apt-get install -y flatpak flatpak-builder`. The script installs the user SDK, generates licences, builds the editor, and writes `dist/zedstorm-linux-x86_64.flatpak` (or the matching host architecture).
 
 ### Licensing
 

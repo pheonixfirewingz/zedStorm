@@ -13,7 +13,7 @@ use futures::{FutureExt, StreamExt};
 use git_ui::multi_diff_view::MultiDiffView;
 use git_ui_core::file_diff_view::FileDiffView;
 use gpui::{App, AsyncApp, Global, TaskExt, WindowHandle};
-use recent_projects::{RemoteSettings, navigate_to_positions, open_remote_project};
+use recent_projects::RemoteSettings;
 use remote::{RemoteConnectionOptions, WslConnectionOptions};
 use settings::Settings;
 use std::path::{Path, PathBuf};
@@ -512,6 +512,38 @@ pub async fn open_paths_with_positions(
     Ok((multi_workspace, items))
 }
 
+fn navigate_to_positions(
+    window: &WindowHandle<MultiWorkspace>,
+    items: impl IntoIterator<Item = Option<Box<dyn workspace::item::ItemHandle>>>,
+    positions: &[PathWithPosition],
+    cx: &mut AsyncApp,
+) {
+    for (item, path) in items.into_iter().zip(positions) {
+        let Some(item) = item else {
+            continue;
+        };
+        let Some(row) = path.row else {
+            continue;
+        };
+        if let Some(active_editor) = item.downcast::<Editor>() {
+            window
+                .update(cx, |_, window, cx| {
+                    active_editor.update(cx, |editor, cx| {
+                        let row = row.saturating_sub(1);
+                        let column = path.column.unwrap_or(0).saturating_sub(1);
+                        let Some(buffer) = editor.buffer().read(cx).as_singleton() else {
+                            return;
+                        };
+                        let buffer_snapshot = buffer.read(cx).snapshot();
+                        let point = buffer_snapshot.point_from_external_input(row, column);
+                        editor.go_to_singleton_buffer_point(point, window, cx);
+                    });
+                })
+                .log_err();
+        }
+    }
+}
+
 pub async fn handle_cli_connection(
     (mut requests, responses): (
         mpsc::UnboundedReceiver<CliRequest>,
@@ -784,6 +816,10 @@ async fn open_workspaces(
     cwd: Option<PathBuf>,
     cx: &mut AsyncApp,
 ) -> Result<()> {
+    anyhow::ensure!(
+        !dev_container,
+        "Remote projects are unavailable in ZedStorm."
+    );
     if paths.is_empty()
         && diff_paths.is_empty()
         && !matches!(open_behavior, cli::OpenBehavior::AlwaysNew)
@@ -851,26 +887,8 @@ async fn open_workspaces(
                     errored = true
                 }
             }
-            SerializedWorkspaceLocation::Remote(mut connection) => {
-                let app_state = app_state.clone();
-                if let RemoteConnectionOptions::Ssh(options) = &mut connection {
-                    cx.update(|cx| {
-                        RemoteSettings::get_global(cx)
-                            .fill_connection_options_from_settings(options)
-                    });
-                }
-                cx.spawn(async move |cx| {
-                    open_remote_project(
-                        connection,
-                        workspace_paths.paths().to_vec(),
-                        app_state,
-                        open_options,
-                        cx,
-                    )
-                    .await
-                    .log_err();
-                })
-                .detach();
+            SerializedWorkspaceLocation::Remote(_) => {
+                anyhow::bail!("Remote projects are unavailable in ZedStorm.");
             }
         }
     }

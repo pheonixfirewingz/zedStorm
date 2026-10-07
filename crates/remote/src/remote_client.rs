@@ -24,9 +24,11 @@ use futures::{
     select, select_biased,
     stream::BoxStream,
 };
+#[cfg(any(test, feature = "test-support"))]
+use gpui::BorrowAppContext;
 use gpui::{
-    App, AppContext as _, AsyncApp, BackgroundExecutor, BorrowAppContext, Context, Entity,
-    EventEmitter, FutureExt, Global, Task, TaskExt, WeakEntity,
+    App, AppContext as _, AsyncApp, BackgroundExecutor, Context, Entity, EventEmitter, FutureExt,
+    Global, Task, TaskExt, WeakEntity,
 };
 use parking_lot::Mutex;
 
@@ -383,13 +385,19 @@ pub async fn connect(
     delegate: Arc<dyn RemoteClientDelegate>,
     cx: &mut AsyncApp,
 ) -> Result<Arc<dyn RemoteConnection>> {
-    cx.update(|cx| {
-        cx.update_default_global(|pool: &mut ConnectionPool, cx| {
-            pool.connect(connection_options.clone(), None, delegate.clone(), cx)
-        })
-    })
-    .await
-    .map_err(|e| e.cloned())
+    #[cfg(any(test, feature = "test-support"))]
+    if matches!(connection_options, RemoteConnectionOptions::Mock(_)) {
+        return cx
+            .update(|cx| {
+                cx.update_default_global(|pool: &mut ConnectionPool, cx| {
+                    pool.connect(connection_options.clone(), None, delegate.clone(), cx)
+                })
+            })
+            .await
+            .map_err(|error| error.cloned());
+    }
+    drop((connection_options, delegate, cx));
+    anyhow::bail!("Remote projects are unavailable in ZedStorm.")
 }
 
 /// Returns `true` if the global [`ConnectionPool`] already has a live
@@ -1395,6 +1403,22 @@ mod tests {
     use super::*;
     use gpui::TestAppContext;
     use rpc::{ErrorCodeExt, proto::ErrorCode};
+
+    #[gpui::test]
+    async fn test_remote_connections_are_unavailable(cx: &mut TestAppContext) {
+        let options = RemoteConnectionOptions::Ssh(SshConnectionOptions {
+            host: "example.invalid".into(),
+            ..Default::default()
+        });
+        let connection = connect(
+            options,
+            Arc::new(crate::transport::mock::MockDelegate),
+            &mut cx.to_async(),
+        )
+        .await;
+        assert!(connection.is_err());
+        cx.update(|cx| assert!(cx.try_global::<ConnectionPool>().is_none()));
+    }
 
     #[test]
     fn test_ssh_display_name_prefers_nickname() {

@@ -1,8 +1,13 @@
 flowchart LR
-    Action[Codex button / menu / shortcut] --> Panel[Native GPUI chat panel]
-    Panel --> Protocol[Thread and turn state / approvals]
+    App[ZedStorm startup / workspace / MCP CLI] --> AI
+    Action[Codex button / menu / shortcut] --> Panel
+    subgraph AI[ai crate]
+        Panel[Native GPUI chat panel] --> Protocol[Thread and turn state / approvals]
+        Protocol --> MCP[context_mcp integration]
+    end
     Protocol <-->|JSONL over stdio| Server[Installed codex app-server]
     Server --> Config[Codex credentials and configuration]
     Server --> Tools[Project files and commands]
     Server --> History[Codex thread history]
-    Server --> Models[Configured model provider]
+    Server --> Models[Selected model provider]
+    Server <-->|MCP stdio| MCP

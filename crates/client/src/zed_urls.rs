@@ -6,12 +6,9 @@
 
 use gpui::App;
 use release_channel::ReleaseChannel;
-use settings::Settings;
 
-use crate::ClientSettings;
-
-fn server_url(cx: &App) -> &str {
-    &ClientSettings::get_global(cx).server_url
+fn server_url(_cx: &App) -> &str {
+    "https://zed.dev"
 }
 
 fn docs_url(cx: &App) -> String {

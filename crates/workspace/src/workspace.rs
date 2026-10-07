@@ -161,7 +161,7 @@ pub use workspace_settings::{
     RestoreOnStartupBehavior, StatusBarSettings, TabBarSettings, WorkspaceSettings,
     closing_last_window_quits_app, observe_accessible_mode,
 };
-use zed_actions::{Spawn, feedback::FileBugReport};
+use zed_actions::Spawn;
 
 use crate::{dock::PanelSizeState, item::ItemBufferKind, notifications::NotificationId};
 use crate::{
@@ -8552,12 +8552,7 @@ fn notify_if_database_failed(window: WindowHandle<MultiWorkspace>, cx: &mut Asyn
                         cx,
                         |cx| {
                             cx.new(|cx| {
-                                MessageNotification::new("Failed to load the database file.", cx)
-                                    .primary_message("File an Issue")
-                                    .primary_icon(IconName::Plus)
-                                    .primary_on_click(|window, cx| {
-                                        window.dispatch_action(Box::new(FileBugReport), cx)
-                                    })
+                                MessageNotification::new("Failed to load the database file. Check the local log for details.", cx)
                             })
                         },
                     );

@@ -8,6 +8,7 @@
 *.xcodeproj
 .DS_Store
 .build
+/dist
 .claude/settings.local.json
 .envrc
 .idea

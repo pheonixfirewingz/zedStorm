@@ -1,5 +1,6 @@
 use anyhow::{Context as _, Result, bail};
 use futures::{AsyncBufReadExt as _, AsyncWriteExt as _, StreamExt as _};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use smol::{channel, io::BufReader, process::Command};
 use std::{collections::BTreeMap, path::PathBuf, process::Stdio};
@@ -24,7 +25,12 @@ async fn serve(
     outgoing: channel::Receiver<Value>,
     incoming: channel::Sender<Result<Value>>,
 ) -> Result<()> {
+    let executable =
+        std::env::current_exe().context("Cannot locate ZedStorm's built-in MCP server")?;
+    let writable = std::env::var("ZEDSTORM_CONTEXT_MCP_WRITE").is_ok_and(|value| value == "1");
+    let configuration = context_mcp::codex_configuration(&executable, &directory, writable)?;
     let mut child = Command::new("codex")
+        .args(configuration)
         .arg("app-server")
         .current_dir(directory)
         .stdin(Stdio::piped())
@@ -86,11 +92,62 @@ pub struct ServerRequest {
     pub params: Value,
 }
 
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Model {
+    pub model: String,
+    pub display_name: String,
+    pub default_reasoning_effort: String,
+    pub supported_reasoning_efforts: Vec<ReasoningEffort>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReasoningEffort {
+    pub reasoning_effort: String,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum AccessMode {
+    #[default]
+    Default,
+    ReadOnly,
+    WorkspaceWrite,
+    FullAccess,
+}
+
+impl AccessMode {
+    pub const ALL: [Self; 4] = [
+        Self::Default,
+        Self::ReadOnly,
+        Self::WorkspaceWrite,
+        Self::FullAccess,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Default => "Configured access",
+            Self::ReadOnly => "Read-only",
+            Self::WorkspaceWrite => "Workspace write",
+            Self::FullAccess => "Full access",
+        }
+    }
+}
+
+#[derive(Clone, Default)]
+pub struct SessionSettings {
+    pub model: Option<String>,
+    pub reasoning_effort: Option<String>,
+    pub access: AccessMode,
+}
+
 #[derive(Clone, Copy)]
 enum RequestKind {
     Initialize,
     Account,
     RateLimits,
+    Models,
+    Configuration,
     StartThread,
     ResumeThread,
     StartTurn,
@@ -105,6 +162,14 @@ pub struct Session {
     pub needs_sign_in: bool,
     pub signing_in: bool,
     pub model: Option<String>,
+    pub settings: SessionSettings,
+    pub models: Vec<Model>,
+    pub models_error: Option<String>,
+    configured_model: Option<String>,
+    configured_effort: Option<String>,
+    configured_approval: Option<Value>,
+    configured_sandbox: Option<Value>,
+    configured_access: Option<String>,
     pub five_hour_usage: Option<f32>,
     pub weekly_usage: Option<f32>,
     pub usage_error: Option<String>,
@@ -130,6 +195,14 @@ impl Session {
             needs_sign_in: false,
             signing_in: false,
             model: None,
+            settings: SessionSettings::default(),
+            models: Vec::new(),
+            models_error: None,
+            configured_model: None,
+            configured_effort: None,
+            configured_approval: None,
+            configured_sandbox: None,
+            configured_access: None,
             five_hour_usage: None,
             weekly_usage: None,
             usage_error: None,
@@ -151,6 +224,48 @@ impl Session {
         self.next_id += 1;
         self.pending.insert(self.next_id, kind);
         json!({"id": self.next_id, "method": method, "params": params})
+    }
+
+    pub fn selected_model(&self) -> Option<&str> {
+        self.settings
+            .model
+            .as_deref()
+            .or(self.configured_model.as_deref())
+            .or(self.model.as_deref())
+    }
+
+    pub fn selected_reasoning_effort(&self) -> Option<&str> {
+        self.settings.reasoning_effort.as_deref().or_else(|| {
+            let model_default = || {
+                self.models
+                    .iter()
+                    .find(|model| Some(model.model.as_str()) == self.selected_model())
+                    .map(|model| model.default_reasoning_effort.as_str())
+            };
+            if self.settings.model.is_some() {
+                model_default()
+            } else {
+                self.configured_effort.as_deref().or_else(model_default)
+            }
+        })
+    }
+
+    pub fn access_label(&self) -> &'static str {
+        if self.settings.access != AccessMode::Default {
+            return self.settings.access.label();
+        }
+        match self
+            .configured_sandbox
+            .as_ref()
+            .and_then(|sandbox| sandbox.get("type"))
+            .and_then(Value::as_str)
+            .or(self.configured_access.as_deref())
+        {
+            Some("readOnly" | "read-only") => AccessMode::ReadOnly.label(),
+            Some("workspaceWrite" | "workspace-write") => AccessMode::WorkspaceWrite.label(),
+            Some("dangerFullAccess" | "danger-full-access") => AccessMode::FullAccess.label(),
+            _ => "Default access",
+        }
     }
 
     pub fn initialize(&mut self) -> Value {
@@ -200,14 +315,45 @@ impl Session {
         }
         let thread_id = self.thread_id.clone()?;
         let text = self.prompt.take()?;
-        Some(self.request(
-            RequestKind::StartTurn,
-            "turn/start",
-            json!({
-                "threadId": thread_id,
-                "input": [{"type": "text", "text": text, "text_elements": []}]
-            }),
-        ))
+        let mut params = json!({
+            "threadId": thread_id,
+            "input": [{"type": "text", "text": text, "text_elements": []}]
+        });
+        let model = self
+            .settings
+            .model
+            .as_ref()
+            .or(self.configured_model.as_ref());
+        if let Some(model) = model {
+            params["model"] = json!(model);
+        }
+        if let Some(effort) = self.selected_reasoning_effort() {
+            params["effort"] = json!(effort);
+        }
+        match self.settings.access {
+            AccessMode::Default => {
+                if let Some(approval) = &self.configured_approval {
+                    params["approvalPolicy"] = approval.clone();
+                }
+                if let Some(sandbox) = &self.configured_sandbox {
+                    params["sandboxPolicy"] = sandbox.clone();
+                }
+            }
+            AccessMode::ReadOnly => {
+                params["approvalPolicy"] = json!("never");
+                params["sandboxPolicy"] = json!({"type": "readOnly"});
+            }
+            AccessMode::WorkspaceWrite => {
+                params["approvalPolicy"] = json!("on-request");
+                params["sandboxPolicy"] =
+                    json!({"type": "workspaceWrite", "writableRoots": [self.directory]});
+            }
+            AccessMode::FullAccess => {
+                params["approvalPolicy"] = json!("never");
+                params["sandboxPolicy"] = json!({"type": "dangerFullAccess"});
+            }
+        }
+        Some(self.request(RequestKind::StartTurn, "turn/start", params))
     }
 
     pub fn interrupt(&mut self) -> Option<Value> {
@@ -261,6 +407,16 @@ impl Session {
             return Vec::new();
         };
         if let Some(error) = message.get("error") {
+            if matches!(kind, RequestKind::Models) {
+                self.models_error = Some(
+                    error
+                        .get("message")
+                        .and_then(Value::as_str)
+                        .unwrap_or("Could not load Codex models")
+                        .to_owned(),
+                );
+                return Vec::new();
+            }
             if matches!(kind, RequestKind::RateLimits) {
                 self.five_hour_usage = None;
                 self.weekly_usage = None;
@@ -305,11 +461,33 @@ impl Session {
                     self.ready = true;
                 }
                 outgoing.push(self.request(
+                    RequestKind::Configuration,
+                    "config/read",
+                    json!({"includeLayers": false}),
+                ));
+                outgoing.push(self.request(
                     RequestKind::Account,
                     "account/read",
                     json!({"refreshToken": false}),
                 ));
                 outgoing
+            }
+            RequestKind::Configuration => {
+                self.configured_access = result
+                    .pointer("/config/sandbox_mode")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                if self.thread_id.is_none() {
+                    self.configured_model = result
+                        .pointer("/config/model")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned);
+                    self.configured_effort = result
+                        .pointer("/config/model_reasoning_effort")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned);
+                }
+                Vec::new()
             }
             RequestKind::Account => {
                 self.needs_sign_in = result
@@ -320,12 +498,30 @@ impl Session {
                 self.five_hour_usage = None;
                 self.weekly_usage = None;
                 self.usage_error = None;
+                self.models.clear();
+                self.models_error = None;
+                let mut outgoing = vec![self.request(RequestKind::Models, "model/list", json!({}))];
                 if result.pointer("/account/type").and_then(Value::as_str) == Some("chatgpt") {
-                    vec![self.request(
+                    outgoing.push(self.request(
                         RequestKind::RateLimits,
                         "account/rateLimits/read",
                         Value::Null,
-                    )]
+                    ));
+                }
+                outgoing
+            }
+            RequestKind::Models => {
+                match serde_json::from_value::<Vec<Model>>(
+                    result.get("data").cloned().unwrap_or(Value::Null),
+                ) {
+                    Ok(models) => self.models.extend(models),
+                    Err(error) => {
+                        self.models_error = Some(format!("Could not read Codex models: {error}"));
+                        return Vec::new();
+                    }
+                }
+                if let Some(cursor) = result.get("nextCursor").and_then(Value::as_str) {
+                    vec![self.request(RequestKind::Models, "model/list", json!({"cursor": cursor}))]
                 } else {
                     Vec::new()
                 }
@@ -349,6 +545,15 @@ impl Session {
                     .get("model")
                     .and_then(Value::as_str)
                     .map(str::to_owned);
+                if matches!(kind, RequestKind::StartThread) || self.configured_sandbox.is_none() {
+                    self.configured_model = self.model.clone();
+                    self.configured_effort = result
+                        .get("reasoningEffort")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned);
+                    self.configured_approval = result.get("approvalPolicy").cloned();
+                    self.configured_sandbox = result.get("sandbox").cloned();
+                }
                 if matches!(kind, RequestKind::ResumeThread) {
                     self.ready = true;
                     self.messages.clear();
@@ -367,6 +572,11 @@ impl Session {
                 }
             }
             RequestKind::StartTurn => {
+                if let Some(model) = &self.settings.model {
+                    self.model = Some(model.clone());
+                } else {
+                    self.model = self.configured_model.clone();
+                }
                 // A completion notification can arrive before the response for a very short turn.
                 if self.busy {
                     self.turn_id = result
@@ -738,7 +948,10 @@ mod tests {
         let followups = session.receive(json!({"id": account["id"], "result": {
             "requiresOpenaiAuth": true, "account": {"type": "chatgpt"}
         }}));
-        let limits = followups.first().context("rate limits request")?;
+        let limits = followups
+            .iter()
+            .find(|request| request["method"] == "account/rateLimits/read")
+            .context("rate limits request")?;
         assert_eq!(limits["method"], "account/rateLimits/read");
         session.receive(json!({"id": limits["id"], "result": {"rateLimits": {
             "primary": {"usedPercent": 25, "windowDurationMins": 300},
@@ -803,6 +1016,119 @@ mod tests {
         assert!(session.error.is_none());
         assert!(session.ready);
         assert!(session.send_prompt("hello".into()).is_some());
+    }
+
+    #[test]
+    fn codex_reads_configured_model_before_first_turn() -> Result<()> {
+        let mut session = Session::new("/tmp/project".into());
+        let initialize = session.initialize();
+        let requests = session.receive(json!({"id": initialize["id"], "result": {}}));
+        let config = requests
+            .iter()
+            .find(|request| request["method"] == "config/read")
+            .context("config request")?;
+        session.receive(json!({"id": config["id"], "result": {"config": {"model": "configured-model", "model_reasoning_effort": "medium", "sandbox_mode": "danger-full-access"}}}));
+        assert_eq!(session.selected_model(), Some("configured-model"));
+        assert_eq!(session.selected_reasoning_effort(), Some("medium"));
+        assert_eq!(session.access_label(), "Full access");
+        session.settings.access = AccessMode::ReadOnly;
+        assert_eq!(session.access_label(), "Read-only");
+        session.settings.access = AccessMode::Default;
+        assert_eq!(session.access_label(), "Full access");
+        session.settings.model = Some("another-model".into());
+        assert_eq!(session.selected_model(), Some("another-model"));
+        session.settings.model = None;
+        assert_eq!(session.selected_model(), Some("configured-model"));
+        Ok(())
+    }
+
+    #[test]
+    fn codex_discovers_models_with_pagination_without_blocking_chat() -> Result<()> {
+        let mut session = ready_session();
+        let request = session.request(RequestKind::Models, "model/list", json!({}));
+        let model = json!({
+            "model": "test-model", "displayName": "Test model",
+            "defaultReasoningEffort": "medium",
+            "supportedReasoningEfforts": [{"reasoningEffort": "low"}, {"reasoningEffort": "medium"}]
+        });
+        let followups = session.receive(json!({"id": request["id"], "result": {
+            "data": [model], "nextCursor": "next-page"
+        }}));
+        assert_eq!(session.models.len(), 1);
+        let next = followups.first().context("next models page")?;
+        assert_eq!(next["method"], "model/list");
+        assert_eq!(next["params"]["cursor"], "next-page");
+        session.receive(json!({"id": next["id"], "error": {"message": "Models unavailable"}}));
+        assert_eq!(session.models_error.as_deref(), Some("Models unavailable"));
+        assert!(session.error.is_none());
+        assert!(session.ready);
+        assert!(session.send_prompt("Hello".into()).is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn codex_settings_apply_to_turns_and_restore_configured_defaults() -> Result<()> {
+        let mut session = ready_session();
+        session.settings.model = Some("selected-model".into());
+        session.settings.reasoning_effort = Some("high".into());
+        session.settings.access = AccessMode::FullAccess;
+        let request = session
+            .send_prompt("Hello".into())
+            .context("thread request")?;
+        let followups = session.receive(json!({"id": request["id"], "result": {
+            "thread": {"id": "thread-1"}, "model": "configured-model", "reasoningEffort": "low",
+            "approvalPolicy": "on-request", "sandbox": {"type": "workspaceWrite", "networkAccess": false}
+        }}));
+        let turn = followups.first().context("first turn")?;
+        assert_eq!(turn["params"]["model"], "selected-model");
+        assert_eq!(turn["params"]["effort"], "high");
+        assert_eq!(turn["params"]["approvalPolicy"], "never");
+        assert_eq!(turn["params"]["sandboxPolicy"]["type"], "dangerFullAccess");
+        session.receive(json!({"id": turn["id"], "result": {"turn": {"id": "turn-1"}}}));
+        assert_eq!(session.model.as_deref(), Some("selected-model"));
+        session.receive(json!({"method": "turn/completed", "params": {"threadId": "thread-1", "turn": {"id": "turn-1", "status": "completed"}}}));
+        session.settings = SessionSettings::default();
+        let turn = session
+            .send_prompt("Follow up".into())
+            .context("followup")?;
+        assert_eq!(turn["params"]["model"], "configured-model");
+        assert_eq!(turn["params"]["effort"], "low");
+        assert_eq!(turn["params"]["approvalPolicy"], "on-request");
+        assert_eq!(
+            turn["params"]["sandboxPolicy"],
+            json!({"type": "workspaceWrite", "networkAccess": false})
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn codex_model_default_reasoning_and_access_modes() -> Result<()> {
+        let mut session = ready_session();
+        session.thread_id = Some("thread-1".into());
+        session.models = serde_json::from_value(json!([{
+            "model": "selected-model", "displayName": "Test", "defaultReasoningEffort": "medium", "supportedReasoningEfforts": []
+        }]))?;
+        session.settings.model = Some("selected-model".into());
+        for (access, sandbox, approval) in [
+            (AccessMode::ReadOnly, "readOnly", "never"),
+            (AccessMode::WorkspaceWrite, "workspaceWrite", "on-request"),
+        ] {
+            session.settings.access = access;
+            let turn = session
+                .send_prompt("Hello".into())
+                .context("turn request")?;
+            assert_eq!(turn["params"]["effort"], "medium");
+            assert_eq!(turn["params"]["sandboxPolicy"]["type"], sandbox);
+            assert_eq!(turn["params"]["approvalPolicy"], approval);
+            if access == AccessMode::WorkspaceWrite {
+                assert_eq!(
+                    turn["params"]["sandboxPolicy"]["writableRoots"],
+                    json!(["/tmp/project"])
+                );
+            }
+            session.receive(json!({"method": "turn/completed", "params": {"threadId": "thread-1", "turn": {"status": "completed"}}}));
+        }
+        Ok(())
     }
 
     fn ready_session() -> Session {

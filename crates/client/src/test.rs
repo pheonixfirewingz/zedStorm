@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result, anyhow};
-use cloud_api_client::{
+use cloud_api_types::{
     AuthenticatedUser, GetAuthenticatedUserResponse, KnownOrUnknown, Plan, PlanInfo,
 };
 use futures::{StreamExt, stream::BoxStream};

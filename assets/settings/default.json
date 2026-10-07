@@ -590,14 +590,6 @@
     "show_worktree_name": true,
     // Whether to show the project host and name in the titlebar.
     "show_project_items": true,
-    // Whether to show onboarding banners in the titlebar.
-    "show_onboarding_banner": true,
-    // Whether to show user picture in the titlebar.
-    "show_user_picture": true,
-    // Whether to show the user menu in the titlebar.
-    "show_user_menu": false,
-    // Whether to show the sign in button in the titlebar.
-    "show_sign_in": false,
     // Whether to show the menus in the titlebar.
     "show_menus": false,
     // Whether to open the menus in the titlebar on hover.
@@ -1391,23 +1383,10 @@
   //
   // Default: true
   "word_diff_enabled": true,
-  // Control what info is collected by Zed.
-  "telemetry": {
-    // Send debug info like crash reports.
-    "diagnostics": true,
-    // Send anonymized usage data like what languages you're using Zed with.
-    "metrics": true,
-    // Allow sending requests to Anthropic models that cannot be offered with
-    // Zero Data Retention
-    "anthropic_retention": false,
-  },
   // Whether to disable all AI features in Zed.
   //
   // Default: false
   "disable_ai": true,
-  // Automatically update Zed. This setting may be ignored on Linux if
-  // installed through a package manager.
-  "auto_update": true,
   // How to render LSP `textDocument/documentColor` colors in the editor.
   //
   // Possible values:
@@ -2513,9 +2492,6 @@
     // Delay in milliseconds before showing the which-key popup.
     "delay_ms": 1000,
   },
-  // The server to connect to. If the environment variable
-  // ZED_SERVER_URL is set, it will override this setting.
-  "server_url": "https://zed.dev",
   // Settings overrides to use when using Zed Preview.
   // Mostly useful for developers who are managing multiple instances of Zed.
   "preview": {
@@ -2586,24 +2562,6 @@
   //   "W": "workspace::Save"
   // }
   "command_aliases": {},
-  // ssh_connections is an array of ssh connections.
-  // You can configure these from `project: Open Remote` in the command palette.
-  // Zed's ssh support will pull configuration from your ~/.ssh too.
-  // Examples:
-  // [
-  //   {
-  //     "host": "example-box",
-  //     // "port": 22, "username": "test", "args": ["-i", "/home/user/.ssh/id_rsa"]
-  //     "projects": [
-  //       {
-  //         "paths": ["/home/user/code/zed"]
-  //       }
-  //     ]
-  //   }
-  // ]
-  "ssh_connections": [],
-  // Whether to read ~/.ssh/config for ssh connection sources.
-  "read_ssh_config": true,
   "debugger": {
     "stepping_granularity": "line",
     "save_breakpoints": true,

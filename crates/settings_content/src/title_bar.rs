@@ -90,10 +90,12 @@ pub struct TitleBarSettingsContent {
     /// Whether to show onboarding banners in the title bar.
     ///
     /// Default: true
+    #[schemars(skip)]
     pub show_onboarding_banner: Option<bool>,
     /// Whether to show user avatar in the title bar.
     ///
     /// Default: true
+    #[schemars(skip)]
     pub show_user_picture: Option<bool>,
     /// Whether to show the branch name button in the titlebar.
     ///
@@ -110,10 +112,12 @@ pub struct TitleBarSettingsContent {
     /// Whether to show the sign in button in the title bar.
     ///
     /// Default: true
+    #[schemars(skip)]
     pub show_sign_in: Option<bool>,
     /// Whether to show the user menu button in the title bar.
     ///
     /// Default: true
+    #[schemars(skip)]
     pub show_user_menu: Option<bool>,
     /// Whether to show the menus in the title bar.
     ///

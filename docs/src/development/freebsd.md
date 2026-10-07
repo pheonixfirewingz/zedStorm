@@ -16,7 +16,8 @@ Clone the [Zed repository](https://github.com/zed-industries/zed).
 - Install the necessary system packages and rustup:
 
   ```sh
-  script/freebsd
+  sudo pkg install cmake gcc git llvm protobuf rustup-init libX11 alsa-lib
+  rustup-init
   ```
 
   If preferred, you can inspect [`script/freebsd`](https://github.com/zed-industries/zed/blob/main/script/freebsd) and perform the steps manually.

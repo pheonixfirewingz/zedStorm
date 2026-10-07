@@ -1,6 +1,4 @@
 mod app_menus;
-mod codex_panel;
-mod codex_protocol;
 #[cfg(target_os = "macos")]
 pub(crate) mod mac_only_instance;
 mod migrate;
@@ -9,8 +7,6 @@ pub(crate) mod move_to_applications;
 mod open_listener;
 mod open_url_modal;
 mod quick_action_bar;
-pub mod remote_debug;
-pub mod telemetry_log;
 #[cfg(all(target_os = "macos", feature = "visual-tests"))]
 pub mod visual_tests;
 #[cfg(target_os = "windows")]
@@ -59,12 +55,11 @@ use paths::{
     local_tasks_file_relative_path,
 };
 use project::{
-    DirectoryLister, DisableAiSettings, ProjectItem,
+    DisableAiSettings, ProjectItem,
     project_settings::{SettingsObserver, SettingsObserverEvent},
 };
 use project_panel::ProjectPanel;
 use quick_action_bar::QuickActionBar;
-use recent_projects::open_remote_project;
 use release_channel::{AppCommitSha, AppVersion, ReleaseChannel};
 use rope::Rope;
 use search::project_search::ProjectSearchBar;
@@ -80,7 +75,7 @@ use workspace::workspace_error::{ErrorAction, ErrorSeverity, WorkspaceError};
 
 use std::{
     borrow::Cow,
-    path::{Path, PathBuf},
+    path::Path,
     sync::Arc,
     sync::atomic::{self, AtomicBool},
 };
@@ -99,7 +94,7 @@ use workspace::{
     create_and_open_local_file, notifications::simple_message_notification::MessageNotification,
     open_new,
 };
-use workspace::{CloseProject, CloseWindow, RestoreBanner, with_active_or_new_workspace};
+use workspace::{CloseProject, CloseWindow, with_active_or_new_workspace};
 use workspace::{Pane, notifications::DetachAndPromptErr};
 use zed_actions::{
     About, GetMerch, OpenBrowser, OpenDocs, OpenProjectTasks, OpenServerSettings, OpenSettingsFile,
@@ -194,8 +189,6 @@ pub fn init(cx: &mut App) {
     #[cfg(target_os = "macos")]
     cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
     cx.on_action(quit);
-
-    cx.on_action(|_: &RestoreBanner, cx| title_bar::restore_banner(cx));
 
     cx.observe_flag::<PanicFeatureFlag, _>({
         let mut added = false;
@@ -528,7 +521,6 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
             }
         }
 
-        let search_button = cx.new(|_| search::search_status_button::SearchButton::new());
         let diagnostic_summary =
             cx.new(|cx| diagnostics::items::DiagnosticIndicator::new(workspace, cx));
         let active_file_name = cx.new(|_| workspace::active_file_name::ActiveFileName::new());
@@ -558,7 +550,6 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
             cx.new(|_| line_ending_selector::LineEndingIndicator::default());
         let git_blame_status = cx.new(|_| git_ui::GitBlameStatus::default());
         workspace.status_bar().update(cx, |status_bar, cx| {
-            status_bar.add_left_item(search_button, window, cx);
             status_bar.add_left_item(lsp_button, window, cx);
             status_bar.add_left_item(diagnostic_summary, window, cx);
             status_bar.add_left_item(active_file_name, window, cx);
@@ -702,8 +693,7 @@ fn initialize_panels(
     window: &mut Window,
     cx: &mut Context<Workspace>,
 ) -> Task<anyhow::Result<()>> {
-    let codex_panel = cx.new(|panel_cx| codex_panel::CodexPanel::new(workspace, window, panel_cx));
-    workspace.add_panel(codex_panel, window, cx);
+    ai::init_workspace(workspace, window, cx);
     cx.spawn_in(window, async move |workspace_handle, cx| {
         let project_panel = ProjectPanel::load(workspace_handle.clone(), cx.clone());
         let outline_panel = OutlinePanel::load(workspace_handle.clone(), cx.clone());
@@ -742,66 +732,32 @@ fn initialize_panels(
     })
 }
 
-pub fn init_codex_commands(cx: &mut App) {
+pub fn init_command_filters(cx: &mut App) {
     command_palette_hooks::CommandPaletteFilter::update_global(cx, |filter, _| {
         for namespace in [
-            "acp",
-            "agent",
-            "agents",
-            "agents_sidebar",
-            "assistant",
-            "assistant2",
-            "bedrock",
-            "context_server",
-            "copilot",
-            "edit_prediction",
-            "inline_assistant",
-            "zeta",
-            "zed_predict_onboarding",
             "collab",
             "client",
             "channel",
             "call",
             "onboarding",
+            "auto_update",
+            "auto_update_ui",
+            "feedback",
+            "remote",
+            "remote_debug",
+            "dev_container",
+            "wsl",
             "multi_workspace",
         ] {
             filter.hide_namespace(namespace);
         }
         filter.hide_action_types(&[
+            std::any::TypeId::of::<workspace::RestoreBanner>(),
+            std::any::TypeId::of::<zed_actions::OpenRemote>(),
+            std::any::TypeId::of::<zed_actions::OpenDevContainer>(),
+            std::any::TypeId::of::<zed_actions::OpenTelemetryLog>(),
             std::any::TypeId::of::<zed_actions::OpenAccountSettings>(),
-            std::any::TypeId::of::<zed_actions::OpenZedPredictOnboarding>(),
-            std::any::TypeId::of::<editor::actions::AcceptEditPrediction>(),
-            std::any::TypeId::of::<editor::actions::AcceptNextWordEditPrediction>(),
-            std::any::TypeId::of::<editor::actions::AcceptNextLineEditPrediction>(),
-            std::any::TypeId::of::<editor::actions::NextEditPrediction>(),
-            std::any::TypeId::of::<editor::actions::PreviousEditPrediction>(),
-            std::any::TypeId::of::<editor::actions::ShowEditPrediction>(),
-            std::any::TypeId::of::<editor::actions::ToggleEditPrediction>(),
-            std::any::TypeId::of::<editor::actions::SendReviewToAgent>(),
         ]);
-    });
-}
-
-fn open_codex(
-    workspace: &mut Workspace,
-    _: &zed_actions::OpenCodex,
-    window: &mut Window,
-    cx: &mut Context<Workspace>,
-) {
-    let panels_task = workspace.take_panels_task();
-    cx.spawn_in(window, async move |workspace, cx| {
-        if let Some(panels_task) = panels_task {
-            panels_task.await?;
-        }
-        workspace.update_in(cx, |workspace, window, cx| {
-            workspace
-                .focus_panel::<codex_panel::CodexPanel>(window, cx)
-                .context("Codex chat panel is unavailable")
-        })??;
-        Ok(())
-    })
-    .detach_and_prompt_err("Could not open Codex chat", window, cx, |_, _, _| {
-        Some("Install Codex CLI and ensure `codex` is on your PATH.".into())
     });
 }
 
@@ -812,7 +768,6 @@ fn register_actions(
     cx: &mut Context<Workspace>,
 ) {
     workspace
-        .register_action(open_codex)
         .register_action(|_, _: &OpenDocs, _, cx| cx.open_url(DOCS_URL))
         .register_action(|_, _: &OpenStatusPage, _, cx| cx.open_url(STATUS_URL))
         .register_action(|_, _: &GetMerch, _, cx| cx.open_url(MERCH_URL))
@@ -1007,54 +962,6 @@ fn register_actions(
                 window,
                 cx,
             );
-        })
-        .register_action(|workspace, action: &zed_actions::OpenRemote, window, cx| {
-            if !action.from_existing_connection {
-                cx.propagate();
-                return;
-            }
-            // You need existing remote connection to open it this way
-            if workspace.project().read(cx).is_local() {
-                return;
-            }
-            let create_new_window = action.create_new_window.unwrap_or_else(|| {
-                matches!(
-                    WorkspaceSettings::get_global(cx).default_open_behavior,
-                    DefaultOpenBehavior::NewWindow
-                )
-            });
-            telemetry::event!("Project Opened");
-            let paths = workspace.prompt_for_open_path(
-                PathPromptOptions {
-                    files: true,
-                    directories: true,
-                    multiple: true,
-                    prompt: None,
-                },
-                DirectoryLister::Project(workspace.project().clone()),
-                window,
-                cx,
-            );
-            cx.spawn_in(window, async move |this, cx| {
-                let Some(paths) = paths.await.log_err().flatten() else {
-                    return;
-                };
-                if let Some(task) = this
-                    .update_in(cx, |this, window, cx| {
-                        open_new_ssh_project_from_project(
-                            this,
-                            paths,
-                            create_new_window,
-                            window,
-                            cx,
-                        )
-                    })
-                    .log_err()
-                {
-                    task.await.log_err();
-                }
-            })
-            .detach()
         })
         .register_action({
             let fs = app_state.fs.clone();
@@ -1375,9 +1282,6 @@ fn initialize_pane(
             toolbar.add_item(lsp_log_item, window, cx);
             let dap_log_item = cx.new(|_| debugger_tools::DapLogToolbarItemView::new());
             toolbar.add_item(dap_log_item, window, cx);
-            let telemetry_log_item =
-                cx.new(|cx| telemetry_log::TelemetryLogToolbarItemView::new(window, cx));
-            toolbar.add_item(telemetry_log_item, window, cx);
             let syntax_tree_item = cx.new(|_| language_tools::SyntaxTreeToolbarItemView::new());
             toolbar.add_item(syntax_tree_item, window, cx);
             let migration_banner =
@@ -2207,6 +2111,13 @@ const REMOVED_ACTION_NAMESPACES: &[&str] = &[
     "channel::",
     "call::",
     "onboarding::",
+    "auto_update::",
+    "auto_update_ui::",
+    "feedback::",
+    "remote::",
+    "remote_debug::",
+    "dev_container::",
+    "wsl::",
     "multi_workspace::",
     "zed_predict_onboarding::",
     "assistant::",
@@ -2227,6 +2138,10 @@ fn is_removed_keybinding(binding: &KeyBinding) -> bool {
             "editor::SendReviewToAgent"
                 | "zed::OpenAccountSettings"
                 | "zed::OpenZedPredictOnboarding"
+                | "zed::OpenRemote"
+                | "zed::OpenDevContainer"
+                | "zed::OpenTelemetryLog"
+                | "workspace::RestoreBanner"
                 | "workspace::UseAgenticLayout"
                 | "workspace::UseClassicLayout"
         )
@@ -2264,40 +2179,6 @@ fn initialize_new_window(
     });
     let editor = cx.new(|cx| Editor::for_buffer(buffer, Some(project), window, cx));
     workspace.add_item_to_active_pane(Box::new(editor), None, true, window, cx);
-}
-
-pub fn open_new_ssh_project_from_project(
-    workspace: &mut Workspace,
-    paths: Vec<PathBuf>,
-    create_new_window: bool,
-    window: &mut Window,
-    cx: &mut Context<Workspace>,
-) -> Task<anyhow::Result<()>> {
-    let app_state = workspace.app_state().clone();
-    let Some(ssh_client) = workspace.project().read(cx).remote_client() else {
-        return Task::ready(Err(anyhow::anyhow!("Not an ssh project")));
-    };
-    let connection_options = ssh_client.read(cx).connection_options();
-    let requesting_window = if create_new_window {
-        None
-    } else {
-        window.window_handle().downcast::<MultiWorkspace>()
-    };
-    cx.spawn_in(window, async move |_, cx| {
-        open_remote_project(
-            connection_options,
-            paths,
-            app_state,
-            workspace::OpenOptions {
-                workspace_matching: workspace::WorkspaceMatching::None,
-                requesting_window,
-                ..Default::default()
-            },
-            cx,
-        )
-        .await
-        .map(|_| ())
-    })
 }
 
 fn open_project_settings_file(
@@ -2647,8 +2528,6 @@ mod tests {
     use node_runtime::NodeRuntime;
     use pretty_assertions::{assert_eq, assert_ne};
     use project::{Project, ProjectPath};
-    use remote::RemoteClient;
-    use remote_server::{HeadlessAppState, HeadlessProject};
     use semver::Version;
     use serde_json::json;
     use settings::{SaturatingBool, SettingsStore, SplicingVec, watch_config_file};
@@ -2808,116 +2687,6 @@ mod tests {
                 });
             })
             .unwrap();
-    }
-
-    #[gpui::test]
-    async fn test_open_remote_from_existing_connection_reuses_window(
-        cx: &mut TestAppContext,
-        server_cx: &mut TestAppContext,
-    ) {
-        let app_state = init_test(cx);
-        let executor = cx.executor();
-
-        server_cx.update(|cx| {
-            release_channel::init(Version::new(0, 0, 0), cx);
-        });
-
-        let (connection_options, server_session, connect_guard) =
-            RemoteClient::fake_server(cx, server_cx);
-        let remote_fs = FakeFs::new(server_cx.executor());
-        remote_fs
-            .insert_tree(
-                path!("/"),
-                json!({
-                    "project": {},
-                    "other-project": {},
-                }),
-            )
-            .await;
-
-        server_cx.update(HeadlessProject::init);
-        let http_client = Arc::new(BlockedHttpClient);
-        let node_runtime = NodeRuntime::unavailable();
-        let languages = Arc::new(LanguageRegistry::new(server_cx.executor()));
-        let extension_host_proxy = Arc::new(ExtensionHostProxy::new());
-        let _headless = server_cx.new(|cx| {
-            HeadlessProject::new(
-                HeadlessAppState {
-                    session: server_session,
-                    fs: remote_fs,
-                    http_client,
-                    node_runtime,
-                    languages,
-                    extension_host_proxy,
-                    startup_time: std::time::Instant::now(),
-                },
-                false,
-                cx,
-            )
-        });
-        drop(connect_guard);
-
-        let mut async_cx = cx.to_async();
-        open_remote_project(
-            connection_options,
-            vec![PathBuf::from(path!("/project"))],
-            app_state,
-            OpenOptions::default(),
-            &mut async_cx,
-        )
-        .await
-        .expect("opening the initial remote project should succeed");
-        executor.run_until_parked();
-
-        assert_eq!(cx.update(|cx| cx.windows().len()), 1);
-        let window = cx.update(|cx| cx.windows()[0].downcast::<MultiWorkspace>().unwrap());
-
-        window
-            .update(cx, |multi_workspace, _, cx| {
-                let workspace = multi_workspace.workspace().clone();
-                workspace.update(cx, |workspace, cx| {
-                    let remote_client = workspace
-                        .project()
-                        .read(cx)
-                        .remote_client()
-                        .expect("initial project should have a remote client");
-                    remote_client.update(cx, |remote_client, cx| {
-                        remote_client.force_server_not_running(cx);
-                    });
-                });
-            })
-            .unwrap();
-        executor.run_until_parked();
-
-        window
-            .update(cx, |multi_workspace, window, cx| {
-                multi_workspace.workspace().update(cx, |workspace, _cx| {
-                    workspace.set_prompt_for_open_path(Box::new(|_, _, _, _| {
-                        let (sender, receiver) = futures::channel::oneshot::channel();
-                        sender
-                            .send(Some(vec![PathBuf::from(path!("/other-project"))]))
-                            .expect("path prompt receiver should be open");
-                        receiver
-                    }));
-                });
-                window.dispatch_action(
-                    Box::new(zed_actions::OpenRemote {
-                        from_existing_connection: true,
-                        create_new_window: Some(false),
-                    }),
-                    cx,
-                );
-            })
-            .unwrap();
-        executor.run_until_parked();
-
-        assert_eq!(
-            cx.update(|cx| cx.windows().len()),
-            1,
-            "create_new_window: false should reuse the current window"
-        );
-        cx.simulate_prompt_answer("Cancel");
-        executor.run_until_parked();
     }
 
     #[gpui::test]

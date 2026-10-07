@@ -413,95 +413,6 @@ fn general_page(cx: &App) -> SettingsPage {
         ]
     }
 
-    fn privacy_section() -> [SettingsPageItem; 4] {
-        [
-            SettingsPageItem::SectionHeader("Privacy"),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "Telemetry Diagnostics",
-                description: "Send debug information like crash reports.",
-                field: Box::new(SettingField {
-                    organization_override: None,
-                    json_path: Some("telemetry.diagnostics"),
-                    pick: |settings_content| {
-                        settings_content
-                            .telemetry
-                            .as_ref()
-                            .and_then(|telemetry| telemetry.diagnostics.as_ref())
-                    },
-                    write: |settings_content, value, _| {
-                        settings_content
-                            .telemetry
-                            .get_or_insert_default()
-                            .diagnostics = value;
-                    },
-                }),
-                metadata: None,
-                files: USER,
-            }),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "Telemetry Metrics",
-                description: "Send anonymized usage data like what languages you're using Zed with.",
-                field: Box::new(SettingField {
-                    organization_override: None,
-                    json_path: Some("telemetry.metrics"),
-                    pick: |settings_content| {
-                        settings_content
-                            .telemetry
-                            .as_ref()
-                            .and_then(|telemetry| telemetry.metrics.as_ref())
-                    },
-                    write: |settings_content, value, _| {
-                        settings_content.telemetry.get_or_insert_default().metrics = value;
-                    },
-                }),
-                metadata: None,
-                files: USER,
-            }),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "Anthropic Data Retention",
-                description: "Allow sending requests to Anthropic models that cannot be offered with Zero Data Retention.",
-                field: Box::new(SettingField {
-                    organization_override: None,
-                    json_path: Some("telemetry.anthropic_retention"),
-                    pick: |settings_content| {
-                        settings_content
-                            .telemetry
-                            .as_ref()
-                            .and_then(|telemetry| telemetry.anthropic_retention.as_ref())
-                    },
-                    write: |settings_content, value, _| {
-                        settings_content
-                            .telemetry
-                            .get_or_insert_default()
-                            .anthropic_retention = value;
-                    },
-                }),
-                metadata: None,
-                files: USER,
-            }),
-        ]
-    }
-
-    fn auto_update_section() -> [SettingsPageItem; 2] {
-        [
-            SettingsPageItem::SectionHeader("Auto Update"),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "Auto Update",
-                description: "Whether or not to automatically check for updates.",
-                field: Box::new(SettingField {
-                    organization_override: None,
-                    json_path: Some("auto_update"),
-                    pick: |settings_content| settings_content.auto_update.as_ref(),
-                    write: |settings_content, value, _| {
-                        settings_content.auto_update = value;
-                    },
-                }),
-                metadata: None,
-                files: USER,
-            }),
-        ]
-    }
-
     fn extensions_section() -> [SettingsPageItem; 2] {
         [
             SettingsPageItem::SectionHeader("Extensions"),
@@ -530,8 +441,6 @@ fn general_page(cx: &App) -> SettingsPage {
             security_section(),
             workspace_restoration_section(),
             scoped_settings_section(),
-            privacy_section(),
-            auto_update_section(),
             extensions_section(),
         )
         .into(),
@@ -3728,7 +3637,7 @@ fn window_and_layout_page() -> SettingsPage {
         ]
     }
 
-    fn title_bar_section() -> [SettingsPageItem; 9] {
+    fn title_bar_section() -> [SettingsPageItem; 8] {
         [
             SettingsPageItem::SectionHeader("Title Bar"),
             SettingsPageItem::SettingItem(SettingItem {
@@ -3818,29 +3727,6 @@ fn window_and_layout_page() -> SettingsPage {
                             .title_bar
                             .get_or_insert_default()
                             .show_project_items = value;
-                    },
-                }),
-                metadata: None,
-                files: USER,
-            }),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "Show Onboarding Banner",
-                description: "Show banners announcing new features in the titlebar.",
-                field: Box::new(SettingField {
-                    organization_override: None,
-                    json_path: Some("title_bar.show_onboarding_banner"),
-                    pick: |settings_content| {
-                        settings_content
-                            .title_bar
-                            .as_ref()?
-                            .show_onboarding_banner
-                            .as_ref()
-                    },
-                    write: |settings_content, value, _| {
-                        settings_content
-                            .title_bar
-                            .get_or_insert_default()
-                            .show_onboarding_banner = value;
                     },
                 }),
                 metadata: None,
@@ -7698,7 +7584,7 @@ fn version_control_page() -> SettingsPage {
 }
 
 fn network_page() -> SettingsPage {
-    fn network_section() -> [SettingsPageItem; 3] {
+    fn network_section() -> [SettingsPageItem; 2] {
         [
             SettingsPageItem::SectionHeader("Network"),
             SettingsPageItem::SettingItem(SettingItem {
@@ -7714,23 +7600,6 @@ fn network_page() -> SettingsPage {
                 }),
                 metadata: Some(Box::new(SettingsFieldMetadata {
                     placeholder: Some("socks5h://localhost:10808"),
-                    ..Default::default()
-                })),
-                files: USER,
-            }),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "Server URL",
-                description: "The URL of the Zed server to connect to.",
-                field: Box::new(SettingField {
-                    organization_override: None,
-                    json_path: Some("server_url"),
-                    pick: |settings_content| settings_content.server_url.as_ref(),
-                    write: |settings_content, value, _| {
-                        settings_content.server_url = value;
-                    },
-                }),
-                metadata: Some(Box::new(SettingsFieldMetadata {
-                    placeholder: Some("https://zed.dev"),
                     ..Default::default()
                 })),
                 files: USER,

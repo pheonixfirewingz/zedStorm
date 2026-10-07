@@ -1,34 +1,29 @@
 [package]
-name = "auto_update_ui"
+name = "ai"
 version = "0.1.0"
 edition.workspace = true
 publish.workspace = true
 license = "GPL-3.0-or-later"
 
+[lib]
+path = "src/ai.rs"
+
 [lints]
 workspace = true
 
-[lib]
-path = "src/auto_update_ui.rs"
-test = false
-doctest = false
-
 [dependencies]
 anyhow.workspace = true
-auto_update.workspace = true
-client.workspace = true
-db.workspace = true
+command_palette_hooks.workspace = true
+context_mcp.workspace = true
 editor.workspace = true
+futures.workspace = true
 gpui.workspace = true
-markdown_preview.workspace = true
-project.workspace = true
-release_channel.workspace = true
-semver.workspace = true
-serde.workspace = true
+log.workspace = true
+markdown.workspace = true
+paths.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-settings.workspace = true
 smol.workspace = true
-telemetry.workspace = true
 ui.workspace = true
 util.workspace = true
 workspace.workspace = true

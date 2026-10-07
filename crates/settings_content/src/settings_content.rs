@@ -205,6 +205,7 @@ pub struct SettingsContent {
     /// Whether or not to automatically check for updates.
     ///
     /// Default: true
+    #[schemars(skip)]
     pub auto_update: Option<bool>,
 
     pub debugger: Option<DebuggerSettingsContent>,
@@ -266,6 +267,7 @@ pub struct SettingsContent {
     pub reduce_motion: Option<ReduceMotionMode>,
 
     /// The URL of the Zed server to connect to.
+    #[schemars(skip)]
     pub server_url: Option<String>,
 
     /// The URL used as the key for credential storage.
@@ -273,11 +275,13 @@ pub struct SettingsContent {
     /// When set, credentials are stored under this URL instead of `server_url`.
     /// This allows running multiple Zed instances side by side without them
     /// overwriting each other's keychain entries.
+    #[schemars(skip)]
     pub credentials_url: Option<String>,
 
     /// Configuration for session-related features
     pub session: Option<SessionSettingsContent>,
     /// Control what info is collected by Zed.
+    #[schemars(skip)]
     pub telemetry: Option<TelemetrySettingsContent>,
 
     /// Configuration of the terminal in Zed.
@@ -513,8 +517,8 @@ pub struct TelemetrySettingsContent {
 impl Default for TelemetrySettingsContent {
     fn default() -> Self {
         Self {
-            diagnostics: Some(true),
-            metrics: Some(true),
+            diagnostics: Some(false),
+            metrics: Some(false),
             anthropic_retention: Some(false),
         }
     }
@@ -1265,9 +1269,13 @@ pub enum ImageFileSizeUnit {
 #[with_fallible_options]
 #[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq)]
 pub struct RemoteSettingsContent {
+    #[schemars(skip)]
     pub ssh_connections: Option<Vec<SshConnection>>,
+    #[schemars(skip)]
     pub wsl_connections: Option<Vec<WslConnection>>,
+    #[schemars(skip)]
     pub dev_container_connections: Option<Vec<DevContainerConnection>>,
+    #[schemars(skip)]
     pub read_ssh_config: Option<bool>,
     pub use_podman: Option<bool>,
     /// Whether to build dev container images with BuildKit.
@@ -1279,6 +1287,7 @@ pub struct RemoteSettingsContent {
     /// cannot resolve locally-built images.
     ///
     /// Default: null (auto-detect)
+    #[schemars(skip)]
     pub dev_container_use_buildkit: Option<bool>,
 }
 

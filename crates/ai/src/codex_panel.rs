@@ -1,4 +1,4 @@
-use super::codex_protocol::{self, MessageKind, ServerRequest, Session};
+use super::codex_protocol::{self, AccessMode, MessageKind, ServerRequest, Session};
 use editor::Editor;
 use gpui::{
     Action, App, Context, Entity, EventEmitter, FocusHandle, Focusable, ScrollHandle, Subscription,
@@ -12,7 +12,7 @@ use std::{
     path::PathBuf,
     time::{Duration, Instant},
 };
-use ui::{CircularProgress, Tooltip, prelude::*};
+use ui::{CircularProgress, ContextMenu, DropdownMenu, DropdownStyle, Tooltip, prelude::*};
 use util::ResultExt as _;
 use workspace::{
     Panel, Workspace,
@@ -51,7 +51,7 @@ impl CodexPanel {
     pub fn new(workspace: &Workspace, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let prompt = cx.new(|cx| {
             let mut editor = Editor::auto_height(3, 10, window, cx);
-            editor.set_placeholder_text("Ask Codex…", window, cx);
+            editor.set_placeholder_text("Ask anything…", window, cx);
             editor
         });
         let subscription = cx.observe(&prompt, |_, _, cx| cx.notify());
@@ -237,12 +237,193 @@ impl CodexPanel {
         self.event_task.take();
         self.markdown_sync_task.take();
         self.outgoing = None;
+        let settings = self.session.settings.clone();
         self.session = Session::new(self.session.directory.clone());
+        self.session.settings = settings;
         self.markdown.clear();
         self.questions.clear();
         self.question_request_id = None;
         self.connect(cx);
         self.prompt.focus_handle(cx).focus(window, cx);
+    }
+
+    fn render_settings(&self, window: &mut Window, cx: &mut Context<Self>) -> gpui::Div {
+        let panel = cx.entity().downgrade();
+        let model_menu = ContextMenu::build(window, cx, |menu, _, _| {
+            let default_panel = panel.clone();
+            let mut menu = menu.toggleable_entry(
+                "Configured model",
+                self.session.settings.model.is_none(),
+                IconPosition::Start,
+                None,
+                move |_, cx| {
+                    default_panel
+                        .update(cx, |panel, cx| {
+                            if !panel.session.busy {
+                                panel.session.settings.model = None;
+                                panel.session.settings.reasoning_effort = None;
+                                cx.notify();
+                            }
+                        })
+                        .log_err();
+                },
+            );
+            for model in &self.session.models {
+                let panel = panel.clone();
+                let model_id = model.model.clone();
+                menu = menu.toggleable_entry(
+                    model.display_name.clone(),
+                    self.session.settings.model.as_ref() == Some(&model_id),
+                    IconPosition::Start,
+                    None,
+                    move |_, cx| {
+                        panel
+                            .update(cx, |panel, cx| {
+                                if !panel.session.busy {
+                                    panel.session.settings.model = Some(model_id.clone());
+                                    panel.session.settings.reasoning_effort = None;
+                                    cx.notify();
+                                }
+                            })
+                            .log_err();
+                    },
+                );
+            }
+            menu
+        });
+        let model = self
+            .session
+            .models
+            .iter()
+            .find(|model| Some(model.model.as_str()) == self.session.selected_model());
+        let reasoning_menu = ContextMenu::build(window, cx, |menu, _, _| {
+            let default_panel = panel.clone();
+            let mut menu = menu.toggleable_entry(
+                "Default reasoning",
+                self.session.settings.reasoning_effort.is_none(),
+                IconPosition::Start,
+                None,
+                move |_, cx| {
+                    default_panel
+                        .update(cx, |panel, cx| {
+                            if !panel.session.busy {
+                                panel.session.settings.reasoning_effort = None;
+                                cx.notify();
+                            }
+                        })
+                        .log_err();
+                },
+            );
+            if let Some(model) = model {
+                for effort in model.supported_reasoning_efforts.iter().filter(|effort| {
+                    matches!(
+                        effort.reasoning_effort.as_str(),
+                        "none" | "minimal" | "low" | "medium" | "high"
+                    )
+                }) {
+                    let panel = panel.clone();
+                    let effort = effort.reasoning_effort.clone();
+                    menu = menu.toggleable_entry(
+                        reasoning_label(Some(&effort)),
+                        self.session.settings.reasoning_effort.as_ref() == Some(&effort),
+                        IconPosition::Start,
+                        None,
+                        move |_, cx| {
+                            panel
+                                .update(cx, |panel, cx| {
+                                    if !panel.session.busy {
+                                        panel.session.settings.reasoning_effort =
+                                            Some(effort.clone());
+                                        cx.notify();
+                                    }
+                                })
+                                .log_err();
+                        },
+                    );
+                }
+            }
+            menu
+        });
+        let access_menu = ContextMenu::build(window, cx, |mut menu, _, _| {
+            for access in AccessMode::ALL {
+                let panel = panel.clone();
+                menu = menu.toggleable_entry(
+                    access.label(),
+                    self.session.settings.access == access,
+                    IconPosition::Start,
+                    None,
+                    move |_, cx| {
+                        panel
+                            .update(cx, |panel, cx| {
+                                if !panel.session.busy {
+                                    panel.session.settings.access = access;
+                                    cx.notify();
+                                }
+                            })
+                            .log_err();
+                    },
+                );
+            }
+            menu
+        });
+        let model_label = model
+            .map(|model| model.display_name.as_str())
+            .or(self.session.selected_model())
+            .unwrap_or("Model");
+        let reasoning_label = reasoning_label(self.session.selected_reasoning_effort());
+        let access_label = self.session.access_label();
+        let trigger = |label: &str, icon: Option<IconName>| {
+            h_flex()
+                .gap_1()
+                .min_w_0()
+                .when_some(icon, |element, icon| {
+                    element.child(Icon::new(icon).size(IconSize::Small).color(Color::Muted))
+                })
+                .child(
+                    Label::new(label.to_owned())
+                        .size(LabelSize::Small)
+                        .color(Color::Muted)
+                        .truncate(),
+                )
+                .child(
+                    Icon::new(IconName::ChevronDown)
+                        .size(IconSize::XSmall)
+                        .color(Color::Muted),
+                )
+                .into_any_element()
+        };
+        h_flex()
+            .min_w_0()
+            .flex_1()
+            .flex_wrap()
+            .gap_1()
+            .child(DropdownMenu::new_with_element("codex-model-selector", trigger(model_label, Some(IconName::AiOpenAi)), model_menu)
+                .no_chevron()
+                .style(DropdownStyle::Ghost)
+                .trigger_size(ButtonSize::Compact)
+                .tab_index(0)
+                .aria_label("Model")
+                .aria_value(model_label.to_owned())
+                .disabled(self.session.busy)
+                .trigger_tooltip(Tooltip::text(self.session.models_error.clone().unwrap_or_else(|| "Choose the model for your next message".into()))))
+            .child(DropdownMenu::new_with_element("codex-reasoning-selector", trigger(reasoning_label, None), reasoning_menu)
+                .no_chevron()
+                .style(DropdownStyle::Ghost)
+                .trigger_size(ButtonSize::Compact)
+                .tab_index(0)
+                .aria_label("Reasoning level")
+                .aria_value(reasoning_label)
+                .disabled(self.session.busy || model.is_none())
+                .trigger_tooltip(Tooltip::text("Choose the reasoning level for your next message")))
+            .child(DropdownMenu::new_with_element("codex-access-selector", trigger(access_label, Some(IconName::Lock)), access_menu)
+                .no_chevron()
+                .style(DropdownStyle::Ghost)
+                .trigger_size(ButtonSize::Compact)
+                .tab_index(0)
+                .aria_label("Access")
+                .aria_value(access_label)
+                .disabled(self.session.busy)
+                .trigger_tooltip(Tooltip::text("Read-only: no edits or network. Workspace write: project edits, approval for elevated access. Full access: unrestricted files and network, no approvals.")))
     }
 
     fn login(&mut self, cx: &mut Context<Self>) {
@@ -432,6 +613,17 @@ impl CodexPanel {
     }
 }
 
+fn reasoning_label(effort: Option<&str>) -> &'static str {
+    match effort {
+        Some("none") => "None",
+        Some("minimal") => "Minimal",
+        Some("low") => "Low",
+        Some("medium") => "Medium",
+        Some("high") => "High",
+        _ => "Default",
+    }
+}
+
 fn project_directory(workspace: &Workspace, cx: &App) -> PathBuf {
     workspace
         .worktrees(cx)
@@ -501,6 +693,7 @@ fn approval_description(request: &ServerRequest) -> (&'static str, String) {
 impl Render for CodexPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let request = self.render_request(window, cx);
+        let settings = self.render_settings(window, cx);
         let status = if self.remote {
             "Local projects only"
         } else if self.session.signing_in {
@@ -753,34 +946,78 @@ impl Render for CodexPanel {
             })
             .children(request)
             .child(
-                v_flex()
-                    .key_context("CodexChat")
-                    .gap_2()
-                    .p_3()
-                    .border_t_1()
-                    .border_color(cx.theme().colors().border)
-                    .child(
-                        div()
-                            .p_2()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(cx.theme().colors().border)
-                            .child(self.prompt.clone()),
-                    )
-                    .child(h_flex().justify_end().child(if self.session.busy {
-                        IconButton::new("codex-stop", IconName::Stop)
-                            .tooltip(Tooltip::text("Stop"))
-                            .on_click(
-                                cx.listener(|panel, _, window, cx| panel.stop(&Stop, window, cx)),
-                            )
-                    } else {
-                        IconButton::new("codex-send", IconName::ArrowUp)
-                            .disabled(!can_send)
-                            .tooltip(Tooltip::text("Send · Enter (Shift+Enter for a new line)"))
-                            .on_click(cx.listener(|panel, _, window, cx| {
-                                panel.send(&SendPrompt, window, cx)
-                            }))
-                    })),
+                div().p_3().child(
+                    v_flex()
+                        .id("codex-composer")
+                        .key_context("CodexChat")
+                        .min_w_0()
+                        .gap_4()
+                        .px_3()
+                        .pt_3()
+                        .pb_2()
+                        .rounded(px(18.))
+                        .border_1()
+                        .border_color(cx.theme().colors().border_variant)
+                        .bg(cx.theme().colors().panel_background)
+                        .child(div().min_w_0().child(self.prompt.clone()))
+                        .child(
+                            h_flex()
+                                .min_w_0()
+                                .justify_between()
+                                .gap_1()
+                                .child(settings)
+                                .child(
+                                    div()
+                                        .flex_none()
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .size(px(32.))
+                                        .rounded_full()
+                                        .overflow_hidden()
+                                        .bg(if self.session.busy {
+                                            cx.theme().status().error
+                                        } else if can_send {
+                                            cx.theme().colors().text
+                                        } else {
+                                            cx.theme().colors().element_background
+                                        })
+                                        .child(if self.session.busy {
+                                            IconButton::new("codex-stop", IconName::Stop)
+                                                .aria_label("Stop")
+                                                .shape(ui::IconButtonShape::Square)
+                                                .size(ButtonSize::Large)
+                                                .style(ButtonStyle::Transparent)
+                                                .icon_size(IconSize::Small)
+                                                .tooltip(Tooltip::text("Stop"))
+                                                .on_click(cx.listener(|panel, _, window, cx| {
+                                                    panel.stop(&Stop, window, cx)
+                                                }))
+                                        } else {
+                                            IconButton::new("codex-send", IconName::ArrowUp)
+                                                .aria_label("Send message")
+                                                .shape(ui::IconButtonShape::Square)
+                                                .size(ButtonSize::Large)
+                                                .style(ButtonStyle::Transparent)
+                                                .icon_size(IconSize::Small)
+                                                .icon_color(if can_send {
+                                                    Color::Custom(
+                                                        cx.theme().colors().panel_background,
+                                                    )
+                                                } else {
+                                                    Color::Muted
+                                                })
+                                                .disabled(!can_send)
+                                                .tooltip(Tooltip::text(
+                                                    "Send · Enter (Shift+Enter for a new line)",
+                                                ))
+                                                .on_click(cx.listener(|panel, _, window, cx| {
+                                                    panel.send(&SendPrompt, window, cx)
+                                                }))
+                                        }),
+                                ),
+                        ),
+                ),
             )
     }
 }
@@ -820,7 +1057,7 @@ impl Panel for CodexPanel {
         Some(px(280.))
     }
     fn icon(&self, _: &Window, _: &App) -> Option<IconName> {
-        Some(IconName::ZedAssistant)
+        None
     }
     fn icon_tooltip(&self, _: &Window, _: &App) -> Option<&'static str> {
         Some("Codex Chat")
