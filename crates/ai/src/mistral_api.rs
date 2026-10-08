@@ -11,7 +11,7 @@ use std::{
 
 pub type SharedConversation = Arc<Mutex<Conversation>>;
 
-#[derive(Default)]
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Conversation {
     messages: Vec<Value>,
     items: Vec<Value>,

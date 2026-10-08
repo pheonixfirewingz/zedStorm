@@ -1,8 +1,9 @@
+mod chat_store;
 mod codex_panel;
 mod codex_protocol;
 mod mistral_api;
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum Backend {
     #[default]
     Codex,
@@ -250,6 +251,8 @@ async fn receive_commit_message(
     use codex_protocol::{AccessMode, MessageKind, Session};
     let mut session = Session::new(directory);
     session.settings.access = AccessMode::ReadOnly;
+    session.settings.model = Some("gpt-6-luna".into());
+    session.settings.reasoning_effort = Some("low".into());
     outgoing.send(session.initialize()).await?;
     let mut configuration = None;
     let mut prompt = Some(format!(
@@ -414,6 +417,8 @@ mod tests {
                             serde_json::json!({"thread": {"id": "commit-thread"}})
                         }
                         Some("turn/start") => {
+                            assert_eq!(request["params"]["model"], "gpt-6-luna");
+                            assert_eq!(request["params"]["effort"], "low");
                             assert_eq!(request["params"]["sandboxPolicy"]["type"], "readOnly");
                             assert_eq!(request["params"]["approvalPolicy"], "never");
                             assert!(

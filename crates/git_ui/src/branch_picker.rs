@@ -30,6 +30,60 @@ use workspace::{ModalView, Workspace};
 use crate::branch_picker;
 use git_ui_core::notifications::show_error_toast;
 
+pub(crate) fn render_branch_tracking(branch: &Branch) -> Option<AnyElement> {
+    if branch.is_remote() {
+        return None;
+    }
+    let Some(upstream) = branch.upstream.as_ref() else {
+        return Some(
+            Label::new("No upstream")
+                .size(LabelSize::XSmall)
+                .color(Color::Muted)
+                .into_any_element(),
+        );
+    };
+    let Some(status) = upstream.tracking.status() else {
+        return Some(
+            Label::new("Upstream gone")
+                .size(LabelSize::XSmall)
+                .color(Color::Muted)
+                .into_any_element(),
+        );
+    };
+
+    Some(
+        h_flex()
+            .id("branch-tracking")
+            .flex_none()
+            .gap_1()
+            .child(
+                Icon::new(IconName::ArrowUp)
+                    .size(IconSize::XSmall)
+                    .color(Color::Muted),
+            )
+            .child(
+                Label::new(status.ahead.to_string())
+                    .size(LabelSize::XSmall)
+                    .color(Color::Muted),
+            )
+            .child(
+                Icon::new(IconName::ArrowDown)
+                    .size(IconSize::XSmall)
+                    .color(Color::Muted),
+            )
+            .child(
+                Label::new(status.behind.to_string())
+                    .size(LabelSize::XSmall)
+                    .color(Color::Muted),
+            )
+            .tooltip(Tooltip::text(format!(
+                "{} commits to push, {} commits to pull (compared with {})",
+                status.ahead, status.behind, upstream.ref_name
+            )))
+            .into_any_element(),
+    )
+}
+
 actions!(
     branch_picker,
     [
@@ -1799,7 +1853,14 @@ impl PickerDelegate for BranchListDelegate {
                             .id("info_container")
                             .w_full()
                             .min_w_0()
-                            .child(entry_title)
+                            .child(
+                                h_flex()
+                                    .w_full()
+                                    .min_w_0()
+                                    .gap_2()
+                                    .child(div().flex_1().min_w_0().child(entry_title))
+                                    .children(entry.as_branch().and_then(render_branch_tracking)),
+                            )
                             .child({
                                 let message = match entry {
                                     Entry::NewUrl { url } => format!("Based off {url}"),

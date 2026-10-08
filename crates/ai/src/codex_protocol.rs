@@ -71,6 +71,8 @@ pub async fn serve_commit_message(
     incoming: channel::Sender<Result<Value>>,
 ) -> Result<()> {
     let configuration = [
+        "model=\"gpt-6-luna\"",
+        "model_reasoning_effort=\"low\"",
         "mcp_servers={}",
         "project_doc_max_bytes=0",
         "features.shell_tool=false",
@@ -90,6 +92,12 @@ async fn serve_with_configuration(
 ) -> Result<()> {
     let mut child = Command::new("codex")
         .args(configuration)
+        .args([
+            "-c",
+            "service_tier=\"default\"",
+            "-c",
+            "features.fast_mode=false",
+        ])
         .arg("app-server")
         .current_dir(directory)
         .stdin(Stdio::piped())
@@ -131,13 +139,14 @@ async fn serve_with_configuration(
     result.map(|_| ())
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum MessageKind {
     User,
     Assistant,
     Activity,
 }
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Message {
     pub id: String,
     pub kind: MessageKind,
@@ -166,7 +175,7 @@ pub struct ReasoningEffort {
     pub reasoning_effort: String,
 }
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AccessMode {
     #[default]
     Default,
@@ -193,7 +202,7 @@ impl AccessMode {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct SessionSettings {
     pub model: Option<String>,
     pub reasoning_effort: Option<String>,
@@ -231,6 +240,8 @@ pub struct Session {
     configured_access: Option<String>,
     pub five_hour_usage: Option<f32>,
     pub weekly_usage: Option<f32>,
+    pub five_hour_resets_at: Option<u64>,
+    pub weekly_resets_at: Option<u64>,
     pub usage_error: Option<String>,
     pub thread_id: Option<String>,
     pub turn_id: Option<String>,
@@ -264,6 +275,8 @@ impl Session {
             configured_access: None,
             five_hour_usage: None,
             weekly_usage: None,
+            five_hour_resets_at: None,
+            weekly_resets_at: None,
             usage_error: None,
             thread_id: None,
             turn_id: None,
@@ -360,7 +373,7 @@ impl Session {
             Some(self.request(
                 RequestKind::StartThread,
                 "thread/start",
-                json!({"cwd": self.directory}),
+                json!({"cwd": self.directory, "serviceTier": "default"}),
             ))
         }
     }
@@ -376,6 +389,7 @@ impl Session {
         let text = self.prompt.take()?;
         let mut params = json!({
             "threadId": thread_id,
+            "serviceTier": "default",
             "input": [{"type": "text", "text": text, "text_elements": []}]
         });
         let model = self
@@ -447,6 +461,8 @@ impl Session {
         self.requests.clear();
         self.five_hour_usage = None;
         self.weekly_usage = None;
+        self.five_hour_resets_at = None;
+        self.weekly_resets_at = None;
         self.error = Some(error);
     }
 
@@ -479,6 +495,8 @@ impl Session {
             if matches!(kind, RequestKind::RateLimits) {
                 self.five_hour_usage = None;
                 self.weekly_usage = None;
+                self.five_hour_resets_at = None;
+                self.weekly_resets_at = None;
                 self.usage_error = Some(
                     error
                         .get("message")
@@ -514,7 +532,7 @@ impl Session {
                     outgoing.push(self.request(
                         RequestKind::ResumeThread,
                         "thread/resume",
-                        json!({"threadId": thread_id}),
+                        json!({"threadId": thread_id, "serviceTier": "default"}),
                     ));
                 } else {
                     self.ready = true;
@@ -556,6 +574,8 @@ impl Session {
                     && result.get("account").is_none_or(Value::is_null);
                 self.five_hour_usage = None;
                 self.weekly_usage = None;
+                self.five_hour_resets_at = None;
+                self.weekly_resets_at = None;
                 self.usage_error = None;
                 self.models.clear();
                 self.models_error = None;
@@ -847,6 +867,8 @@ impl Session {
         }
         self.five_hour_usage = None;
         self.weekly_usage = None;
+        self.five_hour_resets_at = None;
+        self.weekly_resets_at = None;
         self.usage_error = None;
         for window in ["primary", "secondary"]
             .into_iter()
@@ -860,9 +882,16 @@ impl Session {
                 continue;
             };
             let used_percent = used_percent.clamp(0.0, 100.0) as f32;
+            let resets_at = window.get("resetsAt").and_then(Value::as_u64);
             match window.get("windowDurationMins").and_then(Value::as_u64) {
-                Some(300) => self.five_hour_usage = Some(used_percent),
-                Some(10080) => self.weekly_usage = Some(used_percent),
+                Some(300) => {
+                    self.five_hour_usage = Some(used_percent);
+                    self.five_hour_resets_at = resets_at;
+                }
+                Some(10080) => {
+                    self.weekly_usage = Some(used_percent);
+                    self.weekly_resets_at = resets_at;
+                }
                 _ => {}
             }
         }
@@ -1013,27 +1042,33 @@ mod tests {
             .context("rate limits request")?;
         assert_eq!(limits["method"], "account/rateLimits/read");
         session.receive(json!({"id": limits["id"], "result": {"rateLimits": {
-            "primary": {"usedPercent": 25, "windowDurationMins": 300},
-            "secondary": {"usedPercent": 60, "windowDurationMins": 10080}
+            "primary": {"usedPercent": 25, "windowDurationMins": 300, "resetsAt": 1800000000},
+            "secondary": {"usedPercent": 60, "windowDurationMins": 10080, "resetsAt": 1800500000}
         }}}));
         assert_eq!(session.five_hour_usage, Some(25.0));
         assert_eq!(session.weekly_usage, Some(60.0));
+        assert_eq!(session.five_hour_resets_at, Some(1800000000));
+        assert_eq!(session.weekly_resets_at, Some(1800500000));
         session.receive(
             json!({"method": "account/rateLimits/updated", "params": {"rateLimits": {
-                "limitId": "codex", "primary": {"usedPercent": 75, "windowDurationMins": 10080},
+                "limitId": "codex", "primary": {"usedPercent": 75, "windowDurationMins": 10080, "resetsAt": 1800600000},
                 "secondary": null
             }}}),
         );
         assert_eq!(session.five_hour_usage, None);
+        assert_eq!(session.five_hour_resets_at, None);
         assert_eq!(session.weekly_usage, Some(75.0));
+        assert_eq!(session.weekly_resets_at, Some(1800600000));
         session.receive(
             json!({"method": "account/rateLimits/updated", "params": {"rateLimits": {
                 "limitId": "other", "primary": {"usedPercent": 10, "windowDurationMins": 10080}
             }}}),
         );
         assert_eq!(session.weekly_usage, Some(75.0));
+        assert_eq!(session.weekly_resets_at, Some(1800600000));
         session.disconnected("Connection closed".into());
         assert_eq!(session.weekly_usage, None);
+        assert_eq!(session.weekly_resets_at, None);
         Ok(())
     }
 
@@ -1060,6 +1095,35 @@ mod tests {
         }));
         assert_eq!(session.five_hour_usage, None);
         assert_eq!(session.weekly_usage, None);
+    }
+
+    #[test]
+    fn codex_reset_timestamps_are_optional_and_cleared_on_usage_failure() {
+        let mut session = ready_session();
+        session.update_rate_limits(&json!({
+            "primary": {"usedPercent": 20, "windowDurationMins": 300, "resetsAt": 1800000000},
+            "secondary": {"usedPercent": 30, "windowDurationMins": 10080, "resetsAt": 1800500000}
+        }));
+        let request = session.request(
+            RequestKind::RateLimits,
+            "account/rateLimits/read",
+            Value::Null,
+        );
+        session.receive(json!({"id": request["id"], "error": {"message": "Unavailable"}}));
+        assert_eq!(session.five_hour_resets_at, None);
+        assert_eq!(session.weekly_resets_at, None);
+        session.update_rate_limits(&json!({
+            "primary": {"usedPercent": 20, "windowDurationMins": 300, "resetsAt": -1},
+            "secondary": {"usedPercent": 30, "windowDurationMins": 10080, "resetsAt": "invalid"}
+        }));
+        assert_eq!(session.five_hour_usage, Some(20.0));
+        assert_eq!(session.weekly_usage, Some(30.0));
+        assert_eq!(session.five_hour_resets_at, None);
+        assert_eq!(session.weekly_resets_at, None);
+        session.update_rate_limits(&json!({
+            "primary": {"usedPercent": 20, "windowDurationMins": 300}
+        }));
+        assert_eq!(session.five_hour_resets_at, None);
     }
 
     #[test]

@@ -1,17 +1,18 @@
 use super::codex_protocol::{self, AccessMode, MessageKind, ServerRequest, Session};
 use editor::Editor;
 use gpui::{
-    Action, App, Context, Entity, EventEmitter, FocusHandle, Focusable, ScrollHandle, Subscription,
-    Task, WeakEntity, Window, actions,
+    Action, App, Context, Entity, EventEmitter, FocusHandle, Focusable, PromptLevel, ScrollHandle,
+    Subscription, Task, WeakEntity, Window, actions,
 };
 use markdown::{Markdown, MarkdownElement, MarkdownFont, MarkdownStyle};
 use serde_json::{Value, json};
 use settings::{Settings as _, SettingsStore};
 use smol::channel;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::PathBuf,
-    time::{Duration, Instant},
+    rc::Rc,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use ui::{CircularProgress, ContextMenu, DropdownMenu, DropdownStyle, Tooltip, prelude::*};
 use util::ResultExt as _;
@@ -20,7 +21,7 @@ use workspace::{
     dock::{DockPosition, PanelEvent},
 };
 
-actions!(codex_chat, [SendPrompt, Stop]);
+actions!(codex_chat, [SendPrompt, Stop, DeleteChat]);
 
 struct QuestionInput {
     id: String,
@@ -29,7 +30,16 @@ struct QuestionInput {
     editor: Entity<Editor>,
 }
 
+struct ChatHistoryEntry {
+    identity: Rc<()>,
+    title: String,
+    backend: super::Backend,
+    session: Session,
+    mistral_conversation: super::mistral_api::SharedConversation,
+}
+
 pub struct CodexPanel {
+    chat_identity: Rc<()>,
     backend: super::Backend,
     inactive_session: Option<Session>,
     mistral_conversation: super::mistral_api::SharedConversation,
@@ -41,6 +51,7 @@ pub struct CodexPanel {
     connection_task: Option<Task<()>>,
     event_task: Option<Task<()>>,
     markdown: HashMap<String, Entity<Markdown>>,
+    expanded_activity_groups: HashSet<String>,
     scroll_handle: ScrollHandle,
     question_request_id: Option<Value>,
     questions: Vec<QuestionInput>,
@@ -49,6 +60,11 @@ pub struct CodexPanel {
     _subscriptions: Vec<Subscription>,
     last_markdown_sync: Instant,
     markdown_sync_task: Option<Task<()>>,
+    _usage_refresh_task: Task<()>,
+    chat_history: Vec<ChatHistoryEntry>,
+    history_sender: Option<channel::Sender<super::chat_store::SavedChats>>,
+    _history_error_task: Option<Task<()>>,
+    history_writer_task: Option<Task<()>>,
 }
 
 impl CodexPanel {
@@ -74,7 +90,26 @@ impl CodexPanel {
                     panel.connect(cx);
                 }
             });
-        Self {
+        let usage_refresh_task = cx.spawn(async move |panel, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_secs(60))
+                    .await;
+                if let Err(error) = panel.update(cx, |panel, cx| {
+                    if panel.backend == super::Backend::Codex
+                        && (panel.session.five_hour_resets_at.is_some()
+                            || panel.session.weekly_resets_at.is_some())
+                    {
+                        cx.notify();
+                    }
+                }) {
+                    log::debug!("Codex panel closed: {error}");
+                    break;
+                }
+            }
+        });
+        let mut panel = Self {
+            chat_identity: Rc::new(()),
             backend: super::Backend::Codex,
             inactive_session: None,
             mistral_conversation: Default::default(),
@@ -86,6 +121,7 @@ impl CodexPanel {
             connection_task: None,
             event_task: None,
             markdown: HashMap::new(),
+            expanded_activity_groups: HashSet::new(),
             scroll_handle: ScrollHandle::new(),
             question_request_id: None,
             questions: Vec::new(),
@@ -95,9 +131,166 @@ impl CodexPanel {
                 subscription,
                 settings_subscription,
                 credentials_subscription,
+                cx.on_app_quit(|panel, _| {
+                    panel.save_history();
+                    panel.history_sender.take();
+                    let writer = panel.history_writer_task.take();
+                    async move {
+                        if let Some(writer) = writer {
+                            writer.await;
+                        }
+                    }
+                }),
+                cx.on_release(|panel, _| {
+                    panel.save_history();
+                    panel.history_sender.take();
+                    if let Some(writer) = panel.history_writer_task.take() {
+                        writer.detach();
+                    }
+                }),
             ],
             last_markdown_sync: Instant::now(),
             markdown_sync_task: None,
+            _usage_refresh_task: usage_refresh_task,
+            chat_history: Vec::new(),
+            history_sender: None,
+            _history_error_task: None,
+            history_writer_task: None,
+        };
+        panel.restore_history(cx);
+        panel.sync_markdown(cx);
+        panel
+    }
+
+    fn restore_history(&mut self, cx: &mut Context<Self>) {
+        if self.remote {
+            return;
+        }
+        let path = super::chat_store::storage_path(&self.session.directory);
+        match super::chat_store::load(&path) {
+            Ok(Some(chats)) => {
+                let (backend, session, conversation) = chats.active.into_session();
+                self.backend = backend;
+                self.session = session;
+                if backend == super::Backend::Mistral {
+                    self.mistral_conversation = conversation;
+                }
+                if let Some(inactive) = chats.inactive {
+                    let (backend, session, conversation) = inactive.into_session();
+                    self.inactive_session = Some(session);
+                    if backend == super::Backend::Mistral {
+                        self.mistral_conversation = conversation;
+                    }
+                }
+                for chat in chats.history {
+                    let (backend, session, mistral_conversation) = chat.into_session();
+                    self.chat_history.push(ChatHistoryEntry {
+                        identity: Rc::new(()),
+                        title: chat_title(&session),
+                        backend,
+                        session,
+                        mistral_conversation,
+                    });
+                }
+                if self.backend == super::Backend::Mistral
+                    && !super::VibeSettings::get_global(cx).enabled
+                {
+                    let session = self
+                        .inactive_session
+                        .take()
+                        .unwrap_or_else(|| Session::new(self.session.directory.clone()));
+                    self.inactive_session = Some(std::mem::replace(&mut self.session, session));
+                    self.backend = super::Backend::Codex;
+                }
+            }
+            Ok(None) => {}
+            Err(error) => {
+                log::error!("Could not restore chat history: {error:#}");
+                self.session.error = Some(format!("Could not restore chat history: {error:#}"));
+                return;
+            }
+        }
+        let (sender, receiver) = channel::unbounded();
+        let (errors, error_receiver) = channel::unbounded();
+        self.history_writer_task = Some(cx.background_spawn(async move {
+            while let Ok(mut chats) = receiver.recv().await {
+                while let Ok(newer) = receiver.try_recv() {
+                    chats = newer;
+                }
+                if let Err(error) = super::chat_store::save(&path, &chats) {
+                    log::error!("Could not save chat history: {error:#}");
+                    if errors
+                        .send(format!("Could not save chat history: {error:#}"))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            }
+        }));
+        self.history_sender = Some(sender);
+        self._history_error_task = Some(cx.spawn(async move |panel, cx| {
+            while let Ok(error) = error_receiver.recv().await {
+                if let Err(error) = panel.update(cx, |panel, cx| {
+                    panel.session.error = Some(error);
+                    cx.notify();
+                }) {
+                    log::debug!("Chat panel closed: {error}");
+                    break;
+                }
+            }
+        }));
+    }
+
+    fn save_history(&mut self) {
+        let Some(sender) = &self.history_sender else {
+            return;
+        };
+        let result = (|| -> anyhow::Result<()> {
+            let capture =
+                |backend,
+                 session: &Session,
+                 conversation: &super::mistral_api::SharedConversation| {
+                    let conversation = if backend == super::Backend::Mistral {
+                        conversation
+                            .lock()
+                            .map_err(|_| anyhow::anyhow!("Mistral conversation lock failed"))?
+                            .clone()
+                    } else {
+                        Default::default()
+                    };
+                    Ok::<_, anyhow::Error>(super::chat_store::SavedChat::capture(
+                        backend,
+                        session,
+                        conversation,
+                    ))
+                };
+            let inactive_backend = match self.backend {
+                super::Backend::Codex => super::Backend::Mistral,
+                super::Backend::Mistral => super::Backend::Codex,
+            };
+            let chats = super::chat_store::SavedChats {
+                active: capture(self.backend, &self.session, &self.mistral_conversation)?,
+                inactive: self
+                    .inactive_session
+                    .as_ref()
+                    .map(|session| capture(inactive_backend, session, &self.mistral_conversation))
+                    .transpose()?,
+                history: self
+                    .chat_history
+                    .iter()
+                    .map(|entry| {
+                        capture(entry.backend, &entry.session, &entry.mistral_conversation)
+                    })
+                    .collect::<anyhow::Result<_>>()?,
+            };
+            sender.try_send(chats)?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            log::error!("Could not save chat history: {error:#}");
+            self.session.error = Some(format!("Could not save chat history: {error:#}"));
         }
     }
 
@@ -169,6 +362,7 @@ impl CodexPanel {
                         }
                     }
                     panel.schedule_sync_markdown(cx);
+                    panel.save_history();
                     cx.notify();
                 });
                 if let Err(error) = result {
@@ -244,6 +438,7 @@ impl CodexPanel {
         }
         if follow_output {
             self.scroll_handle.scroll_to_bottom();
+            self.save_history();
         }
     }
 
@@ -277,6 +472,8 @@ impl CodexPanel {
         self.event_task.take();
         self.markdown_sync_task.take();
         self.outgoing = None;
+        self.archive_current_chat();
+        self.chat_identity = Rc::new(());
         if self.backend == super::Backend::Mistral {
             self.mistral_conversation = Default::default();
         }
@@ -284,10 +481,186 @@ impl CodexPanel {
         self.session = Session::new(self.session.directory.clone());
         self.session.settings = settings;
         self.markdown.clear();
+        self.expanded_activity_groups.clear();
         self.questions.clear();
         self.question_request_id = None;
         self.connect(cx);
         self.prompt.focus_handle(cx).focus(window, cx);
+        self.save_history();
+    }
+
+    fn archive_current_chat(&mut self) {
+        if !self
+            .session
+            .messages
+            .iter()
+            .any(|message| message.kind == MessageKind::User)
+        {
+            return;
+        }
+        let title = chat_title(&self.session);
+        let mut session = Session::new(self.session.directory.clone());
+        session.settings = self.session.settings.clone();
+        let session = std::mem::replace(&mut self.session, session);
+        self.chat_history.insert(
+            0,
+            ChatHistoryEntry {
+                identity: self.chat_identity.clone(),
+                title,
+                backend: self.backend,
+                session,
+                mistral_conversation: self.mistral_conversation.clone(),
+            },
+        );
+    }
+
+    fn switch_to_history(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if self.session.busy {
+            return;
+        }
+        let Some(entry) = self.chat_history.get(index) else {
+            return;
+        };
+        if entry.backend != self.backend {
+            return;
+        }
+        let entry = self.chat_history.remove(index);
+        self.archive_current_chat();
+        self.connection_task.take();
+        self.event_task.take();
+        self.markdown_sync_task.take();
+        self.outgoing = None;
+        self.session = entry.session;
+        self.chat_identity = entry.identity;
+        self.mistral_conversation = entry.mistral_conversation;
+        self.markdown.clear();
+        self.expanded_activity_groups.clear();
+        self.questions.clear();
+        self.question_request_id = None;
+        self.connect(cx);
+        self.sync_markdown(cx);
+        self.scroll_handle.scroll_to_bottom();
+        self.prompt.focus_handle(cx).focus(window, cx);
+        self.save_history();
+    }
+
+    fn confirm_delete_chat(
+        &mut self,
+        identity: Rc<()>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.session.busy {
+            return;
+        }
+        let title = if Rc::ptr_eq(&identity, &self.chat_identity) {
+            chat_title(&self.session)
+        } else if let Some(entry) = self
+            .chat_history
+            .iter()
+            .find(|entry| Rc::ptr_eq(&entry.identity, &identity))
+        {
+            entry.title.clone()
+        } else {
+            return;
+        };
+        let answer = window.prompt(
+            PromptLevel::Warning,
+            &format!("Delete chat \"{title}\"?"),
+            Some("This removes the chat from this project's saved history and cannot be undone."),
+            &["Cancel", "Delete"],
+            cx,
+        );
+        cx.spawn_in(window, async move |panel, cx| {
+            if answer.await != Ok(1) {
+                return;
+            }
+            panel
+                .update_in(cx, |panel, window, cx| {
+                    if panel.session.busy {
+                        return;
+                    }
+                    if Rc::ptr_eq(&identity, &panel.chat_identity) {
+                        panel.connection_task.take();
+                        panel.event_task.take();
+                        panel.markdown_sync_task.take();
+                        panel.outgoing = None;
+                        let settings = panel.session.settings.clone();
+                        panel.session = Session::new(panel.session.directory.clone());
+                        panel.session.settings = settings;
+                        panel.chat_identity = Rc::new(());
+                        if panel.backend == super::Backend::Mistral {
+                            panel.mistral_conversation = Default::default();
+                        }
+                        panel.markdown.clear();
+                        panel.expanded_activity_groups.clear();
+                        panel.questions.clear();
+                        panel.question_request_id = None;
+                        panel.connect(cx);
+                        panel.prompt.focus_handle(cx).focus(window, cx);
+                    } else if let Some(index) = panel
+                        .chat_history
+                        .iter()
+                        .position(|entry| Rc::ptr_eq(&entry.identity, &identity))
+                    {
+                        panel.chat_history.remove(index);
+                    } else {
+                        return;
+                    }
+                    panel.save_history();
+                    cx.notify();
+                })
+                .log_err();
+        })
+        .detach();
+    }
+
+    fn render_history(&self, window: &mut Window, cx: &mut Context<Self>) -> DropdownMenu {
+        let panel = cx.entity().downgrade();
+        let menu = ContextMenu::build(window, cx, |mut menu, _, _| {
+            menu = menu
+                .header("Recent chats")
+                .end_slot_action(Box::new(DeleteChat));
+            let mut has_history = false;
+            for (index, entry) in self.chat_history.iter().enumerate() {
+                if entry.backend != self.backend {
+                    continue;
+                }
+                has_history = true;
+                let panel = panel.clone();
+                let delete_panel = panel.clone();
+                let identity = entry.identity.clone();
+                menu = menu.entry_with_end_slot(
+                    entry.title.clone(),
+                    None,
+                    move |window, cx| {
+                        panel
+                            .update(cx, |panel, cx| panel.switch_to_history(index, window, cx))
+                            .log_err();
+                    },
+                    IconName::Trash,
+                    "Delete chat".into(),
+                    move |window, cx| {
+                        delete_panel
+                            .update(cx, |panel, cx| {
+                                panel.confirm_delete_chat(identity.clone(), window, cx)
+                            })
+                            .log_err();
+                    },
+                );
+            }
+            if !has_history {
+                menu = menu.header("No previous chats for this project");
+            }
+            menu
+        });
+        DropdownMenu::new("codex-chat-history", "History", menu)
+            .style(DropdownStyle::Ghost)
+            .trigger_size(ButtonSize::Compact)
+            .tab_index(0)
+            .aria_label("Chat history")
+            .disabled(self.session.busy)
+            .trigger_tooltip(Tooltip::text("Reopen a recent chat"))
     }
 
     fn render_settings(&self, window: &mut Window, cx: &mut Context<Self>) -> gpui::Div {
@@ -506,10 +879,14 @@ impl CodexPanel {
             .unwrap_or_else(|| Session::new(self.session.directory.clone()));
         self.inactive_session = Some(std::mem::replace(&mut self.session, session));
         self.backend = backend;
+        self.chat_identity = Rc::new(());
         self.markdown.clear();
+        self.expanded_activity_groups.clear();
         self.questions.clear();
         self.question_request_id = None;
         self.connect(cx);
+        self.sync_markdown(cx);
+        self.save_history();
     }
 
     fn login(&mut self, cx: &mut Context<Self>) {
@@ -702,6 +1079,23 @@ impl CodexPanel {
     }
 }
 
+fn chat_title(session: &Session) -> String {
+    let title = session
+        .messages
+        .iter()
+        .find(|message| message.kind == MessageKind::User)
+        .and_then(|message| message.text.lines().next())
+        .unwrap_or("Untitled chat")
+        .chars()
+        .take(48)
+        .collect::<String>();
+    if title.is_empty() {
+        "Untitled chat".into()
+    } else {
+        title
+    }
+}
+
 fn reasoning_label(effort: Option<&str>) -> &'static str {
     match effort {
         Some("none") => "None",
@@ -781,8 +1175,13 @@ fn approval_description(request: &ServerRequest) -> (&'static str, String) {
 
 impl Render for CodexPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
         let request = self.render_request(window, cx);
         let settings = self.render_settings(window, cx);
+        let history = self.render_history(window, cx);
         let status = if self.remote {
             "Local projects only"
         } else if self.session.signing_in {
@@ -832,43 +1231,140 @@ impl Render for CodexPanel {
         let messages = self
             .session
             .messages
-            .iter()
+            .chunk_by(|first, second| {
+                first.kind == MessageKind::Activity && second.kind == MessageKind::Activity
+            })
             .enumerate()
-            .map(|(index, message)| {
-                let label = match message.kind {
-                    MessageKind::User => "You",
-                    MessageKind::Assistant => self.backend.name(),
-                    MessageKind::Activity => "Activity",
-                };
+            .filter_map(|(index, messages)| {
+                let message = messages.first()?;
+                if message.kind == MessageKind::Activity {
+                    let group_id = message.id.clone();
+                    let expanded = self.expanded_activity_groups.contains(&group_id);
+                    let summary = messages
+                        .last()
+                        .and_then(|message| message.text.lines().next())
+                        .unwrap_or("Activity");
+                    let label = if messages.len() == 1 {
+                        "1 activity".to_owned()
+                    } else {
+                        format!("{} activities", messages.len())
+                    };
+                    return Some(
+                        v_flex()
+                            .min_w_0()
+                            .gap_1()
+                            .child(
+                                h_flex()
+                                    .min_w_0()
+                                    .gap_1()
+                                    .child(
+                                        Button::new(("codex-activity-toggle", index), label)
+                                            .style(ButtonStyle::Transparent)
+                                            .size(ButtonSize::Compact)
+                                            .label_size(LabelSize::Small)
+                                            .color(Color::Muted)
+                                            .start_icon(
+                                                Icon::new(if expanded {
+                                                    IconName::ChevronDown
+                                                } else {
+                                                    IconName::ChevronRight
+                                                })
+                                                .size(IconSize::Small)
+                                                .color(Color::Muted),
+                                            )
+                                            .aria_expanded(expanded)
+                                            .on_click(cx.listener(move |panel, _, _, cx| {
+                                                if !panel.expanded_activity_groups.remove(&group_id)
+                                                {
+                                                    panel
+                                                        .expanded_activity_groups
+                                                        .insert(group_id.clone());
+                                                }
+                                                cx.notify();
+                                            })),
+                                    )
+                                    .child(
+                                        div()
+                                            .id(("codex-activity-summary", index))
+                                            .flex_1()
+                                            .min_w_0()
+                                            .overflow_hidden()
+                                            .child(
+                                                Label::new(summary.to_owned())
+                                                    .size(LabelSize::Small)
+                                                    .color(Color::Muted)
+                                                    .truncate(),
+                                            )
+                                            .tooltip(Tooltip::text(summary.to_owned())),
+                                    ),
+                            )
+                            .when(expanded, |element| {
+                                element.child(
+                                    v_flex()
+                                        .id(("codex-activity-details", index))
+                                        .min_w_0()
+                                        .max_h(px(320.))
+                                        .overflow_y_scroll()
+                                        .ml_2()
+                                        .pl_2()
+                                        .border_l_1()
+                                        .border_color(cx.theme().colors().border_variant)
+                                        .gap_2()
+                                        .children(messages.iter().enumerate().map(
+                                            |(activity_index, message)| {
+                                                div()
+                                                    .id(("codex-activity-output", activity_index))
+                                                    .min_w_0()
+                                                    .p_2()
+                                                    .rounded_md()
+                                                    .bg(cx.theme().colors().element_background)
+                                                    .text_sm()
+                                                    .text_color(cx.theme().colors().text_muted)
+                                                    .child(message.text.clone())
+                                            },
+                                        )),
+                                )
+                            })
+                            .into_any_element(),
+                    );
+                }
                 let body = if let Some(markdown) = self.markdown.get(&message.id) {
                     div()
+                        .min_w_0()
                         .child(MarkdownElement::new(
                             markdown.clone(),
                             MarkdownStyle::themed(MarkdownFont::Agent, window, cx),
                         ))
                         .into_any_element()
                 } else {
-                    let text: SharedString = message.text.clone().into();
                     div()
                         .id(("codex-message-body", index))
-                        .when(message.kind == MessageKind::Activity, |element| {
-                            element.max_h(px(200.)).overflow_y_scroll()
-                        })
+                        .min_w_0()
                         .text_sm()
-                        .child(text)
+                        .child(message.text.clone())
                         .into_any_element()
                 };
-                v_flex()
-                    .gap_2()
-                    .p_3()
-                    .min_w_0()
-                    .rounded_md()
-                    .when(message.kind == MessageKind::User, |element| {
-                        element.bg(cx.theme().colors().element_background)
-                    })
-                    .child(Label::new(label).size(LabelSize::Small).color(Color::Muted))
-                    .child(body)
-            });
+                Some(
+                    v_flex()
+                        .min_w_0()
+                        .px_1()
+                        .py_1()
+                        .when(message.kind == MessageKind::User, |element| {
+                            element
+                                .self_end()
+                                .max_w(gpui::relative(0.9))
+                                .my_1()
+                                .px_3()
+                                .py_2()
+                                .rounded_lg()
+                                .bg(cx.theme().colors().element_background)
+                        })
+                        .child(body)
+                        .into_any_element(),
+                )
+            })
+            .collect::<Vec<_>>();
+
         v_flex()
             .id("codex-chat-panel")
             .size_full()
@@ -887,7 +1383,9 @@ impl Render for CodexPanel {
                     .border_color(cx.theme().colors().border)
                     .child(
                         h_flex()
+                            .flex_1()
                             .min_w_0()
+                            .overflow_hidden()
                             .gap_2()
                             .child(Label::new(self.backend.name()))
                             .child(
@@ -917,72 +1415,111 @@ impl Render for CodexPanel {
                             }),
                     )
                     .child(
-                        IconButton::new("codex-new-chat", IconName::Plus)
-                            .disabled(self.session.busy)
-                            .tooltip(Tooltip::text("New chat"))
-                            .on_click(
-                                cx.listener(|panel, _, window, cx| panel.new_chat(window, cx)),
+                        h_flex()
+                            .flex_none()
+                            .gap_1()
+                            .child(history)
+                            .child(
+                                IconButton::new("codex-delete-chat", IconName::Trash)
+                                    .aria_label("Delete current chat")
+                                    .disabled(self.session.busy || self.session.messages.is_empty())
+                                    .tooltip(Tooltip::text("Delete current chat"))
+                                    .on_click(cx.listener(|panel, _, window, cx| {
+                                        panel.confirm_delete_chat(
+                                            panel.chat_identity.clone(),
+                                            window,
+                                            cx,
+                                        );
+                                    })),
+                            )
+                            .child(
+                                IconButton::new("codex-new-chat", IconName::Plus)
+                                    .aria_label("New chat")
+                                    .disabled(self.session.busy)
+                                    .tooltip(Tooltip::text("New chat"))
+                                    .on_click(cx.listener(|panel, _, window, cx| {
+                                        panel.new_chat(window, cx)
+                                    })),
                             ),
                     ),
             )
-            .child(
-                h_flex()
-                    .gap_4()
-                    .px_3()
-                    .py_2()
-                    .border_b_1()
-                    .border_color(cx.theme().colors().border)
-                    .children(
-                        [
-                            (
-                                "codex-five-hour-usage",
-                                "5-hour",
-                                self.session.five_hour_usage,
-                            ),
-                            ("codex-weekly-usage", "Weekly", self.session.weekly_usage),
-                        ]
-                        .into_iter()
-                        .map(|(id, label, usage)| {
-                            let remaining = usage.map(|percent| 100.0 - percent);
-                            let percentage = remaining
-                                .map(|percent| format!("{percent:.0}%"))
-                                .unwrap_or_else(|| "—".into());
-                            let tooltip = remaining
-                                .map(|percent| format!("{label} limit: {percent:.0}% left"))
-                                .unwrap_or_else(|| {
-                                    self.session
-                                        .usage_error
-                                        .clone()
-                                        .unwrap_or_else(|| format!("{label} usage is unavailable"))
-                                });
-                            let color = match remaining {
-                                Some(percent) if percent <= 10.0 => cx.theme().status().error,
-                                Some(percent) if percent <= 25.0 => cx.theme().status().warning,
-                                Some(_) => cx.theme().status().info,
-                                None => cx.theme().colors().border_variant,
-                            };
-                            h_flex()
-                                .id(id)
-                                .gap_1p5()
-                                .child(
-                                    CircularProgress::new(
-                                        remaining.unwrap_or(0.0),
-                                        100.0,
-                                        px(16.0),
-                                        cx,
+            .when(self.backend == super::Backend::Codex, |element| {
+                element.child(
+                    h_flex()
+                        .flex_wrap()
+                        .gap_2()
+                        .px_3()
+                        .py_2()
+                        .border_b_1()
+                        .border_color(cx.theme().colors().border)
+                        .children(
+                            [
+                                (
+                                    "codex-five-hour-usage",
+                                    "5-hour",
+                                    self.session.five_hour_usage,
+                                    self.session.five_hour_resets_at,
+                                ),
+                                (
+                                    "codex-weekly-usage",
+                                    "Weekly",
+                                    self.session.weekly_usage,
+                                    self.session.weekly_resets_at,
+                                ),
+                            ]
+                            .into_iter()
+                            .map(|(id, label, usage, resets_at)| {
+                                let reset = reset_countdown(resets_at, now);
+                                let remaining = usage.map(|percent| 100.0 - percent);
+                                let percentage = remaining
+                                    .map(|percent| format!("{percent:.0}%"))
+                                    .unwrap_or_else(|| "—".into());
+                                let mut tooltip = remaining
+                                    .map(|percent| format!("{label} limit: {percent:.0}% left"))
+                                    .unwrap_or_else(|| {
+                                        self.session.usage_error.clone().unwrap_or_else(|| {
+                                            format!("{label} usage is unavailable")
+                                        })
+                                    });
+                                tooltip.push_str(&format!(" · {reset}"));
+                                let color = match remaining {
+                                    Some(percent) if percent <= 10.0 => cx.theme().status().error,
+                                    Some(percent) if percent <= 25.0 => cx.theme().status().warning,
+                                    Some(_) => cx.theme().status().info,
+                                    None => cx.theme().colors().border_variant,
+                                };
+                                v_flex()
+                                    .id(id)
+                                    .flex_1()
+                                    .min_w(px(150.0))
+                                    .gap_1()
+                                    .child(
+                                        h_flex()
+                                            .gap_1p5()
+                                            .child(
+                                                CircularProgress::new(
+                                                    remaining.unwrap_or(0.0),
+                                                    100.0,
+                                                    px(16.0),
+                                                    cx,
+                                                )
+                                                .stroke_width(px(2.0))
+                                                .progress_color(color),
+                                            )
+                                            .child(
+                                                Label::new(format!(
+                                                    "{label} {percentage} left - {reset}"
+                                                ))
+                                                .size(LabelSize::Small)
+                                                .color(Color::Muted)
+                                                .truncate(),
+                                            ),
                                     )
-                                    .stroke_width(px(2.0))
-                                    .progress_color(color),
-                                )
-                                .child(
-                                    Label::new(format!("{label} {percentage} left"))
-                                        .size(LabelSize::Small)
-                                        .color(Color::Muted),
-                                )
-                                .tooltip(Tooltip::text(tooltip))
-                        }),
-                    ),
-            )
+                                    .tooltip(Tooltip::text(tooltip))
+                            }),
+                        ),
+                )
+            })
             .when(self.remote || self.session.signing_in, |element| {
                 element.child(
                     div().px_3().py_2().child(
@@ -999,8 +1536,9 @@ impl Render for CodexPanel {
                     .min_h_0()
                     .overflow_y_scroll()
                     .track_scroll(&self.scroll_handle)
-                    .p_2()
-                    .gap_3()
+                    .px_3()
+                    .py_2()
+                    .gap_2()
                     .children(messages),
             )
             .when_some(self.session.error.clone(), |element, error| {
@@ -1043,7 +1581,7 @@ impl Render for CodexPanel {
                         .id("codex-composer")
                         .key_context("CodexChat")
                         .min_w_0()
-                        .gap_4()
+                        .gap_2()
                         .px_3()
                         .pt_3()
                         .pb_2()
@@ -1174,5 +1712,45 @@ impl Panel for CodexPanel {
                     .log_err();
             });
         }
+    }
+}
+
+fn reset_countdown(resets_at: Option<u64>, now: u64) -> String {
+    let Some(resets_at) = resets_at else {
+        return "Reset unavailable".into();
+    };
+    let seconds = resets_at.saturating_sub(now);
+    if seconds == 0 {
+        return "Reset due".into();
+    }
+    let minutes = seconds.div_ceil(60);
+    let days = minutes / (24 * 60);
+    let hours = minutes / 60 % 24;
+    let minutes = minutes % 60;
+    if days > 0 {
+        format!("{days}d {hours}h {minutes}m")
+    } else if hours > 0 {
+        format!("{hours}h {minutes}m")
+    } else {
+        format!("{minutes}m")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reset_countdown;
+
+    #[test]
+    fn reset_countdowns_handle_boundaries_and_missing_timestamps() {
+        assert_eq!(reset_countdown(None, 100), "Reset unavailable");
+        assert_eq!(reset_countdown(Some(99), 100), "Reset due");
+        assert_eq!(reset_countdown(Some(100), 100), "Reset due");
+        assert_eq!(reset_countdown(Some(101), 100), "1m");
+        assert_eq!(reset_countdown(Some(100 + 3599), 100), "1h 0m");
+        assert_eq!(reset_countdown(Some(100 + 5 * 3600), 100), "5h 0m");
+        assert_eq!(
+            reset_countdown(Some(100 + 3 * 86400 + 2 * 3600 + 60), 100),
+            "3d 2h 1m"
+        );
     }
 }

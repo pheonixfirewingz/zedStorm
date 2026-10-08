@@ -185,6 +185,7 @@ dependencies = [
  "serde_json",
  "serde_yaml_ng",
  "settings",
+ "sha2 0.10.9",
  "smol",
  "tempfile",
  "ui",

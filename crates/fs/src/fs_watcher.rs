@@ -807,6 +807,7 @@ struct PathRegistrationState {
     watcher_ids: Vec<WatcherRegistrationId>,
     has_os_watcher: bool,
     stale: bool,
+    watch_removed: bool,
 }
 
 /// The registered watch paths for one backend, keyed by [`WatchKey`] so that
@@ -1059,6 +1060,7 @@ impl OsWatcher {
                 watcher_ids: vec![id],
                 has_os_watcher: !path_already_covered,
                 stale: false,
+                watch_removed: false,
             });
 
         Ok(Some(id))
@@ -1080,9 +1082,12 @@ impl OsWatcher {
         log::trace!("rewatching stale path: {path:?}");
         // A renamed directory's watch survives under the old path; unwatch it
         // so the backend won't skip installation as a duplicate.
-        self.unwatch(path.as_path()).log_err();
+        if !path_state.watch_removed {
+            self.unwatch(path.as_path()).log_err();
+        }
         self.watch(path.as_path())?;
         path_state.stale = false;
+        path_state.watch_removed = false;
         Ok(())
     }
 
@@ -1269,6 +1274,7 @@ fn dispatch(
                     };
                     path_state.stale = true;
                     if !matches!(event.kind, EventKind::Modify(_)) {
+                        path_state.watch_removed = true;
                         continue;
                     }
                     // Descendant watches follow the directory without their own rename events.
@@ -1622,6 +1628,7 @@ mod tests {
                     .expect("watch registered");
             }
 
+            let is_removal = matches!(event.kind, EventKind::Remove(_));
             watcher.dispatch(Ok(event));
             let rewatched = SanitizedPath::new(rewatched);
             let key = WatchKey::for_registration(rewatched, case_insensitive);
@@ -1638,7 +1645,11 @@ mod tests {
                     rewatched.as_path().to_path_buf()
                 ]
             );
-            assert_eq!(backend.unwatch_calls, &[rewatched.as_path().to_path_buf()]);
+            if is_removal {
+                assert!(backend.unwatch_calls.is_empty());
+            } else {
+                assert_eq!(backend.unwatch_calls, &[rewatched.as_path().to_path_buf()]);
+            }
         }
     }
 

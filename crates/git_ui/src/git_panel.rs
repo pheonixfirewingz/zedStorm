@@ -6825,10 +6825,13 @@ impl GitPanel {
                                     .color(if current { Color::Accent } else { Color::Muted }),
                             )
                             .child(
-                                Label::new(branch_name.clone())
-                                    .size(LabelSize::Small)
-                                    .truncate(),
+                                div().flex_1().min_w_0().child(
+                                    Label::new(branch_name.clone())
+                                        .size(LabelSize::Small)
+                                        .truncate(),
+                                ),
                             )
+                            .children(branch_picker::render_branch_tracking(branch))
                             .tooltip(Tooltip::text(if current {
                                 format!("Current branch: {branch_name}")
                             } else {

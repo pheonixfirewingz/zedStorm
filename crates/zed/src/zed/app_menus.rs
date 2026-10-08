@@ -83,6 +83,7 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
                 MenuItem::action("Save All", workspace::SaveAll { save_intent: None }),
                 MenuItem::separator(),
                 MenuItem::action("About ZedStorm", zed_actions::About),
+                MenuItem::action("View Dependency Licenses", zed_actions::OpenLicenses),
                 MenuItem::separator(),
                 MenuItem::submenu(Menu::new("Settings").items([
                     MenuItem::action("Open Settings", zed_actions::OpenSettings),
@@ -214,32 +215,6 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
                 MenuItem::action("Toggle Breakpoint", editor::actions::ToggleBreakpoint),
                 MenuItem::action("Edit Breakpoint", editor::actions::EditLogBreakpoint),
                 MenuItem::action("Clear All Breakpoints", debugger_ui::ClearAllBreakpoints),
-            ],
-        },
-        Menu {
-            name: "Help".into(),
-            disabled: false,
-            items: vec![
-                MenuItem::action("View Dependency Licenses", zed_actions::OpenLicenses),
-                MenuItem::separator(),
-                MenuItem::action(
-                    "Documentation",
-                    super::OpenBrowser {
-                        url: "https://zed.dev/docs".into(),
-                    },
-                ),
-                MenuItem::action(
-                    "Zed Twitter",
-                    super::OpenBrowser {
-                        url: "https://twitter.com/zeddotdev".into(),
-                    },
-                ),
-                MenuItem::action(
-                    "Join the Team",
-                    super::OpenBrowser {
-                        url: "https://zed.dev/jobs".into(),
-                    },
-                ),
             ],
         },
     ]
