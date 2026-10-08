@@ -365,7 +365,7 @@ mod tests {
         Buffer, ContextProvider, Language, LanguageConfig, LanguageMatcher, LanguageQueries,
     };
     use gpui::{AppContext as _, TestAppContext};
-    use indoc::indoc;
+
     use std::{borrow::Cow, sync::Arc};
 
     struct TestContextProvider {
@@ -522,35 +522,31 @@ mod tests {
         }
     }
 
-    const GROUPED_QUERY: &str = indoc! {r#"
-        (function_item
-          name: (identifier) @_outer
-          body: (block
-            ((expression_statement
-               (call_expression
-                 function: (identifier) @run @_call)) @run_item)+))
-    "#};
+    const GROUPED_QUERY: &str = r#"(function_item
+  name: (identifier) @_outer
+  body: (block
+    ((expression_statement
+       (call_expression
+         function: (identifier) @run @_call)) @run_item)+))
+"#;
 
-    const GROUPED_SOURCE: &str = indoc! {r#"
-        fn outer() {
-            alpha();
-            beta();
-            gamma();
-        }
-    "#};
+    const GROUPED_SOURCE: &str = r#"fn outer() {
+    alpha();
+    beta();
+    gamma();
+}
+"#;
 
     #[gpui::test]
     fn test_single_match_emits_one_runnable_per_match(cx: &mut TestAppContext) {
-        let query = indoc! {r#"
-            ((function_item
-               name: (identifier) @run
-               (#match? @run "^test_")) @_decl)
-        "#};
-        let source = indoc! {r#"
-            fn test_alpha() {}
-            fn helper() {}
-            fn test_beta() {}
-        "#};
+        let query = r#"((function_item
+   name: (identifier) @run
+   (#match? @run "^test_")) @_decl)
+"#;
+        let source = r#"fn test_alpha() {}
+fn helper() {}
+fn test_beta() {}
+"#;
 
         let runnables = collect_runnables(cx, source, query, None);
         let run_texts: Vec<String> = runnables
@@ -569,13 +565,11 @@ mod tests {
     #[gpui::test]
     fn test_single_match_without_run_capture_skipped(cx: &mut TestAppContext) {
         // Pattern with only a named capture and no `@run`: should silently produce nothing.
-        let query = indoc! {r#"
-            (function_item) @_decl
-        "#};
-        let source = indoc! {r#"
-            fn helper() {}
-            fn another() {}
-        "#};
+        let query = r#"(function_item) @_decl
+"#;
+        let source = r#"fn helper() {}
+fn another() {}
+"#;
 
         let runnables = collect_runnables(cx, source, query, None);
         assert!(
@@ -589,19 +583,17 @@ mod tests {
     fn test_match_with_no_runnable_does_not_terminate_iteration(cx: &mut TestAppContext) {
         // A syntax match yielding no runnable must not terminate the
         // outer iterator before later matches that DO have `@run` are visited.
-        let query = indoc! {r#"
-            ((function_item
-               name: (identifier) @_helper
-               (#match? @_helper "^helper")) @_decl_no_run)
+        let query = r#"((function_item
+   name: (identifier) @_helper
+   (#match? @_helper "^helper")) @_decl_no_run)
 
-            ((function_item
-               name: (identifier) @run
-               (#match? @run "^test_")) @_decl)
-        "#};
-        let source = indoc! {r#"
-            fn helper() {}
-            fn test_alpha() {}
-        "#};
+((function_item
+   name: (identifier) @run
+   (#match? @run "^test_")) @_decl)
+"#;
+        let source = r#"fn helper() {}
+fn test_alpha() {}
+"#;
 
         let runnables = collect_runnables(cx, source, query, None);
         let run_texts: Vec<String> = runnables
@@ -671,13 +663,12 @@ mod tests {
 
     #[gpui::test]
     fn test_grouped_match_resolver_returning_none_skips_group(cx: &mut TestAppContext) {
-        let source = indoc! {r#"
-            fn outer() {
-                alpha();
-                skip_me();
-                gamma();
-            }
-        "#};
+        let source = r#"fn outer() {
+    alpha();
+    skip_me();
+    gamma();
+}
+"#;
         let resolver: Arc<dyn RunnableResolver> = Arc::new(SkipByTextResolver {
             skip_text: "skip_me",
         });

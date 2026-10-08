@@ -5,7 +5,7 @@
 use std::{any::TypeId, rc::Rc};
 
 use collections::{HashSet, TypeIdHashSet};
-use derive_more::{Deref, DerefMut};
+
 use gpui::{Action, App, BorrowAppContext, Global, Task, WeakEntity};
 use workspace::Workspace;
 
@@ -24,8 +24,23 @@ pub struct CommandPaletteFilter {
     shown_action_types: TypeIdHashSet,
 }
 
-#[derive(Deref, DerefMut, Default)]
+#[derive(Default)]
 struct GlobalCommandPaletteFilter(CommandPaletteFilter);
+
+impl std::ops::Deref for GlobalCommandPaletteFilter {
+    type Target = CommandPaletteFilter;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for GlobalCommandPaletteFilter {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 impl Global for GlobalCommandPaletteFilter {}
 

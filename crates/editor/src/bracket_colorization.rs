@@ -402,12 +402,12 @@ mod tests {
     use collections::HashSet;
     use fs::FakeFs;
     use gpui::{Rgba, UpdateGlobal as _, hsla};
-    use indoc::indoc;
+
     use itertools::Itertools;
     use language::{Buffer, Capability, markdown_lang};
     use languages::rust_lang;
     use multi_buffer::{MultiBuffer, PathKey};
-    use pretty_assertions::assert_eq;
+
     use project::Project;
     use rope::Point;
     use serde_json::json;
@@ -571,7 +571,8 @@ mod tests {
         )
         .await;
 
-        cx.set_state(indoc! {r#"ˇuse std::{collections::HashMap, future::Future};
+        cx.set_state(
+            r#"ˇuse std::{collections::HashMap, future::Future};
 
 fn main() {
     let a = one((), { () }, ());
@@ -599,7 +600,8 @@ where
 {
     2
 }
-"#});
+"#,
+        );
         cx.executor().advance_clock(Duration::from_millis(100));
         cx.executor().run_until_parked();
 
@@ -717,10 +719,9 @@ where
                 })
                 .unwrap()
         };
-        let expected = indoc! {"
-            fn main«1()1» «1{ let value = 1; }1»
-            1 hsla(207.80, 81.00%, 66.00%, 1.00)
-        "};
+        let expected = "fn main«1()1» «1{ let value = 1; }1»
+1 hsla(207.80, 81.00%, 66.00%, 1.00)
+";
         assert_eq!(bracket_colors(cx), expected);
 
         let offset = text.find('1').expect("literal exists");
@@ -746,7 +747,7 @@ where
         )
         .await;
 
-        cx.set_state(indoc! {r#"ˇ[LLM-powered features](./ai/overview.md), [bring and configure your own API keys](./ai/llm-providers.md#use-your-own-keys)"#});
+        cx.set_state(r#"ˇ[LLM-powered features](./ai/overview.md), [bring and configure your own API keys](./ai/llm-providers.md#use-your-own-keys)"#);
         cx.executor().advance_clock(Duration::from_millis(100));
         cx.executor().run_until_parked();
 
@@ -758,7 +759,7 @@ where
             "All markdown brackets should be colored based on their depth"
         );
 
-        cx.set_state(indoc! {r#"ˇ{{}}"#});
+        cx.set_state(r#"ˇ{{}}"#);
         cx.executor().advance_clock(Duration::from_millis(100));
         cx.executor().run_until_parked();
 
@@ -771,11 +772,13 @@ where
             "All markdown brackets should be colored based on their depth, again"
         );
 
-        cx.set_state(indoc! {r#"ˇ('')('')
+        cx.set_state(
+            r#"ˇ('')('')
 
 ((''))('')
 
-('')((''))"#});
+('')((''))"#,
+        );
         cx.executor().advance_clock(Duration::from_millis(100));
         cx.executor().run_until_parked();
 
@@ -902,11 +905,12 @@ where
             buffer.set_language(Some(markdown_lang()), cx);
         });
 
-        cx.set_state(indoc! {r#"
-            fn main() {
-                let v: Vec<Stringˇ> = vec![];
-            }
-        "#});
+        cx.set_state(
+            r#"fn main() {
+    let v: Vec<Stringˇ> = vec![];
+}
+"#,
+        );
         cx.executor().advance_clock(Duration::from_millis(100));
         cx.executor().run_until_parked();
 
@@ -953,15 +957,16 @@ where
         )
         .await;
 
-        cx.set_state(indoc! {r#"
-struct Foo<'a, T> {
+        cx.set_state(
+            r#"struct Foo<'a, T> {
     data: Vec<Option<&'a T>>,
 }
 
 fn process_data() {
     let map:ˇ
 }
-"#});
+"#,
+        );
 
         cx.update_editor(|editor, window, cx| {
             editor.handle_input(" Result<", window, cx);
@@ -969,8 +974,7 @@ fn process_data() {
         cx.executor().advance_clock(Duration::from_millis(100));
         cx.executor().run_until_parked();
         assert_eq!(
-            indoc! {r#"
-struct Foo«1<'a, T>1» «1{
+            r#"struct Foo«1<'a, T>1» «1{
     data: Vec«2<Option«3<&'a T>3»>2»,
 }1»
 
@@ -981,7 +985,7 @@ fn process_data«1()1» «1{
 1 hsla(207.80, 81.00%, 66.00%, 1.00)
 2 hsla(29.00, 54.00%, 61.00%, 1.00)
 3 hsla(286.00, 51.00%, 64.00%, 1.00)
-"#},
+"#,
             &bracket_colors_markup(&mut cx),
             "Brackets without pairs should be ignored and not colored"
         );
@@ -992,8 +996,7 @@ fn process_data«1()1» «1{
         cx.executor().advance_clock(Duration::from_millis(100));
         cx.executor().run_until_parked();
         assert_eq!(
-            indoc! {r#"
-struct Foo«1<'a, T>1» «1{
+            r#"struct Foo«1<'a, T>1» «1{
     data: Vec«2<Option«3<&'a T>3»>2»,
 }1»
 
@@ -1004,7 +1007,7 @@ fn process_data«1()1» «1{
 1 hsla(207.80, 81.00%, 66.00%, 1.00)
 2 hsla(29.00, 54.00%, 61.00%, 1.00)
 3 hsla(286.00, 51.00%, 64.00%, 1.00)
-"#},
+"#,
             &bracket_colors_markup(&mut cx),
         );
 
@@ -1014,8 +1017,7 @@ fn process_data«1()1» «1{
         cx.executor().advance_clock(Duration::from_millis(100));
         cx.executor().run_until_parked();
         assert_eq!(
-            indoc! {r#"
-struct Foo«1<'a, T>1» «1{
+            r#"struct Foo«1<'a, T>1» «1{
     data: Vec«2<Option«3<&'a T>3»>2»,
 }1»
 
@@ -1026,7 +1028,7 @@ fn process_data«1()1» «1{
 1 hsla(207.80, 81.00%, 66.00%, 1.00)
 2 hsla(29.00, 54.00%, 61.00%, 1.00)
 3 hsla(286.00, 51.00%, 64.00%, 1.00)
-"#},
+"#,
             &bracket_colors_markup(&mut cx),
             "When brackets start to get closed, inner brackets are re-colored based on their depth"
         );
@@ -1037,8 +1039,7 @@ fn process_data«1()1» «1{
         cx.executor().advance_clock(Duration::from_millis(100));
         cx.executor().run_until_parked();
         assert_eq!(
-            indoc! {r#"
-struct Foo«1<'a, T>1» «1{
+            r#"struct Foo«1<'a, T>1» «1{
     data: Vec«2<Option«3<&'a T>3»>2»,
 }1»
 
@@ -1050,7 +1051,7 @@ fn process_data«1()1» «1{
 2 hsla(29.00, 54.00%, 61.00%, 1.00)
 3 hsla(286.00, 51.00%, 64.00%, 1.00)
 4 hsla(187.00, 47.00%, 55.00%, 1.00)
-"#},
+"#,
             &bracket_colors_markup(&mut cx),
         );
 
@@ -1060,8 +1061,7 @@ fn process_data«1()1» «1{
         cx.executor().advance_clock(Duration::from_millis(100));
         cx.executor().run_until_parked();
         assert_eq!(
-            indoc! {r#"
-struct Foo«1<'a, T>1» «1{
+            r#"struct Foo«1<'a, T>1» «1{
     data: Vec«2<Option«3<&'a T>3»>2»,
 }1»
 
@@ -1074,7 +1074,7 @@ fn process_data«1()1» «1{
 3 hsla(286.00, 51.00%, 64.00%, 1.00)
 4 hsla(187.00, 47.00%, 55.00%, 1.00)
 5 hsla(355.00, 65.00%, 65.00%, 1.00)
-"#},
+"#,
             &bracket_colors_markup(&mut cx),
         );
     }
@@ -1094,18 +1094,16 @@ fn process_data«1()1» «1{
         .await;
 
         cx.set_state(&separate_with_comment_lines(
-            indoc! {r#"
-mod foo {
+            r#"mod foo {
     ˇfn process_data_1() {
         let map: Option<Vec<()>> = None;
     }
-"#},
-            indoc! {r#"
-    fn process_data_2() {
+"#,
+            r#"    fn process_data_2() {
         let map: Option<Vec<()>> = None;
     }
 }
-"#},
+"#,
             comment_lines,
         ));
 
@@ -1113,14 +1111,12 @@ mod foo {
         cx.executor().run_until_parked();
         assert_eq!(
             &separate_with_comment_lines(
-                indoc! {r#"
-mod foo «1{
+                r#"mod foo «1{
     fn process_data_1«2()2» «2{
         let map: Option«3<Vec«4<«5()5»>4»>3» = None;
     }2»
-"#},
-                indoc! {r#"
-    fn process_data_2() {
+"#,
+                r#"    fn process_data_2() {
         let map: Option<Vec<()>> = None;
     }
 }1»
@@ -1130,7 +1126,7 @@ mod foo «1{
 3 hsla(286.00, 51.00%, 64.00%, 1.00)
 4 hsla(187.00, 47.00%, 55.00%, 1.00)
 5 hsla(355.00, 65.00%, 65.00%, 1.00)
-"#},
+"#,
                 comment_lines,
             ),
             &bracket_colors_markup(&mut cx),
@@ -1145,14 +1141,12 @@ mod foo «1{
         cx.executor().run_until_parked();
         assert_eq!(
             &separate_with_comment_lines(
-                indoc! {r#"
-mod foo «1{
+                r#"mod foo «1{
     fn process_data_1«2()2» «2{
         let map: Option«3<Vec«4<«5()5»>4»>3» = None;
     }2»
-"#},
-                indoc! {r#"
-    fn process_data_2«2()2» «2{
+"#,
+                r#"    fn process_data_2«2()2» «2{
         let map: Option«3<Vec«4<«5()5»>4»>3» = None;
     }2»
 }1»
@@ -1162,7 +1156,7 @@ mod foo «1{
 3 hsla(286.00, 51.00%, 64.00%, 1.00)
 4 hsla(187.00, 47.00%, 55.00%, 1.00)
 5 hsla(355.00, 65.00%, 65.00%, 1.00)
-"#},
+"#,
                 comment_lines,
             ),
             &bracket_colors_markup(&mut cx),
@@ -1176,14 +1170,12 @@ mod foo «1{
         cx.executor().run_until_parked();
         assert_eq!(
             &separate_with_comment_lines(
-                indoc! {r#"
-mod foo «1{
+                r#"mod foo «1{
     fn process_data_1() {
         let map: Option<Vec<()>> = None;
     }
-"#},
-                indoc! {r#"
-    fn process_data_2«2()2» «2{
+"#,
+                r#"    fn process_data_2«2()2» «2{
         let map: Option«3<Vec«4<«5()5»>4»>3» = None;
     }
     «3{«4{}4»}3»}2»}1»
@@ -1193,7 +1185,7 @@ mod foo «1{
 3 hsla(286.00, 51.00%, 64.00%, 1.00)
 4 hsla(187.00, 47.00%, 55.00%, 1.00)
 5 hsla(355.00, 65.00%, 65.00%, 1.00)
-"#},
+"#,
                 comment_lines,
             ),
             &bracket_colors_markup(&mut cx),
@@ -1207,14 +1199,12 @@ mod foo «1{
         cx.executor().run_until_parked();
         assert_eq!(
             &separate_with_comment_lines(
-                indoc! {r#"
-mod foo «1{
+                r#"mod foo «1{
     fn process_data_1«2()2» «2{
         let map: Option«3<Vec«4<«5()5»>4»>3» = None;
     }2»
-"#},
-                indoc! {r#"
-    fn process_data_2«2()2» «2{
+"#,
+                r#"    fn process_data_2«2()2» «2{
         let map: Option«3<Vec«4<«5()5»>4»>3» = None;
     }
     «3{«4{}4»}3»}2»}1»
@@ -1224,7 +1214,7 @@ mod foo «1{
 3 hsla(286.00, 51.00%, 64.00%, 1.00)
 4 hsla(187.00, 47.00%, 55.00%, 1.00)
 5 hsla(355.00, 65.00%, 65.00%, 1.00)
-"#},
+"#,
                 comment_lines,
             ),
             &bracket_colors_markup(&mut cx),
@@ -1241,12 +1231,11 @@ mod foo «1{
         cx.executor().run_until_parked();
         assert_eq!(
             &separate_with_comment_lines(
-                indoc! {r#"
-mod foo {
+                r#"mod foo {
     fn process_data_1() {
         let map: Option<Vec<()>> = None;
     }
-"#},
+"#,
                 r#"    fn process_data_2() {
         let map: Option<Vec<()>> = None;
     }
@@ -1269,12 +1258,11 @@ mod foo {
         cx.executor().run_until_parked();
         assert_eq!(
             &separate_with_comment_lines(
-                indoc! {r#"
-mod foo «1{
+                r#"mod foo «1{
     fn process_data_1«2()2» «2{
         let map: Option«3<Vec«4<«5()5»>4»>3» = None;
     }2»
-"#},
+"#,
                 r#"    fn process_data_2() {
         let map: Option<Vec<()>> = None;
     }
@@ -1306,225 +1294,225 @@ mod foo «1{
         .await;
 
         // taken from r-a https://github.com/rust-lang/rust-analyzer/blob/d733c07552a2dc0ec0cc8f4df3f0ca969a93fd90/crates/ide/src/inlay_hints.rs#L81-L297
-        cx.set_state(indoc! {r#"ˇ
-            pub(crate) fn inlay_hints(
-                db: &RootDatabase,
-                file_id: FileId,
-                range_limit: Option<TextRange>,
-                config: &InlayHintsConfig,
-            ) -> Vec<InlayHint> {
-                let _p = tracing::info_span!("inlay_hints").entered();
-                let sema = Semantics::new(db);
-                let file_id = sema
-                    .attach_first_edition(file_id)
-                    .unwrap_or_else(|| EditionedFileId::current_edition(db, file_id));
-                let file = sema.parse(file_id);
-                let file = file.syntax();
+        cx.set_state(r#"ˇ
+pub(crate) fn inlay_hints(
+    db: &RootDatabase,
+    file_id: FileId,
+    range_limit: Option<TextRange>,
+    config: &InlayHintsConfig,
+) -> Vec<InlayHint> {
+    let _p = tracing::info_span!("inlay_hints").entered();
+    let sema = Semantics::new(db);
+    let file_id = sema
+        .attach_first_edition(file_id)
+        .unwrap_or_else(|| EditionedFileId::current_edition(db, file_id));
+    let file = sema.parse(file_id);
+    let file = file.syntax();
 
-                let mut acc = Vec::new();
+    let mut acc = Vec::new();
 
-                let Some(scope) = sema.scope(file) else {
-                    return acc;
-                };
-                let famous_defs = FamousDefs(&sema, scope.krate());
-                let display_target = famous_defs.1.to_display_target(sema.db);
+    let Some(scope) = sema.scope(file) else {
+        return acc;
+    };
+    let famous_defs = FamousDefs(&sema, scope.krate());
+    let display_target = famous_defs.1.to_display_target(sema.db);
 
-                let ctx = &mut InlayHintCtx::default();
-                let mut hints = |event| {
-                    if let Some(node) = handle_event(ctx, event) {
-                        hints(&mut acc, ctx, &famous_defs, config, file_id, display_target, node);
+    let ctx = &mut InlayHintCtx::default();
+    let mut hints = |event| {
+        if let Some(node) = handle_event(ctx, event) {
+            hints(&mut acc, ctx, &famous_defs, config, file_id, display_target, node);
+        }
+    };
+    let mut preorder = file.preorder();
+    salsa::attach(sema.db, || {
+        while let Some(event) = preorder.next() {
+            if matches!((&event, range_limit), (WalkEvent::Enter(node), Some(range)) if range.intersect(node.text_range()).is_none())
+            {
+                preorder.skip_subtree();
+                continue;
+            }
+            hints(event);
+        }
+    });
+    if let Some(range_limit) = range_limit {
+        acc.retain(|hint| range_limit.contains_range(hint.range));
+    }
+    acc
+}
+
+#[derive(Default)]
+struct InlayHintCtx {
+    lifetime_stacks: Vec<Vec<SmolStr>>,
+    extern_block_parent: Option<ast::ExternBlock>,
+}
+
+pub(crate) fn inlay_hints_resolve(
+    db: &RootDatabase,
+    file_id: FileId,
+    resolve_range: TextRange,
+    hash: u64,
+    config: &InlayHintsConfig,
+    hasher: impl Fn(&InlayHint) -> u64,
+) -> Option<InlayHint> {
+    let _p = tracing::info_span!("inlay_hints_resolve").entered();
+    let sema = Semantics::new(db);
+    let file_id = sema
+        .attach_first_edition(file_id)
+        .unwrap_or_else(|| EditionedFileId::current_edition(db, file_id));
+    let file = sema.parse(file_id);
+    let file = file.syntax();
+
+    let scope = sema.scope(file)?;
+    let famous_defs = FamousDefs(&sema, scope.krate());
+    let mut acc = Vec::new();
+
+    let display_target = famous_defs.1.to_display_target(sema.db);
+
+    let ctx = &mut InlayHintCtx::default();
+    let mut hints = |event| {
+        if let Some(node) = handle_event(ctx, event) {
+            hints(&mut acc, ctx, &famous_defs, config, file_id, display_target, node);
+        }
+    };
+
+    let mut preorder = file.preorder();
+    while let Some(event) = preorder.next() {
+        // This can miss some hints that require the parent of the range to calculate
+        if matches!(&event, WalkEvent::Enter(node) if resolve_range.intersect(node.text_range()).is_none())
+        {
+            preorder.skip_subtree();
+            continue;
+        }
+        hints(event);
+    }
+    acc.into_iter().find(|hint| hasher(hint) == hash)
+}
+
+fn handle_event(ctx: &mut InlayHintCtx, node: WalkEvent<SyntaxNode>) -> Option<SyntaxNode> {
+    match node {
+        WalkEvent::Enter(node) => {
+            if let Some(node) = ast::AnyHasGenericParams::cast(node.clone()) {
+                let params = node
+                    .generic_param_list()
+                    .map(|it| {
+                        it.lifetime_params()
+                            .filter_map(|it| {
+                                it.lifetime().map(|it| format_smolstr!("{}", &it.text()[1..]))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                ctx.lifetime_stacks.push(params);
+            }
+            if let Some(node) = ast::ExternBlock::cast(node.clone()) {
+                ctx.extern_block_parent = Some(node);
+            }
+            Some(node)
+        }
+        WalkEvent::Leave(n) => {
+            if ast::AnyHasGenericParams::can_cast(n.kind()) {
+                ctx.lifetime_stacks.pop();
+            }
+            if ast::ExternBlock::can_cast(n.kind()) {
+                ctx.extern_block_parent = None;
+            }
+            None
+        }
+    }
+}
+
+// At some point when our hir infra is fleshed out enough we should flip this and traverse the
+// HIR instead of the syntax tree.
+fn hints(
+    hints: &mut Vec<InlayHint>,
+    ctx: &mut InlayHintCtx,
+    famous_defs @ FamousDefs(sema, _krate): &FamousDefs<'_, '_>,
+    config: &InlayHintsConfig,
+    file_id: EditionedFileId,
+    display_target: DisplayTarget,
+    node: SyntaxNode,
+) {
+    closing_brace::hints(
+        hints,
+        sema,
+        config,
+        display_target,
+        InRealFile { file_id, value: node.clone() },
+    );
+    if let Some(any_has_generic_args) = ast::AnyHasGenericArgs::cast(node.clone()) {
+        generic_param::hints(hints, famous_defs, config, any_has_generic_args);
+    }
+
+    match_ast! {
+        match node {
+            ast::Expr(expr) => {
+                chaining::hints(hints, famous_defs, config, display_target, &expr);
+                adjustment::hints(hints, famous_defs, config, display_target, &expr);
+                match expr {
+                    ast::Expr::CallExpr(it) => param_name::hints(hints, famous_defs, config, file_id, ast::Expr::from(it)),
+                    ast::Expr::MethodCallExpr(it) => {
+                        param_name::hints(hints, famous_defs, config, file_id, ast::Expr::from(it))
                     }
-                };
-                let mut preorder = file.preorder();
-                salsa::attach(sema.db, || {
-                    while let Some(event) = preorder.next() {
-                        if matches!((&event, range_limit), (WalkEvent::Enter(node), Some(range)) if range.intersect(node.text_range()).is_none())
-                        {
-                            preorder.skip_subtree();
-                            continue;
-                        }
-                        hints(event);
-                    }
-                });
-                if let Some(range_limit) = range_limit {
-                    acc.retain(|hint| range_limit.contains_range(hint.range));
+                    ast::Expr::ClosureExpr(it) => {
+                        closure_captures::hints(hints, famous_defs, config, it.clone());
+                        closure_ret::hints(hints, famous_defs, config, display_target, it)
+                    },
+                    ast::Expr::RangeExpr(it) => range_exclusive::hints(hints, famous_defs, config, it),
+                    _ => Some(()),
                 }
-                acc
-            }
-
-            #[derive(Default)]
-            struct InlayHintCtx {
-                lifetime_stacks: Vec<Vec<SmolStr>>,
-                extern_block_parent: Option<ast::ExternBlock>,
-            }
-
-            pub(crate) fn inlay_hints_resolve(
-                db: &RootDatabase,
-                file_id: FileId,
-                resolve_range: TextRange,
-                hash: u64,
-                config: &InlayHintsConfig,
-                hasher: impl Fn(&InlayHint) -> u64,
-            ) -> Option<InlayHint> {
-                let _p = tracing::info_span!("inlay_hints_resolve").entered();
-                let sema = Semantics::new(db);
-                let file_id = sema
-                    .attach_first_edition(file_id)
-                    .unwrap_or_else(|| EditionedFileId::current_edition(db, file_id));
-                let file = sema.parse(file_id);
-                let file = file.syntax();
-
-                let scope = sema.scope(file)?;
-                let famous_defs = FamousDefs(&sema, scope.krate());
-                let mut acc = Vec::new();
-
-                let display_target = famous_defs.1.to_display_target(sema.db);
-
-                let ctx = &mut InlayHintCtx::default();
-                let mut hints = |event| {
-                    if let Some(node) = handle_event(ctx, event) {
-                        hints(&mut acc, ctx, &famous_defs, config, file_id, display_target, node);
+            },
+            ast::Pat(it) => {
+                binding_mode::hints(hints, famous_defs, config, &it);
+                match it {
+                    ast::Pat::IdentPat(it) => {
+                        bind_pat::hints(hints, famous_defs, config, display_target, &it);
                     }
-                };
-
-                let mut preorder = file.preorder();
-                while let Some(event) = preorder.next() {
-                    // This can miss some hints that require the parent of the range to calculate
-                    if matches!(&event, WalkEvent::Enter(node) if resolve_range.intersect(node.text_range()).is_none())
-                    {
-                        preorder.skip_subtree();
-                        continue;
+                    ast::Pat::RangePat(it) => {
+                        range_exclusive::hints(hints, famous_defs, config, it);
                     }
-                    hints(event);
+                    _ => {}
                 }
-                acc.into_iter().find(|hint| hasher(hint) == hash)
-            }
-
-            fn handle_event(ctx: &mut InlayHintCtx, node: WalkEvent<SyntaxNode>) -> Option<SyntaxNode> {
-                match node {
-                    WalkEvent::Enter(node) => {
-                        if let Some(node) = ast::AnyHasGenericParams::cast(node.clone()) {
-                            let params = node
-                                .generic_param_list()
-                                .map(|it| {
-                                    it.lifetime_params()
-                                        .filter_map(|it| {
-                                            it.lifetime().map(|it| format_smolstr!("{}", &it.text()[1..]))
-                                        })
-                                        .collect()
-                                })
-                                .unwrap_or_default();
-                            ctx.lifetime_stacks.push(params);
-                        }
-                        if let Some(node) = ast::ExternBlock::cast(node.clone()) {
-                            ctx.extern_block_parent = Some(node);
-                        }
-                        Some(node)
+                Some(())
+            },
+            ast::Item(it) => match it {
+                ast::Item::Fn(it) => {
+                    implicit_drop::hints(hints, famous_defs, config, display_target, &it);
+                    if let Some(extern_block) = &ctx.extern_block_parent {
+                        extern_block::fn_hints(hints, famous_defs, config, &it, extern_block);
                     }
-                    WalkEvent::Leave(n) => {
-                        if ast::AnyHasGenericParams::can_cast(n.kind()) {
-                            ctx.lifetime_stacks.pop();
-                        }
-                        if ast::ExternBlock::can_cast(n.kind()) {
-                            ctx.extern_block_parent = None;
-                        }
-                        None
+                    lifetime::fn_hints(hints, ctx, famous_defs, config,  it)
+                },
+                ast::Item::Static(it) => {
+                    if let Some(extern_block) = &ctx.extern_block_parent {
+                        extern_block::static_hints(hints, famous_defs, config, &it, extern_block);
                     }
-                }
-            }
-
-            // At some point when our hir infra is fleshed out enough we should flip this and traverse the
-            // HIR instead of the syntax tree.
-            fn hints(
-                hints: &mut Vec<InlayHint>,
-                ctx: &mut InlayHintCtx,
-                famous_defs @ FamousDefs(sema, _krate): &FamousDefs<'_, '_>,
-                config: &InlayHintsConfig,
-                file_id: EditionedFileId,
-                display_target: DisplayTarget,
-                node: SyntaxNode,
-            ) {
-                closing_brace::hints(
-                    hints,
-                    sema,
-                    config,
-                    display_target,
-                    InRealFile { file_id, value: node.clone() },
-                );
-                if let Some(any_has_generic_args) = ast::AnyHasGenericArgs::cast(node.clone()) {
-                    generic_param::hints(hints, famous_defs, config, any_has_generic_args);
-                }
-
-                match_ast! {
-                    match node {
-                        ast::Expr(expr) => {
-                            chaining::hints(hints, famous_defs, config, display_target, &expr);
-                            adjustment::hints(hints, famous_defs, config, display_target, &expr);
-                            match expr {
-                                ast::Expr::CallExpr(it) => param_name::hints(hints, famous_defs, config, file_id, ast::Expr::from(it)),
-                                ast::Expr::MethodCallExpr(it) => {
-                                    param_name::hints(hints, famous_defs, config, file_id, ast::Expr::from(it))
-                                }
-                                ast::Expr::ClosureExpr(it) => {
-                                    closure_captures::hints(hints, famous_defs, config, it.clone());
-                                    closure_ret::hints(hints, famous_defs, config, display_target, it)
-                                },
-                                ast::Expr::RangeExpr(it) => range_exclusive::hints(hints, famous_defs, config, it),
-                                _ => Some(()),
-                            }
-                        },
-                        ast::Pat(it) => {
-                            binding_mode::hints(hints, famous_defs, config, &it);
-                            match it {
-                                ast::Pat::IdentPat(it) => {
-                                    bind_pat::hints(hints, famous_defs, config, display_target, &it);
-                                }
-                                ast::Pat::RangePat(it) => {
-                                    range_exclusive::hints(hints, famous_defs, config, it);
-                                }
-                                _ => {}
-                            }
-                            Some(())
-                        },
-                        ast::Item(it) => match it {
-                            ast::Item::Fn(it) => {
-                                implicit_drop::hints(hints, famous_defs, config, display_target, &it);
-                                if let Some(extern_block) = &ctx.extern_block_parent {
-                                    extern_block::fn_hints(hints, famous_defs, config, &it, extern_block);
-                                }
-                                lifetime::fn_hints(hints, ctx, famous_defs, config,  it)
-                            },
-                            ast::Item::Static(it) => {
-                                if let Some(extern_block) = &ctx.extern_block_parent {
-                                    extern_block::static_hints(hints, famous_defs, config, &it, extern_block);
-                                }
-                                implicit_static::hints(hints, famous_defs, config,  Either::Left(it))
-                            },
-                            ast::Item::Const(it) => implicit_static::hints(hints, famous_defs, config, Either::Right(it)),
-                            ast::Item::Enum(it) => discriminant::enum_hints(hints, famous_defs, config, it),
-                            ast::Item::ExternBlock(it) => extern_block::extern_block_hints(hints, famous_defs, config, it),
-                            _ => None,
-                        },
-                        // trait object type elisions
-                        ast::Type(ty) => match ty {
-                            ast::Type::FnPtrType(ptr) => lifetime::fn_ptr_hints(hints, ctx, famous_defs, config,  ptr),
-                            ast::Type::PathType(path) => {
-                                lifetime::fn_path_hints(hints, ctx, famous_defs, config, &path);
-                                implied_dyn_trait::hints(hints, famous_defs, config, Either::Left(path));
-                                Some(())
-                            },
-                            ast::Type::DynTraitType(dyn_) => {
-                                implied_dyn_trait::hints(hints, famous_defs, config, Either::Right(dyn_));
-                                Some(())
-                            },
-                            _ => Some(()),
-                        },
-                        ast::GenericParamList(it) => bounds::hints(hints, famous_defs, config,  it),
-                        _ => Some(()),
-                    }
-                };
-            }
-        "#});
+                    implicit_static::hints(hints, famous_defs, config,  Either::Left(it))
+                },
+                ast::Item::Const(it) => implicit_static::hints(hints, famous_defs, config, Either::Right(it)),
+                ast::Item::Enum(it) => discriminant::enum_hints(hints, famous_defs, config, it),
+                ast::Item::ExternBlock(it) => extern_block::extern_block_hints(hints, famous_defs, config, it),
+                _ => None,
+            },
+            // trait object type elisions
+            ast::Type(ty) => match ty {
+                ast::Type::FnPtrType(ptr) => lifetime::fn_ptr_hints(hints, ctx, famous_defs, config,  ptr),
+                ast::Type::PathType(path) => {
+                    lifetime::fn_path_hints(hints, ctx, famous_defs, config, &path);
+                    implied_dyn_trait::hints(hints, famous_defs, config, Either::Left(path));
+                    Some(())
+                },
+                ast::Type::DynTraitType(dyn_) => {
+                    implied_dyn_trait::hints(hints, famous_defs, config, Either::Right(dyn_));
+                    Some(())
+                },
+                _ => Some(()),
+            },
+            ast::GenericParamList(it) => bounds::hints(hints, famous_defs, config,  it),
+            _ => Some(()),
+        }
+    };
+}
+"#);
         cx.executor().advance_clock(Duration::from_millis(100));
         cx.executor().run_until_parked();
 
@@ -1690,21 +1678,19 @@ mod foo «1{
             json!({
                 "main.rs": "fn main() {{()}}",
                 "lib.rs": separate_with_comment_lines(
-                    indoc! {r#"
-    mod foo {
-        fn process_data_1() {
-            let map: Option<Vec<()>> = None;
-            // a
-            // b
-            // c
-        }
-    "#},
-                    indoc! {r#"
-        fn process_data_2() {
-            let other_map: Option<Vec<()>> = None;
-        }
+                    r#"mod foo {
+    fn process_data_1() {
+        let map: Option<Vec<()>> = None;
+        // a
+        // b
+        // c
     }
-    "#},
+"#,
+                    r#"    fn process_data_2() {
+        let other_map: Option<Vec<()>> = None;
+    }
+}
+"#,
                     comment_lines,
                 )
             }),
@@ -1773,8 +1759,7 @@ mod foo «1{
             .update(cx, |editor, window, cx| editor.snapshot(window, cx))
             .unwrap();
         assert_eq!(
-            indoc! {r#"
-
+            r#"
 
 fn main«1()1» «1{«2{«3()3»}2»}1»
 
@@ -1796,7 +1781,7 @@ mod foo «1{
 3 hsla(286.00, 51.00%, 64.00%, 1.00)
 4 hsla(187.00, 47.00%, 55.00%, 1.00)
 5 hsla(355.00, 65.00%, 65.00%, 1.00)
-"#,},
+"#,
             &editor_bracket_colors_markup(&editor_snapshot),
             "Multi buffers should have their brackets colored even if no excerpts contain the bracket counterpart (after fn `process_data_2()`) \
 or if the buffer pair spans across multiple excerpts (the one after `mod foo`)"
@@ -1813,8 +1798,7 @@ or if the buffer pair spans across multiple excerpts (the one after `mod foo`)"
             .update(cx, |editor, window, cx| editor.snapshot(window, cx))
             .unwrap();
         assert_eq!(
-            indoc! {r#"
-
+            r#"
 
 {«1[]1»fn main«1()1» «1{«2{«3()3»}2»}1»
 
@@ -1836,7 +1820,7 @@ mod foo «1{
 3 hsla(286.00, 51.00%, 64.00%, 1.00)
 4 hsla(187.00, 47.00%, 55.00%, 1.00)
 5 hsla(355.00, 65.00%, 65.00%, 1.00)
-"#,},
+"#,
             &editor_bracket_colors_markup(&editor_snapshot),
         );
     }
@@ -1853,16 +1837,14 @@ mod foo «1{
             path!("/a"),
             json!({
                 "lib.rs": separate_with_comment_lines(
-                    indoc! {r#"
-    fn process_data_1() {
-        let map: Option<Vec<()>> = None;
-    }
-    "#},
-                    indoc! {r#"
-    fn process_data_2() {
-        let other_map: Option<Vec<()>> = None;
-    }
-    "#},
+                    r#"fn process_data_1() {
+    let map: Option<Vec<()>> = None;
+}
+"#,
+                    r#"fn process_data_2() {
+    let other_map: Option<Vec<()>> = None;
+}
+"#,
                     comment_lines,
                 )
             }),
@@ -1975,8 +1957,7 @@ mod foo «1{
         cx.executor().run_until_parked();
 
         assert_eq!(
-            indoc! {r#"
-⋯1»2»1»
+            r#"⋯1»2»1»
 
 fn small_function«1()1» «1{
     let x = «2(1, «3(2, 3)3»)2»;
@@ -1985,7 +1966,7 @@ fn small_function«1()1» «1{
 1 hsla(207.80, 81.00%, 66.00%, 1.00)
 2 hsla(29.00, 54.00%, 61.00%, 1.00)
 3 hsla(286.00, 51.00%, 64.00%, 1.00)
-"#,},
+"#,
             bracket_colors_markup(&mut cx),
         );
     }

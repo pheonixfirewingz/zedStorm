@@ -3,7 +3,7 @@ use async_compression::futures::bufread::GzipDecoder;
 use async_tar::Archive;
 use chrono::{DateTime, Utc};
 use futures::{AsyncReadExt, FutureExt as _, channel::oneshot, future::Shared};
-use http_client::{Host, HttpClient, Url};
+use http_client::HttpClient;
 use log::Level;
 use semver::{Version, VersionReq};
 use serde::Deserialize;
@@ -15,7 +15,6 @@ use std::{
     env::{self, consts},
     ffi::{OsStr, OsString},
     io,
-    net::{IpAddr, Ipv4Addr},
     path::{Path, PathBuf},
     process::Output,
     sync::Arc,
@@ -33,7 +32,7 @@ pub struct NodeBinaryOptions {
 }
 
 /// Use this when you need to launch npm as a long-lived process (for example, an agent server),
-/// so the invocation and environment stay consistent with the Node runtime's proxy and CA setup.
+/// so the invocation and environment stay consistent with the Node runtime's CA setup.
 #[derive(Clone, Debug)]
 pub struct NpmCommand {
     pub path: PathBuf,
@@ -221,10 +220,9 @@ impl NodeRuntime {
         subcommand: &str,
         args: &[&str],
     ) -> Result<Output> {
-        let http = self.0.lock().await.http.clone();
         self.instance()
             .await
-            .run_npm_subcommand(directory, http.proxy(), subcommand, args)
+            .run_npm_subcommand(directory, subcommand, args)
             .await
     }
 
@@ -245,10 +243,9 @@ impl NodeRuntime {
         subcommand: &str,
         args: &[&str],
     ) -> Result<NpmCommand> {
-        let http = self.0.lock().await.http.clone();
         self.instance()
             .await
-            .npm_command(prefix_dir, http.proxy(), subcommand, args)
+            .npm_command(prefix_dir, subcommand, args)
             .await
     }
 
@@ -262,12 +259,10 @@ impl NodeRuntime {
         name: &str,
         version_requirement: Option<&VersionReq>,
     ) -> Result<Version> {
-        let http = self.0.lock().await.http.clone();
         let instance = self.instance().await;
         let output = instance
             .run_npm_subcommand(
                 None,
-                http.proxy(),
                 "info",
                 &[
                     name,
@@ -288,7 +283,7 @@ impl NodeRuntime {
                 String::from_utf8_lossy(&output.stdout)
             )
         })?;
-        let before = npm_config_before(instance.as_ref(), http.proxy())
+        let before = npm_config_before(instance.as_ref())
             .await
             .context("getting npm before config")
             .log_err()
@@ -473,14 +468,11 @@ struct NpmConfig {
     before: Option<String>,
 }
 
-async fn npm_config_before(
-    node_runtime: &dyn NodeRuntimeTrait,
-    proxy: Option<&Url>,
-) -> Result<Option<String>> {
+async fn npm_config_before(node_runtime: &dyn NodeRuntimeTrait) -> Result<Option<String>> {
     // `npm config get before` renders Date values for display. The JSON config output keeps the
     // computed cutoff in the same ISO format used by `npm info --json` release times.
     let output = node_runtime
-        .run_npm_subcommand(None, proxy, "config", &["list", "--json"])
+        .run_npm_subcommand(None, "config", &["list", "--json"])
         .await?;
     let config: NpmConfig = serde_json::from_slice(&output.stdout)?;
     Ok(config
@@ -578,7 +570,6 @@ trait NodeRuntimeTrait: Send + Sync {
     async fn run_npm_subcommand(
         &self,
         directory: Option<&Path>,
-        proxy: Option<&Url>,
         subcommand: &str,
         args: &[&str],
     ) -> Result<Output>;
@@ -586,7 +577,6 @@ trait NodeRuntimeTrait: Send + Sync {
     async fn npm_command(
         &self,
         prefix_dir: Option<&Path>,
-        proxy: Option<&Url>,
         subcommand: &str,
         args: &[&str],
     ) -> Result<NpmCommand>;
@@ -765,12 +755,11 @@ impl NodeRuntimeTrait for ManagedNodeRuntime {
     async fn run_npm_subcommand(
         &self,
         directory: Option<&Path>,
-        proxy: Option<&Url>,
         subcommand: &str,
         args: &[&str],
     ) -> Result<Output> {
         let attempt = || async {
-            let npm_command = self.npm_command(directory, proxy, subcommand, args).await?;
+            let npm_command = self.npm_command(directory, subcommand, args).await?;
             let mut command = util::command::new_command(npm_command.path);
             command.args(npm_command.args);
             command.envs(npm_command.env);
@@ -805,7 +794,6 @@ impl NodeRuntimeTrait for ManagedNodeRuntime {
     async fn npm_command(
         &self,
         prefix_dir: Option<&Path>,
-        proxy: Option<&Url>,
         subcommand: &str,
         args: &[&str],
     ) -> Result<NpmCommand> {
@@ -827,7 +815,6 @@ impl NodeRuntimeTrait for ManagedNodeRuntime {
             &self.installation_path.join("cache"),
             Some(&self.installation_path.join("blank_user_npmrc")),
             Some(&self.installation_path.join("blank_global_npmrc")),
-            proxy,
             subcommand,
             args,
         );
@@ -1078,11 +1065,10 @@ impl NodeRuntimeTrait for SystemNodeRuntime {
     async fn run_npm_subcommand(
         &self,
         directory: Option<&Path>,
-        proxy: Option<&Url>,
         subcommand: &str,
         args: &[&str],
     ) -> anyhow::Result<Output> {
-        let npm_command = self.npm_command(directory, proxy, subcommand, args).await?;
+        let npm_command = self.npm_command(directory, subcommand, args).await?;
         let mut command = util::command::new_command(npm_command.path);
         command.args(npm_command.args);
         command.envs(npm_command.env);
@@ -1102,7 +1088,6 @@ impl NodeRuntimeTrait for SystemNodeRuntime {
     async fn npm_command(
         &self,
         prefix_dir: Option<&Path>,
-        proxy: Option<&Url>,
         subcommand: &str,
         args: &[&str],
     ) -> Result<NpmCommand> {
@@ -1112,7 +1097,6 @@ impl NodeRuntimeTrait for SystemNodeRuntime {
             &self.scratch_dir.join("cache"),
             None,
             None,
-            proxy,
             subcommand,
             args,
         );
@@ -1227,7 +1211,6 @@ impl NodeRuntimeTrait for UnavailableNodeRuntime {
     async fn run_npm_subcommand(
         &self,
         _: Option<&Path>,
-        _: Option<&Url>,
         _: &str,
         _: &[&str],
     ) -> anyhow::Result<Output> {
@@ -1237,7 +1220,6 @@ impl NodeRuntimeTrait for UnavailableNodeRuntime {
     async fn npm_command(
         &self,
         _: Option<&Path>,
-        _proxy: Option<&Url>,
         _subcommand: &str,
         _args: &[&str],
     ) -> Result<NpmCommand> {
@@ -1253,28 +1235,12 @@ impl NodeRuntimeTrait for UnavailableNodeRuntime {
     }
 }
 
-fn proxy_argument(proxy: Option<&Url>) -> Option<String> {
-    let mut proxy = proxy.cloned()?;
-    // Map proxy settings from `http://localhost:10809` to `http://127.0.0.1:10809`
-    // NodeRuntime without environment information can not parse `localhost`
-    // correctly.
-    // TODO: map to `[::1]` if we are using ipv6
-    if matches!(proxy.host(), Some(Host::Domain(domain)) if domain.eq_ignore_ascii_case("localhost"))
-    {
-        // When localhost is a valid Host, so is `127.0.0.1`
-        let _ = proxy.set_ip_host(IpAddr::V4(Ipv4Addr::LOCALHOST));
-    }
-
-    Some(proxy.as_str().to_string())
-}
-
 fn build_npm_command_args(
     entrypoint: Option<&Path>,
     prefix_dir: Option<&Path>,
     cache_dir: &Path,
     user_config: Option<&Path>,
     global_config: Option<&Path>,
-    proxy: Option<&Url>,
     subcommand: &str,
     args: &[&str],
 ) -> Vec<String> {
@@ -1295,10 +1261,6 @@ fn build_npm_command_args(
     if let Some(global_config) = global_config {
         command_args.push("--globalconfig".into());
         command_args.push(global_config.to_string_lossy().into_owned());
-    }
-    if let Some(proxy_arg) = proxy_argument(proxy) {
-        command_args.push("--proxy".into());
-        command_args.push(proxy_arg);
     }
     command_args.extend(args.into_iter().map(|a| a.to_string()));
     command_args
@@ -1343,13 +1305,12 @@ mod tests {
     };
 
     use anyhow::{Result, bail};
-    use http_client::Url;
     use semver::{Version, VersionReq};
 
     use super::{
         NodeDiscoveryError, NpmInfo, VersionStrategy, build_npm_command_args, check_node_version,
-        deserialize_npm_info_from_response, find_node_path, proxy_argument,
-        select_npm_package_version, should_install_npm_package_version,
+        deserialize_npm_info_from_response, find_node_path, select_npm_package_version,
+        should_install_npm_package_version,
     };
 
     #[test]
@@ -1408,42 +1369,12 @@ mod tests {
         Ok(())
     }
 
-    // Map localhost to 127.0.0.1
-    // NodeRuntime without environment information can not parse `localhost` correctly.
-    #[test]
-    fn test_proxy_argument_map_localhost_proxy() {
-        const CASES: [(&str, &str); 4] = [
-            // Map localhost to 127.0.0.1
-            ("http://localhost:9090/", "http://127.0.0.1:9090/"),
-            ("https://google.com/", "https://google.com/"),
-            (
-                "http://username:password@proxy.thing.com:8080/",
-                "http://username:password@proxy.thing.com:8080/",
-            ),
-            // Test when localhost is contained within a different part of the URL
-            (
-                "http://username:localhost@localhost:8080/",
-                "http://username:localhost@127.0.0.1:8080/",
-            ),
-        ];
-
-        for (proxy, mapped_proxy) in CASES {
-            let proxy = Url::parse(proxy).unwrap();
-            let proxy = proxy_argument(Some(&proxy)).expect("Proxy was not passed correctly");
-            assert_eq!(
-                proxy, mapped_proxy,
-                "Incorrectly mapped localhost to 127.0.0.1"
-            );
-        }
-    }
-
     #[test]
     fn test_build_npm_command_args_inserts_prefix_before_subcommand() {
         let args = build_npm_command_args(
             None,
             Some(Path::new("/tmp/zed-prefix")),
             Path::new("/tmp/cache"),
-            None,
             None,
             None,
             "exec",
@@ -1470,7 +1401,6 @@ mod tests {
             Some(Path::new("/tmp/npm-cli.js")),
             Some(Path::new("/tmp/zed-prefix")),
             Path::new("/tmp/cache"),
-            None,
             None,
             None,
             "exec",

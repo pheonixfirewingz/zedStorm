@@ -2327,7 +2327,7 @@ mod tests {
     use language::language_settings::SoftWrap;
     use language::{Buffer, Capability};
     use multi_buffer::{MultiBuffer, PathKey};
-    use pretty_assertions::assert_eq;
+
     use project::Project;
     use rand::rngs::StdRng;
     use settings::{DiffViewStyle, SettingsStore};
@@ -2746,7 +2746,7 @@ mod tests {
     #[gpui::test]
     async fn test_basic_alignment(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::EditorWidth, DiffViewStyle::Split).await;
 
@@ -2875,7 +2875,7 @@ mod tests {
     #[gpui::test]
     async fn test_deleting_unmodified_lines(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::EditorWidth, DiffViewStyle::Split).await;
 
@@ -3033,7 +3033,7 @@ mod tests {
     #[gpui::test]
     async fn test_deleting_added_line(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::EditorWidth, DiffViewStyle::Split).await;
 
@@ -3152,7 +3152,7 @@ mod tests {
     #[gpui::test]
     async fn test_inserting_consecutive_blank_line(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::EditorWidth, DiffViewStyle::Split).await;
 
@@ -3281,7 +3281,7 @@ mod tests {
     async fn test_reverting_deletion_hunk(cx: &mut gpui::TestAppContext) {
         use git::Restore;
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::EditorWidth, DiffViewStyle::Split).await;
 
@@ -3406,7 +3406,7 @@ mod tests {
     #[gpui::test]
     async fn test_deleting_added_lines(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::EditorWidth, DiffViewStyle::Split).await;
 
@@ -3519,7 +3519,7 @@ mod tests {
     #[gpui::test]
     async fn test_soft_wrap_at_end_of_excerpt(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::EditorWidth, DiffViewStyle::Split).await;
 
@@ -3587,7 +3587,7 @@ mod tests {
     #[gpui::test]
     async fn test_soft_wrap_before_modification_hunk(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::EditorWidth, DiffViewStyle::Split).await;
 
@@ -3649,7 +3649,7 @@ mod tests {
     #[gpui::test]
     async fn test_soft_wrap_before_deletion_hunk(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::EditorWidth, DiffViewStyle::Split).await;
 
@@ -3718,7 +3718,7 @@ mod tests {
     #[gpui::test]
     async fn test_soft_wrap_spacer_after_editing_second_line(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::EditorWidth, DiffViewStyle::Split).await;
 
@@ -3830,7 +3830,7 @@ mod tests {
     #[gpui::test]
     async fn test_no_base_text(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::EditorWidth, DiffViewStyle::Split).await;
 
@@ -3934,7 +3934,7 @@ mod tests {
     #[gpui::test]
     async fn test_deleting_char_in_added_line(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::EditorWidth, DiffViewStyle::Split).await;
 
@@ -4016,7 +4016,7 @@ mod tests {
     #[gpui::test]
     async fn test_soft_wrap_spacer_before_added_line(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::EditorWidth, DiffViewStyle::Split).await;
 
@@ -4095,7 +4095,7 @@ mod tests {
     #[ignore]
     async fn test_joining_added_line_with_unmodified_line(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::EditorWidth, DiffViewStyle::Split).await;
 
@@ -4217,7 +4217,7 @@ mod tests {
     #[gpui::test]
     async fn test_added_file_at_end(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::EditorWidth, DiffViewStyle::Split).await;
 
@@ -4293,7 +4293,7 @@ mod tests {
     #[gpui::test]
     async fn test_adding_line_to_addition_hunk(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::EditorWidth, DiffViewStyle::Split).await;
 
@@ -4471,7 +4471,7 @@ mod tests {
     #[gpui::test]
     async fn test_edit_line_before_soft_wrapped_line_preceding_hunk(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::EditorWidth, DiffViewStyle::Split).await;
 
@@ -4601,7 +4601,7 @@ mod tests {
     #[gpui::test]
     async fn test_custom_block_sync_between_split_views(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::None, DiffViewStyle::Split).await;
 
@@ -4748,7 +4748,7 @@ mod tests {
     #[gpui::test]
     async fn test_custom_block_deletion_and_resplit_sync(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::None, DiffViewStyle::Split).await;
 
@@ -4970,7 +4970,7 @@ mod tests {
     #[gpui::test]
     async fn test_custom_block_sync_with_unsplit_start(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::None, DiffViewStyle::Split).await;
 
@@ -5295,7 +5295,7 @@ mod tests {
     #[gpui::test]
     async fn test_buffer_folding_sync(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::None, DiffViewStyle::Unified).await;
 
@@ -5470,7 +5470,7 @@ mod tests {
     #[gpui::test]
     async fn test_custom_block_in_middle_of_added_hunk(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::None, DiffViewStyle::Split).await;
 
@@ -5631,7 +5631,7 @@ mod tests {
     #[gpui::test]
     async fn test_custom_block_below_in_middle_of_added_hunk(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::None, DiffViewStyle::Split).await;
 
@@ -5792,7 +5792,7 @@ mod tests {
     #[gpui::test]
     async fn test_custom_block_resize_syncs_balancing_block(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::None, DiffViewStyle::Split).await;
 
@@ -5918,7 +5918,7 @@ mod tests {
     #[gpui::test]
     async fn test_edit_spanning_excerpt_boundaries_then_resplit(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::None, DiffViewStyle::Split).await;
 
@@ -5981,7 +5981,7 @@ mod tests {
     #[gpui::test]
     async fn test_range_folds_removed_on_split(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::None, DiffViewStyle::Unified).await;
 
@@ -6070,7 +6070,7 @@ mod tests {
     #[gpui::test]
     async fn test_multiline_inlays_create_spacers(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::None, DiffViewStyle::Split).await;
 
@@ -6162,7 +6162,7 @@ mod tests {
     #[gpui::test]
     async fn test_split_after_removing_folded_buffer(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::None, DiffViewStyle::Unified).await;
 
@@ -6265,7 +6265,7 @@ mod tests {
     async fn test_two_path_keys_for_one_buffer(cx: &mut gpui::TestAppContext) {
         use multi_buffer::PathKey;
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::None, DiffViewStyle::Split).await;
 
@@ -6318,7 +6318,7 @@ mod tests {
     #[gpui::test]
     async fn test_spacer_blocks_revert_after_temporary_edit(cx: &mut gpui::TestAppContext) {
         use rope::Point;
-        use unindent::Unindent as _;
+        use util::Unindent as _;
 
         let (editor, mut cx) = init_test(cx, SoftWrap::EditorWidth, DiffViewStyle::Split).await;
 

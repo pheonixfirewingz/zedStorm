@@ -24,6 +24,7 @@
 - [Running & Testing](./running-testing.md)
   - [Terminal](./terminal.md)
   - [Tasks](./tasks.md)
+  - [Run and Debug Configurations](./run-configurations.md)
   - [Debugger](./debugger.md)
   - [REPL](./repl.md)
 - [Git](./git.md)

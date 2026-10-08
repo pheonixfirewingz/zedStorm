@@ -59,6 +59,7 @@ register_feature_flag!(DebuggerHistoryFeatureFlag);
 const DEBUG_PANEL_KEY: &str = "DebugPanel";
 
 pub struct DebugPanel {
+    pub run_configurations: Entity<crate::run_configurations::RunConfigurations>,
     active_session: Option<Entity<DebugSession>>,
     pub(crate) session_panes: Option<PaneGroup>,
     active_session_pane: Option<Entity<Pane>>,
@@ -365,6 +366,8 @@ impl DebugPanel {
         window: &mut Window,
         cx: &mut Context<Workspace>,
     ) -> Entity<Self> {
+        let run_configurations =
+            crate::run_configurations::RunConfigurations::new(workspace, window, cx);
         cx.new(|cx| {
             let project = workspace.project().clone();
             let focus_handle = cx.focus_handle();
@@ -385,6 +388,7 @@ impl DebugPanel {
                 });
 
             Self {
+                run_configurations,
                 sessions_with_children: Default::default(),
                 active_session: None,
                 session_panes: None,
@@ -1538,9 +1542,13 @@ impl DebugPanel {
                 keep(&child)
             });
         }
-        let kept_ids: HashSet<EntityId> =
-            self.sessions_with_children.keys().map(|s| s.entity_id()).collect();
-        self.session_subscriptions.retain(|id, _| kept_ids.contains(id));
+        let kept_ids: HashSet<EntityId> = self
+            .sessions_with_children
+            .keys()
+            .map(|s| s.entity_id())
+            .collect();
+        self.session_subscriptions
+            .retain(|id, _| kept_ids.contains(id));
     }
 
     fn render_history_button(
@@ -1690,13 +1698,21 @@ async fn register_session_inner(
             &debug_session.read(cx).running_state().clone(),
             |_, _, cx| cx.notify(),
         );
-        this.session_subscriptions.insert(debug_session.entity_id(), sub);
+        this.session_subscriptions
+            .insert(debug_session.entity_id(), sub);
 
         // Cap accumulated terminated sessions to prevent unbounded memory growth
         let terminated: Vec<_> = this
             .sessions_with_children
             .keys()
-            .filter(|s| s.read(cx).running_state().read(cx).session().read(cx).is_terminated())
+            .filter(|s| {
+                s.read(cx)
+                    .running_state()
+                    .read(cx)
+                    .session()
+                    .read(cx)
+                    .is_terminated()
+            })
             .cloned()
             .collect();
         if terminated.len() >= 3 {

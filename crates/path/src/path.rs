@@ -626,7 +626,7 @@ mod tests {
                     .map(|rel_path| rel_path.into_arc()),
             )
         });
-        pretty_assertions::assert_eq!(actual, expected);
+        assert_eq!(actual, expected);
     }
 
     #[test]

@@ -327,7 +327,6 @@ impl GitHostingProvider for Bitbucket {
 #[cfg(test)]
 mod tests {
     use git::repository::repo_path;
-    use pretty_assertions::assert_eq;
 
     use super::*;
 
@@ -594,8 +593,6 @@ mod tests {
 
     #[test]
     fn test_bitbucket_pull_requests() {
-        use indoc::indoc;
-
         let remote = ParsedGitRemote {
             owner: "zed-industries".into(),
             repo: "zed".into(),
@@ -608,11 +605,10 @@ mod tests {
         assert!(bitbucket.extract_pull_request(&remote, message).is_none());
 
         // Pull request number at end of first line
-        let message = indoc! {r#"
-            Merged in feature-branch (pull request #123)
+        let message = r#"Merged in feature-branch (pull request #123)
 
-            Some detailed description of the changes.
-        "#};
+Some detailed description of the changes.
+"#;
 
         let pr = bitbucket.extract_pull_request(&remote, message).unwrap();
         assert_eq!(pr.number, 123);
@@ -624,8 +620,6 @@ mod tests {
 
     #[test]
     fn test_bitbucket_self_hosted_pull_requests() {
-        use indoc::indoc;
-
         let remote = ParsedGitRemote {
             owner: "zed-industries".into(),
             repo: "zed".into(),
@@ -640,11 +634,10 @@ mod tests {
         assert!(bitbucket.extract_pull_request(&remote, message).is_none());
 
         // Pull request number at end of first line
-        let message = indoc! {r#"
-            Merged in feature-branch (pull request #123)
+        let message = r#"Merged in feature-branch (pull request #123)
 
-            Some detailed description of the changes.
-        "#};
+Some detailed description of the changes.
+"#;
 
         let pr = bitbucket.extract_pull_request(&remote, message).unwrap();
         assert_eq!(pr.number, 123);

@@ -4,7 +4,6 @@ use anyhow::Result;
 use collections::{HashMap, HashSet};
 use futures::{StreamExt, TryFutureExt, stream::FuturesUnordered};
 use gpui::{App, AppContext, Context, Entity, EventEmitter, Subscription, Task};
-use itertools::Itertools;
 use language::{Buffer, BufferEvent};
 use text::{BufferSnapshot, Point};
 use worktree::PathChange;
@@ -550,7 +549,7 @@ impl BookmarkStore {
                     }
                     _ => None,
                 })
-                .collect_vec()
+                .collect::<Vec<_>>()
         });
 
         if unloaded_paths.is_empty() {

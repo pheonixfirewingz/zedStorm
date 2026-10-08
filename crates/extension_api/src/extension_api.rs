@@ -72,6 +72,16 @@ pub trait Extension: Send + Sync {
     where
         Self: Sized;
 
+    /// Renders a diagram as SVG using the supplied JSON theme settings.
+    fn render_diagram(
+        &mut self,
+        _renderer_id: &str,
+        _source: &str,
+        _theme: &str,
+    ) -> Result<String> {
+        Err("`render_diagram` not implemented".to_string())
+    }
+
     /// Returns the command used to start the language server for the specified
     /// language.
     fn language_server_command(
@@ -364,6 +374,10 @@ wit::export!(Component);
 struct Component;
 
 impl wit::Guest for Component {
+    fn render_diagram(renderer_id: String, source: String, theme: String) -> Result<String> {
+        extension().render_diagram(&renderer_id, &source, &theme)
+    }
+
     fn language_server_command(
         language_server_id: String,
         worktree: &wit::Worktree,

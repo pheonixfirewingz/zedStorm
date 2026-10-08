@@ -25,7 +25,7 @@ use gpui::{
     BackgroundExecutor, DismissEvent, Task, TaskExt, TestAppContext, UpdateGlobal,
     VisualTestContext, WindowBounds, WindowOptions, div,
 };
-use indoc::{formatdoc, indoc};
+
 use language::{
     BracketPair, BracketPairConfig,
     Capability::{Read, ReadOnly, ReadWrite},
@@ -43,7 +43,7 @@ use languages::{language, markdown_lang, rust_lang};
 use lsp::{CompletionParams, DEFAULT_LSP_REQUEST_TIMEOUT};
 use multi_buffer::{IndentGuide, MultiBuffer, MultiBufferOffset, MultiBufferOffsetUtf16, PathKey};
 use parking_lot::Mutex;
-use pretty_assertions::{assert_eq, assert_ne};
+
 use project::{
     FakeFs, Project, ProjectPath,
     bookmark_store::{BookmarkStore, BookmarkStoreEvent, SerializedBookmark},
@@ -68,7 +68,7 @@ use std::{cell::RefCell, future::Future, rc::Rc, sync::atomic::AtomicBool, time:
 use std::{iter, sync::atomic::AtomicUsize};
 use task::TaskVariables;
 use test::build_editor_with_project;
-use unindent::Unindent;
+use util::Unindent;
 use util::{
     assert_set_eq, path,
     rel_path::rel_path,
@@ -1069,13 +1069,12 @@ fn test_clone(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
 
     let (text, selection_ranges) = marked_text_ranges(
-        indoc! {"
-            one
-            two
-            threeˇ
-            four
-            fiveˇ
-        "},
+        "one
+two
+threeˇ
+four
+fiveˇ
+",
         true,
     );
 
@@ -1410,29 +1409,83 @@ fn test_cancel(cx: &mut TestAppContext) {
 }
 
 #[gpui::test]
+async fn test_fold_import_blocks(cx: &mut TestAppContext) {
+    init_test(cx, |_| {});
+    let mut cx = EditorTestContext::new(cx).await;
+    let typescript = languages::language(
+        "typescript",
+        tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+    );
+    let cases = [
+        (
+            typescript.clone(),
+            "import first from 'first';\nimport {\n    second,\n} from 'second';\n\nconst value = first;\n",
+            "import first from 'first';⋯\n\nconst value = first;\n",
+        ),
+        (
+            typescript.clone(),
+            "import 'first';\nimport 'second';",
+            "import 'first';⋯",
+        ),
+        (
+            typescript.clone(),
+            "import 'first';\nconst value = 1;\n",
+            "import 'first';\nconst value = 1;\n",
+        ),
+        (
+            typescript.clone(),
+            "import {\n    first,\n} from 'first';\n\nimport 'second';\n// Keep this comment visible\nimport 'third';\nconst value = first;\n",
+            "import {⋯\n// Keep this comment visible\nimport 'third';\nconst value = first;\n",
+        ),
+        (
+            rust_lang(),
+            "use std::fmt;\nuse std::{\n    io,\n    path::Path,\n};\n\nfn main() {}\n",
+            "use std::fmt;⋯\n\nfn main() {}\n",
+        ),
+        (
+            typescript,
+            "const value = `import first from 'first';\nimport second from 'second';`;\n",
+            "const value = `import first from 'first';\nimport second from 'second';`;\n",
+        ),
+    ];
+    for (language, source, folded) in cases {
+        cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
+        cx.set_state(&format!("ˇ{source}"));
+        cx.run_until_parked();
+        cx.update_editor(|editor, window, cx| {
+            editor.fold_at(MultiBufferRow(0), window, cx);
+            assert_eq!(editor.display_text(cx), folded);
+            editor.unfold_all(&UnfoldAll, window, cx);
+            assert_eq!(editor.display_text(cx), source);
+        });
+    }
+}
+
+#[gpui::test]
 async fn test_fold_action(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
 
     let mut cx = EditorTestContext::new(cx).await;
 
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(rust_lang()), cx));
-    cx.set_state(indoc! {"
-        impl Foo {
-            // Hello!
+    cx.set_state(
+        "impl Foo {
+    // Hello!
 
-            fn a() {
-                1
-            }
+    fn a() {
+        1
+    }
 
-            fn b() {
-                2
-            }
+    fn b() {
+        2
+    }
 
-            fn c() {
-                3
-            }
-        }ˇ
-    "});
+    fn c() {
+        3
+    }
+}ˇ
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.change_selections(SelectionEffects::no_scroll(), window, cx, |s| {
@@ -1777,40 +1830,41 @@ async fn test_fold_with_unindented_multiline_raw_string(cx: &mut TestAppContext)
             Some(tree_sitter_rust::LANGUAGE.into()),
         )
         .with_queries(LanguageQueries {
-            overrides: Some(Cow::from(indoc! {"
-                [
-                  (string_literal)
-                  (raw_string_literal)
-                ] @string
-                [
-                  (line_comment)
-                  (block_comment)
-                ] @comment.inclusive
-            "})),
+            overrides: Some(Cow::from(
+                "[
+  (string_literal)
+  (raw_string_literal)
+] @string
+[
+  (line_comment)
+  (block_comment)
+] @comment.inclusive
+",
+            )),
             ..Default::default()
         })
         .expect("Could not parse queries"),
     );
 
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
-    cx.set_state(indoc! {"
-        fn main() {
-            let s = r#\"
-        a
-        b
-        c
-        \"#;
-        }ˇ
-    "});
+    cx.set_state(
+        "fn main() {
+    let s = r#\"
+a
+b
+c
+\"#;
+}ˇ
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.fold_at_level(&FoldAtLevel(1), window, cx);
         assert_eq!(
             editor.display_text(cx),
-            indoc! {"
-                fn main() {⋯
-                }
-            "},
+            "fn main() {⋯
+}
+",
         );
     });
 }
@@ -1824,23 +1878,23 @@ async fn test_fold_with_unindented_multiline_raw_string_includes_closing_bracket
     let mut cx = EditorTestContext::new(cx).await;
 
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(rust_lang()), cx));
-    cx.set_state(indoc! {"
-        ˇfn main() {
-            let s = r#\"
-        a
-        b
-        c
-        \"#;
-        }
-    "});
+    cx.set_state(
+        "ˇfn main() {
+    let s = r#\"
+a
+b
+c
+\"#;
+}
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.fold_at_level(&FoldAtLevel(1), window, cx);
         assert_eq!(
             editor.display_text(cx),
-            indoc! {"
-                fn main() {⋯}
-            "},
+            "fn main() {⋯}
+",
         );
     });
 }
@@ -1857,39 +1911,40 @@ async fn test_fold_with_unindented_multiline_block_comment(cx: &mut TestAppConte
             Some(tree_sitter_rust::LANGUAGE.into()),
         )
         .with_queries(LanguageQueries {
-            overrides: Some(Cow::from(indoc! {"
-                [
-                  (string_literal)
-                  (raw_string_literal)
-                ] @string
-                [
-                  (line_comment)
-                  (block_comment)
-                ] @comment.inclusive
-            "})),
+            overrides: Some(Cow::from(
+                "[
+  (string_literal)
+  (raw_string_literal)
+] @string
+[
+  (line_comment)
+  (block_comment)
+] @comment.inclusive
+",
+            )),
             ..Default::default()
         })
         .expect("Could not parse queries"),
     );
 
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
-    cx.set_state(indoc! {"
-        fn main() {
-            let x = 1;
-            /*
-        unindented comment line
-            */
-        }ˇ
-    "});
+    cx.set_state(
+        "fn main() {
+    let x = 1;
+    /*
+unindented comment line
+    */
+}ˇ
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.fold_at_level(&FoldAtLevel(1), window, cx);
         assert_eq!(
             editor.display_text(cx),
-            indoc! {"
-                fn main() {⋯
-                }
-            "},
+            "fn main() {⋯
+}
+",
         );
     });
 }
@@ -1903,22 +1958,22 @@ async fn test_fold_with_unindented_multiline_block_comment_includes_closing_brac
     let mut cx = EditorTestContext::new(cx).await;
 
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(rust_lang()), cx));
-    cx.set_state(indoc! {"
-        ˇfn main() {
-            let x = 1;
-            /*
-        unindented comment line
-            */
-        }
-    "});
+    cx.set_state(
+        "ˇfn main() {
+    let x = 1;
+    /*
+unindented comment line
+    */
+}
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.fold_at_level(&FoldAtLevel(1), window, cx);
         assert_eq!(
             editor.display_text(cx),
-            indoc! {"
-                fn main() {⋯}
-            "},
+            "fn main() {⋯}
+",
         );
     });
 }
@@ -1935,43 +1990,44 @@ async fn test_fold_preserves_top_level_comments_between_python_classes(cx: &mut 
             Some(tree_sitter_python::LANGUAGE.into()),
         )
         .with_queries(LanguageQueries {
-            overrides: Some(Cow::from(indoc! {"
-                (comment) @comment.inclusive
-                (string) @string
-            "})),
+            overrides: Some(Cow::from(
+                "(comment) @comment.inclusive
+(string) @string
+",
+            )),
             ..Default::default()
         })
         .expect("Could not parse queries"),
     );
 
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
-    cx.set_state(indoc! {"
-        class Foo:
-            def bar(self):
-                pass
+    cx.set_state(
+        "class Foo:
+    def bar(self):
+        pass
 
 
-        # SECTION SEPARATOR
+# SECTION SEPARATOR
 
-        class Baz:
-            def qux(self):
-                passˇ
-    "});
+class Baz:
+    def qux(self):
+        passˇ
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.fold_at_level(&FoldAtLevel(1), window, cx);
         assert_eq!(
             editor.display_text(cx),
-            indoc! {"
-                class Foo:⋯
+            "class Foo:⋯
 
 
-                # SECTION SEPARATOR
+# SECTION SEPARATOR
 
-                class Baz:
-                    def qux(self):
-                        pass
-            "},
+class Baz:
+    def qux(self):
+        pass
+",
         );
     });
 }
@@ -1988,52 +2044,53 @@ async fn test_fold_preserves_top_level_comments_between_rust_functions(cx: &mut 
             Some(tree_sitter_rust::LANGUAGE.into()),
         )
         .with_queries(LanguageQueries {
-            overrides: Some(Cow::from(indoc! {"
-                [
-                  (string_literal)
-                  (raw_string_literal)
-                ] @string
-                [
-                  (line_comment)
-                  (block_comment)
-                ] @comment.inclusive
-            "})),
+            overrides: Some(Cow::from(
+                "[
+  (string_literal)
+  (raw_string_literal)
+] @string
+[
+  (line_comment)
+  (block_comment)
+] @comment.inclusive
+",
+            )),
             ..Default::default()
         })
         .expect("Could not parse queries"),
     );
 
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
-    cx.set_state(indoc! {"
-        fn foo() {
-            bar();
-        }
+    cx.set_state(
+        "fn foo() {
+    bar();
+}
 
 
-        // SECTION SEPARATOR
+// SECTION SEPARATOR
 
 
-        fn baz() {
-            qux();ˇ
-        }
-    "});
+fn baz() {
+    qux();ˇ
+}
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.fold_at_level(&FoldAtLevel(1), window, cx);
         assert_eq!(
             editor.display_text(cx),
-            indoc! {"
-                fn foo() {⋯
-                }
+            "fn foo() {⋯
+}
 
 
-                // SECTION SEPARATOR
+// SECTION SEPARATOR
 
 
-                fn baz() {
-                    qux();
-                }
-            "},
+fn baz() {
+    qux();
+}
+",
         );
     });
 }
@@ -2052,49 +2109,50 @@ async fn test_fold_terminates_at_top_level_multiline_string_between_python_class
             Some(tree_sitter_python::LANGUAGE.into()),
         )
         .with_queries(LanguageQueries {
-            overrides: Some(Cow::from(indoc! {"
-                (comment) @comment.inclusive
-                (string) @string
-            "})),
+            overrides: Some(Cow::from(
+                "(comment) @comment.inclusive
+(string) @string
+",
+            )),
             ..Default::default()
         })
         .expect("Could not parse queries"),
     );
 
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
-    cx.set_state(indoc! {r#"
-        class Foo:
-            def bar(self):
-                pass
+    cx.set_state(
+        r#"class Foo:
+    def bar(self):
+        pass
 
 
-        """
-        top-level docstring at zero indent
-        """
+"""
+top-level docstring at zero indent
+"""
 
 
-        class Baz:
-            def qux(self):
-                passˇ
-    "#});
+class Baz:
+    def qux(self):
+        passˇ
+"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.fold_at_level(&FoldAtLevel(1), window, cx);
         assert_eq!(
             editor.display_text(cx),
-            indoc! {r#"
-                class Foo:⋯
+            r#"class Foo:⋯
 
 
-                """
-                top-level docstring at zero indent
-                """
+"""
+top-level docstring at zero indent
+"""
 
 
-                class Baz:
-                    def qux(self):
-                        pass
-            "#},
+class Baz:
+    def qux(self):
+        pass
+"#,
         );
     });
 }
@@ -3285,16 +3343,17 @@ async fn test_move_to_next_and_previous_comment_paragraph(cx: &mut TestAppContex
     // A blank comment line (`//`) splits one comment block into two paragraphs;
     // a code line splits blocks; and a trailing comment preceded by code
     // (`let x = 1; // ...`) is not a comment line at all.
-    cx.set_state(indoc! {"
-        ˇ// first paragraph line one
-        // first paragraph line two
-        //
-        // second paragraph
-        fn code() {}
-        // third paragraph
-        let x = 1; // trailing comment, ignored
-        // fourth paragraph
-    "});
+    cx.set_state(
+        "ˇ// first paragraph line one
+// first paragraph line two
+//
+// second paragraph
+fn code() {}
+// third paragraph
+let x = 1; // trailing comment, ignored
+// fourth paragraph
+",
+    );
     cx.run_until_parked();
 
     let next = |cx: &mut EditorTestContext| {
@@ -3311,97 +3370,105 @@ async fn test_move_to_next_and_previous_comment_paragraph(cx: &mut TestAppContex
     // Forward: skip the second line of the first paragraph, the blank comment
     // line, the code line, and the trailing comment line.
     next(&mut cx);
-    cx.assert_editor_state(indoc! {"
-        // first paragraph line one
-        // first paragraph line two
-        //
-        ˇ// second paragraph
-        fn code() {}
-        // third paragraph
-        let x = 1; // trailing comment, ignored
-        // fourth paragraph
-    "});
+    cx.assert_editor_state(
+        "// first paragraph line one
+// first paragraph line two
+//
+ˇ// second paragraph
+fn code() {}
+// third paragraph
+let x = 1; // trailing comment, ignored
+// fourth paragraph
+",
+    );
     next(&mut cx);
-    cx.assert_editor_state(indoc! {"
-        // first paragraph line one
-        // first paragraph line two
-        //
-        // second paragraph
-        fn code() {}
-        ˇ// third paragraph
-        let x = 1; // trailing comment, ignored
-        // fourth paragraph
-    "});
+    cx.assert_editor_state(
+        "// first paragraph line one
+// first paragraph line two
+//
+// second paragraph
+fn code() {}
+ˇ// third paragraph
+let x = 1; // trailing comment, ignored
+// fourth paragraph
+",
+    );
     next(&mut cx);
-    cx.assert_editor_state(indoc! {"
-        // first paragraph line one
-        // first paragraph line two
-        //
-        // second paragraph
-        fn code() {}
-        // third paragraph
-        let x = 1; // trailing comment, ignored
-        ˇ// fourth paragraph
-    "});
+    cx.assert_editor_state(
+        "// first paragraph line one
+// first paragraph line two
+//
+// second paragraph
+fn code() {}
+// third paragraph
+let x = 1; // trailing comment, ignored
+ˇ// fourth paragraph
+",
+    );
     // No paragraph after the last one: the caret stays put.
     next(&mut cx);
-    cx.assert_editor_state(indoc! {"
-        // first paragraph line one
-        // first paragraph line two
-        //
-        // second paragraph
-        fn code() {}
-        // third paragraph
-        let x = 1; // trailing comment, ignored
-        ˇ// fourth paragraph
-    "});
+    cx.assert_editor_state(
+        "// first paragraph line one
+// first paragraph line two
+//
+// second paragraph
+fn code() {}
+// third paragraph
+let x = 1; // trailing comment, ignored
+ˇ// fourth paragraph
+",
+    );
 
     // Backward is the mirror image.
     prev(&mut cx);
-    cx.assert_editor_state(indoc! {"
-        // first paragraph line one
-        // first paragraph line two
-        //
-        // second paragraph
-        fn code() {}
-        ˇ// third paragraph
-        let x = 1; // trailing comment, ignored
-        // fourth paragraph
-    "});
+    cx.assert_editor_state(
+        "// first paragraph line one
+// first paragraph line two
+//
+// second paragraph
+fn code() {}
+ˇ// third paragraph
+let x = 1; // trailing comment, ignored
+// fourth paragraph
+",
+    );
     prev(&mut cx);
-    cx.assert_editor_state(indoc! {"
-        // first paragraph line one
-        // first paragraph line two
-        //
-        ˇ// second paragraph
-        fn code() {}
-        // third paragraph
-        let x = 1; // trailing comment, ignored
-        // fourth paragraph
-    "});
+    cx.assert_editor_state(
+        "// first paragraph line one
+// first paragraph line two
+//
+ˇ// second paragraph
+fn code() {}
+// third paragraph
+let x = 1; // trailing comment, ignored
+// fourth paragraph
+",
+    );
     prev(&mut cx);
-    cx.assert_editor_state(indoc! {"
-        ˇ// first paragraph line one
-        // first paragraph line two
-        //
-        // second paragraph
-        fn code() {}
-        // third paragraph
-        let x = 1; // trailing comment, ignored
-        // fourth paragraph
-    "});
+    cx.assert_editor_state(
+        "ˇ// first paragraph line one
+// first paragraph line two
+//
+// second paragraph
+fn code() {}
+// third paragraph
+let x = 1; // trailing comment, ignored
+// fourth paragraph
+",
+    );
     // No paragraph before the first one: the caret stays put.
     prev(&mut cx);
-    cx.assert_editor_state(indoc! {"
-        ˇ// first paragraph line one
-        // first paragraph line two
-        //
-        // second paragraph
-        fn code() {}
-        // third paragraph
-        let x = 1; // trailing comment, ignored
-        // fourth paragraph
-    "});
+    cx.assert_editor_state(
+        "ˇ// first paragraph line one
+// first paragraph line two
+//
+// second paragraph
+fn code() {}
+// third paragraph
+let x = 1; // trailing comment, ignored
+// fourth paragraph
+",
+    );
 }
 
 #[gpui::test]
@@ -3432,66 +3499,72 @@ async fn test_move_to_previous_comment_paragraph_skips_current_paragraph(cx: &mu
     // Caret in the middle of the last line of the second paragraph: moving to
     // the previous paragraph must skip the entire current paragraph and land on
     // the first paragraph's start, not on the current paragraph's own start.
-    cx.set_state(indoc! {"
-        // alpha one
-        // alpha two
-        // alpha three
+    cx.set_state(
+        "// alpha one
+// alpha two
+// alpha three
 
-        // beta one
-        // beta ˇtwo
-    "});
+// beta one
+// beta ˇtwo
+",
+    );
     cx.run_until_parked();
     prev(&mut cx);
-    cx.assert_editor_state(indoc! {"
-        ˇ// alpha one
-        // alpha two
-        // alpha three
+    cx.assert_editor_state(
+        "ˇ// alpha one
+// alpha two
+// alpha three
 
-        // beta one
-        // beta two
-    "});
+// beta one
+// beta two
+",
+    );
 
     // Same when the caret is part-way through the *first* line of the second
     // paragraph.
-    cx.set_state(indoc! {"
-        // alpha one
-        // alpha two
-        // alpha three
+    cx.set_state(
+        "// alpha one
+// alpha two
+// alpha three
 
-        // beˇta one
-        // beta two
-    "});
+// beˇta one
+// beta two
+",
+    );
     cx.run_until_parked();
     prev(&mut cx);
-    cx.assert_editor_state(indoc! {"
-        ˇ// alpha one
-        // alpha two
-        // alpha three
+    cx.assert_editor_state(
+        "ˇ// alpha one
+// alpha two
+// alpha three
 
-        // beta one
-        // beta two
-    "});
+// beta one
+// beta two
+",
+    );
 
     // Inside the first paragraph there is no previous paragraph, so the caret
     // stays put rather than jumping to the current paragraph's own start.
-    cx.set_state(indoc! {"
-        // alpha one
-        // alpha ˇtwo
-        // alpha three
+    cx.set_state(
+        "// alpha one
+// alpha ˇtwo
+// alpha three
 
-        // beta one
-        // beta two
-    "});
+// beta one
+// beta two
+",
+    );
     cx.run_until_parked();
     prev(&mut cx);
-    cx.assert_editor_state(indoc! {"
-        // alpha one
-        // alpha ˇtwo
-        // alpha three
+    cx.assert_editor_state(
+        "// alpha one
+// alpha ˇtwo
+// alpha three
 
-        // beta one
-        // beta two
-    "});
+// beta one
+// beta two
+",
+    );
 }
 
 #[gpui::test]
@@ -3609,18 +3682,19 @@ async fn test_scroll_line_up_down_cursor_margin(cx: &mut TestAppContext) {
     cx.simulate_window_resize(window, size(px(1000.), 5. * line_height));
 
     // Cursor at row 0 — autoscroll leaves viewport at y=0.
-    cx.set_state(indoc! {"
-        ˇone
-        two
-        three
-        four
-        five
-        six
-        seven
-        eight
-        nine
-        ten
-    "});
+    cx.set_state(
+        "ˇone
+two
+three
+four
+five
+six
+seven
+eight
+nine
+ten
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         assert_eq!(editor.snapshot(window, cx).scroll_position().y, 0.);
@@ -5037,66 +5111,76 @@ async fn test_newline_yaml(cx: &mut TestAppContext) {
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(yaml_language), cx));
 
     // Object (between 2 fields)
-    cx.set_state(indoc! {"
-    test:ˇ
-    hello: bye"});
+    cx.set_state(
+        "test:ˇ
+hello: bye",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.assert_editor_state(indoc! {"
-    test:
-        ˇ
-    hello: bye"});
+    cx.assert_editor_state(
+        "test:
+    ˇ
+hello: bye",
+    );
 
     // Object (first and single line)
-    cx.set_state(indoc! {"
-    test:ˇ"});
+    cx.set_state("test:ˇ");
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.assert_editor_state(indoc! {"
-    test:
-        ˇ"});
+    cx.assert_editor_state(
+        "test:
+    ˇ",
+    );
 
     // Array with objects (after first element)
-    cx.set_state(indoc! {"
-    test:
-        - foo: barˇ"});
+    cx.set_state(
+        "test:
+    - foo: barˇ",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.assert_editor_state(indoc! {"
-    test:
-        - foo: bar
-        ˇ"});
+    cx.assert_editor_state(
+        "test:
+    - foo: bar
+    ˇ",
+    );
 
     // Array with objects and comment
-    cx.set_state(indoc! {"
-    test:
-        - foo: bar
-        - bar: # testˇ"});
+    cx.set_state(
+        "test:
+    - foo: bar
+    - bar: # testˇ",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.assert_editor_state(indoc! {"
-    test:
-        - foo: bar
-        - bar: # test
-            ˇ"});
+    cx.assert_editor_state(
+        "test:
+    - foo: bar
+    - bar: # test
+        ˇ",
+    );
 
     // Array with objects (after second element)
-    cx.set_state(indoc! {"
-    test:
-        - foo: bar
-        - bar: fooˇ"});
+    cx.set_state(
+        "test:
+    - foo: bar
+    - bar: fooˇ",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.assert_editor_state(indoc! {"
-    test:
-        - foo: bar
-        - bar: foo
-        ˇ"});
+    cx.assert_editor_state(
+        "test:
+    - foo: bar
+    - bar: foo
+    ˇ",
+    );
 
     // Array with strings (after first element)
-    cx.set_state(indoc! {"
-    test:
-        - fooˇ"});
+    cx.set_state(
+        "test:
+    - fooˇ",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.assert_editor_state(indoc! {"
-    test:
-        - foo
-        ˇ"});
+    cx.assert_editor_state(
+        "test:
+    - foo
+    ˇ",
+    );
 }
 
 #[gpui::test]
@@ -5198,35 +5282,37 @@ async fn test_newline_above(cx: &mut TestAppContext) {
 
     let mut cx = EditorTestContext::new(cx).await;
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
-    cx.set_state(indoc! {"
-        const a: ˇA = (
-            (ˇ
-                «const_functionˇ»(ˇ),
-                so«mˇ»et«hˇ»ing_ˇelse,ˇ
-            )ˇ
-        ˇ);ˇ
-    "});
+    cx.set_state(
+        "const a: ˇA = (
+    (ˇ
+        «const_functionˇ»(ˇ),
+        so«mˇ»et«hˇ»ing_ˇelse,ˇ
+    )ˇ
+ˇ);ˇ
+",
+    );
 
     cx.update_editor(|e, window, cx| e.newline_above(&NewlineAbove, window, cx));
-    cx.assert_editor_state(indoc! {"
+    cx.assert_editor_state(
+        "ˇ
+const a: A = (
+    ˇ
+    (
         ˇ
-        const a: A = (
-            ˇ
-            (
-                ˇ
-                ˇ
-                const_function(),
-                ˇ
-                ˇ
-                ˇ
-                ˇ
-                something_else,
-                ˇ
-            )
-            ˇ
-            ˇ
-        );
-    "});
+        ˇ
+        const_function(),
+        ˇ
+        ˇ
+        ˇ
+        ˇ
+        something_else,
+        ˇ
+    )
+    ˇ
+    ˇ
+);
+",
+    );
 }
 
 #[gpui::test]
@@ -5246,35 +5332,37 @@ async fn test_newline_below(cx: &mut TestAppContext) {
 
     let mut cx = EditorTestContext::new(cx).await;
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
-    cx.set_state(indoc! {"
-        const a: ˇA = (
-            (ˇ
-                «const_functionˇ»(ˇ),
-                so«mˇ»et«hˇ»ing_ˇelse,ˇ
-            )ˇ
-        ˇ);ˇ
-    "});
+    cx.set_state(
+        "const a: ˇA = (
+    (ˇ
+        «const_functionˇ»(ˇ),
+        so«mˇ»et«hˇ»ing_ˇelse,ˇ
+    )ˇ
+ˇ);ˇ
+",
+    );
 
     cx.update_editor(|e, window, cx| e.newline_below(&NewlineBelow, window, cx));
-    cx.assert_editor_state(indoc! {"
-        const a: A = (
-            ˇ
-            (
-                ˇ
-                const_function(),
-                ˇ
-                ˇ
-                something_else,
-                ˇ
-                ˇ
-                ˇ
-                ˇ
-            )
-            ˇ
-        );
+    cx.assert_editor_state(
+        "const a: A = (
+    ˇ
+    (
+        ˇ
+        const_function(),
         ˇ
         ˇ
-    "});
+        something_else,
+        ˇ
+        ˇ
+        ˇ
+        ˇ
+    )
+    ˇ
+);
+ˇ
+ˇ
+",
+    );
 }
 
 #[gpui::test]
@@ -5601,13 +5689,12 @@ fn test_newline_below_multibuffer(cx: &mut TestAppContext) {
 
         assert_eq!(
             editor.text(cx),
-            indoc! {"
-                aaa
-                bbb
-                ccc
-                ddd
-                eee
-                fff"}
+            "aaa
+bbb
+ccc
+ddd
+eee
+fff"
         );
 
         // Cursor on the last line of the first excerpt.
@@ -5615,27 +5702,25 @@ fn test_newline_below_multibuffer(cx: &mut TestAppContext) {
         // not in the second excerpt (buffer_2).
         select_ranges(
             &mut editor,
-            indoc! {"
-                aaa
-                bbb
-                cˇcc
-                ddd
-                eee
-                fff"},
+            "aaa
+bbb
+cˇcc
+ddd
+eee
+fff",
             window,
             cx,
         );
         editor.newline_below(&NewlineBelow, window, cx);
         assert_text_with_selections(
             &mut editor,
-            indoc! {"
-                aaa
-                bbb
-                ccc
-                ˇ
-                ddd
-                eee
-                fff"},
+            "aaa
+bbb
+ccc
+ˇ
+ddd
+eee
+fff",
             cx,
         );
         buffer_1.read_with(cx, |buffer, _| {
@@ -5680,27 +5765,25 @@ fn test_newline_below_multibuffer_middle_of_excerpt(cx: &mut TestAppContext) {
         // Cursor in the middle of the first excerpt.
         select_ranges(
             &mut editor,
-            indoc! {"
-                aˇaa
-                bbb
-                ccc
-                ddd
-                eee
-                fff"},
+            "aˇaa
+bbb
+ccc
+ddd
+eee
+fff",
             window,
             cx,
         );
         editor.newline_below(&NewlineBelow, window, cx);
         assert_text_with_selections(
             &mut editor,
-            indoc! {"
-                aaa
-                ˇ
-                bbb
-                ccc
-                ddd
-                eee
-                fff"},
+            "aaa
+ˇ
+bbb
+ccc
+ddd
+eee
+fff",
             cx,
         );
         buffer_1.read_with(cx, |buffer, _| {
@@ -5745,27 +5828,25 @@ fn test_newline_below_multibuffer_last_line_of_last_excerpt(cx: &mut TestAppCont
         // Cursor on the last line of the last excerpt.
         select_ranges(
             &mut editor,
-            indoc! {"
-                aaa
-                bbb
-                ccc
-                ddd
-                eee
-                fˇff"},
+            "aaa
+bbb
+ccc
+ddd
+eee
+fˇff",
             window,
             cx,
         );
         editor.newline_below(&NewlineBelow, window, cx);
         assert_text_with_selections(
             &mut editor,
-            indoc! {"
-                aaa
-                bbb
-                ccc
-                ddd
-                eee
-                fff
-                ˇ"},
+            "aaa
+bbb
+ccc
+ddd
+eee
+fff
+ˇ",
             cx,
         );
         buffer_1.read_with(cx, |buffer, _| {
@@ -5811,28 +5892,26 @@ fn test_newline_below_multibuffer_multiple_cursors(cx: &mut TestAppContext) {
         // of the second excerpt. Each newline should go into its respective buffer.
         select_ranges(
             &mut editor,
-            indoc! {"
-                aaa
-                bbb
-                cˇcc
-                dˇdd
-                eee
-                fff"},
+            "aaa
+bbb
+cˇcc
+dˇdd
+eee
+fff",
             window,
             cx,
         );
         editor.newline_below(&NewlineBelow, window, cx);
         assert_text_with_selections(
             &mut editor,
-            indoc! {"
-                aaa
-                bbb
-                ccc
-                ˇ
-                ddd
-                ˇ
-                eee
-                fff"},
+            "aaa
+bbb
+ccc
+ˇ
+ddd
+ˇ
+eee
+fff",
             cx,
         );
         buffer_1.read_with(cx, |buffer, _| {
@@ -5862,60 +5941,67 @@ async fn test_newline_comments(cx: &mut TestAppContext) {
     {
         let mut cx = EditorTestContext::new(cx).await;
         cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
-        cx.set_state(indoc! {"
-        // Fooˇ
-    "});
+        cx.set_state(
+            "// Fooˇ
+",
+        );
 
         cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-        cx.assert_editor_state(indoc! {"
-        // Foo
-        // ˇ
-    "});
+        cx.assert_editor_state(
+            "// Foo
+// ˇ
+",
+        );
         // Ensure that we add comment prefix when existing line contains space
         cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
         cx.assert_editor_state(
-            indoc! {"
-        // Foo
-        //s
-        // ˇ
-    "}
+            "// Foo
+//s
+// ˇ
+"
             .replace("s", " ") // s is used as space placeholder to prevent format on save
             .as_str(),
         );
         // Ensure that we add comment prefix when existing line does not contain space
-        cx.set_state(indoc! {"
-        // Foo
-        //ˇ
-    "});
+        cx.set_state(
+            "// Foo
+//ˇ
+",
+        );
         cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-        cx.assert_editor_state(indoc! {"
-        // Foo
-        //
-        // ˇ
-    "});
+        cx.assert_editor_state(
+            "// Foo
+//
+// ˇ
+",
+        );
         // Ensure that if cursor is before the comment start, we do not actually insert a comment prefix.
-        cx.set_state(indoc! {"
-        ˇ// Foo
-    "});
+        cx.set_state(
+            "ˇ// Foo
+",
+        );
         cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-        cx.assert_editor_state(indoc! {"
-
-        ˇ// Foo
-    "});
+        cx.assert_editor_state(
+            "
+ˇ// Foo
+",
+        );
     }
     // Ensure that comment continuations can be disabled.
     update_test_language_settings(cx, &|settings| {
         settings.defaults.extend_comment_on_newline = Some(false);
     });
     let mut cx = EditorTestContext::new(cx).await;
-    cx.set_state(indoc! {"
-        // Fooˇ
-    "});
+    cx.set_state(
+        "// Fooˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.assert_editor_state(indoc! {"
-        // Foo
-        ˇ
-    "});
+    cx.assert_editor_state(
+        "// Foo
+ˇ
+",
+    );
 }
 
 #[gpui::test]
@@ -5934,23 +6020,27 @@ async fn test_newline_comments_with_multiple_delimiters(cx: &mut TestAppContext)
     {
         let mut cx = EditorTestContext::new(cx).await;
         cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
-        cx.set_state(indoc! {"
-        //ˇ
-    "});
+        cx.set_state(
+            "//ˇ
+",
+        );
         cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-        cx.assert_editor_state(indoc! {"
-        //
-        // ˇ
-    "});
+        cx.assert_editor_state(
+            "//
+// ˇ
+",
+        );
 
-        cx.set_state(indoc! {"
-        ///ˇ
-    "});
+        cx.set_state(
+            "///ˇ
+",
+        );
         cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-        cx.assert_editor_state(indoc! {"
-        ///
-        /// ˇ
-    "});
+        cx.assert_editor_state(
+            "///
+/// ˇ
+",
+        );
     }
 }
 
@@ -5980,14 +6070,16 @@ async fn test_newline_comments_with_brackets(cx: &mut TestAppContext) {
     {
         let mut cx = EditorTestContext::new(cx).await;
         cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
-        cx.set_state(indoc! {"
-        // (ˇ)
-    "});
+        cx.set_state(
+            "// (ˇ)
+",
+        );
         cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-        cx.assert_editor_state(indoc! {"
-        // (
-        // ˇ)
-    "})
+        cx.assert_editor_state(
+            "// (
+// ˇ)
+",
+        )
     }
 }
 
@@ -6007,32 +6099,38 @@ async fn test_newline_comments_repl_separators(cx: &mut TestAppContext) {
     {
         let mut cx = EditorTestContext::new(cx).await;
         cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
-        cx.set_state(indoc! {"
-        # %%ˇ
-    "});
+        cx.set_state(
+            "# %%ˇ
+",
+        );
         cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-        cx.assert_editor_state(indoc! {"
-        # %%
-        ˇ
-    "});
+        cx.assert_editor_state(
+            "# %%
+ˇ
+",
+        );
 
-        cx.set_state(indoc! {"
-            # %%%%%ˇ
-    "});
+        cx.set_state(
+            "# %%%%%ˇ
+",
+        );
         cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-        cx.assert_editor_state(indoc! {"
-            # %%%%%
-            ˇ
-    "});
+        cx.assert_editor_state(
+            "# %%%%%
+ˇ
+",
+        );
 
-        cx.set_state(indoc! {"
-            # %ˇ%
-    "});
+        cx.set_state(
+            "# %ˇ%
+",
+        );
         cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-        cx.assert_editor_state(indoc! {"
-            # %
-            # ˇ%
-    "});
+        cx.assert_editor_state(
+            "# %
+# ˇ%
+",
+        );
     }
 }
 
@@ -6063,65 +6161,75 @@ async fn test_newline_documentation_comments(cx: &mut TestAppContext) {
     {
         let mut cx = EditorTestContext::new(cx).await;
         cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
-        cx.set_state(indoc! {"
-        /**ˇ
-    "});
+        cx.set_state(
+            "/**ˇ
+",
+        );
 
-        cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-        cx.assert_editor_state(indoc! {"
-        /**
-         * ˇ
-    "});
-        // Ensure that if cursor is before the comment start,
-        // we do not actually insert a comment prefix.
-        cx.set_state(indoc! {"
-        ˇ/**
-    "});
-        cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-        cx.assert_editor_state(indoc! {"
-
-        ˇ/**
-    "});
-        // Ensure that if cursor is between it doesn't add comment prefix.
-        cx.set_state(indoc! {"
-        /*ˇ*
-    "});
-        cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-        cx.assert_editor_state(indoc! {"
-        /*
-        ˇ*
-    "});
-        // Ensure that if suffix exists on same line after cursor it adds new line.
-        cx.set_state(indoc! {"
-        /**ˇ*/
-    "});
-        cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-        cx.assert_editor_state(indoc! {"
-        /**
-         * ˇ
-         */
-    "});
-        // Ensure that if suffix exists on same line after cursor with space it adds new line.
-        cx.set_state(indoc! {"
-        /**ˇ */
-    "});
-        cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-        cx.assert_editor_state(indoc! {"
-        /**
-         * ˇ
-         */
-    "});
-        // Ensure that if suffix exists on same line after cursor with space it adds new line.
-        cx.set_state(indoc! {"
-        /** ˇ*/
-    "});
         cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
         cx.assert_editor_state(
-            indoc! {"
-        /**s
-         * ˇ
-         */
-    "}
+            "/**
+ * ˇ
+",
+        );
+        // Ensure that if cursor is before the comment start,
+        // we do not actually insert a comment prefix.
+        cx.set_state(
+            "ˇ/**
+",
+        );
+        cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
+        cx.assert_editor_state(
+            "
+ˇ/**
+",
+        );
+        // Ensure that if cursor is between it doesn't add comment prefix.
+        cx.set_state(
+            "/*ˇ*
+",
+        );
+        cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
+        cx.assert_editor_state(
+            "/*
+ˇ*
+",
+        );
+        // Ensure that if suffix exists on same line after cursor it adds new line.
+        cx.set_state(
+            "/**ˇ*/
+",
+        );
+        cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
+        cx.assert_editor_state(
+            "/**
+ * ˇ
+ */
+",
+        );
+        // Ensure that if suffix exists on same line after cursor with space it adds new line.
+        cx.set_state(
+            "/**ˇ */
+",
+        );
+        cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
+        cx.assert_editor_state(
+            "/**
+ * ˇ
+ */
+",
+        );
+        // Ensure that if suffix exists on same line after cursor with space it adds new line.
+        cx.set_state(
+            "/** ˇ*/
+",
+        );
+        cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
+        cx.assert_editor_state(
+            "/**s
+ * ˇ
+ */
+"
             .replace("s", " ") // s is used as space placeholder to prevent format on save
             .as_str(),
         );
@@ -6129,74 +6237,83 @@ async fn test_newline_documentation_comments(cx: &mut TestAppContext) {
         // spaced delimiter.
         cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
         cx.assert_editor_state(
-            indoc! {"
-        /**s
-         *s
-         * ˇ
-         */
-    "}
+            "/**s
+ *s
+ * ˇ
+ */
+"
             .replace("s", " ") // s is used as space placeholder to prevent format on save
             .as_str(),
         );
         // Ensure that delimiter space is preserved when space is not
         // on existing delimiter.
-        cx.set_state(indoc! {"
-        /**
-         *ˇ
-         */
-    "});
+        cx.set_state(
+            "/**
+ *ˇ
+ */
+",
+        );
         cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-        cx.assert_editor_state(indoc! {"
-        /**
-         *
-         * ˇ
-         */
-    "});
+        cx.assert_editor_state(
+            "/**
+ *
+ * ˇ
+ */
+",
+        );
         // Ensure that if suffix exists on same line after cursor it
         // doesn't add extra new line if prefix is not on same line.
-        cx.set_state(indoc! {"
-        /**
-        ˇ*/
-    "});
+        cx.set_state(
+            "/**
+ˇ*/
+",
+        );
         cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-        cx.assert_editor_state(indoc! {"
-        /**
+        cx.assert_editor_state(
+            "/**
 
-        ˇ*/
-    "});
+ˇ*/
+",
+        );
         // Ensure that it detects suffix after existing prefix.
-        cx.set_state(indoc! {"
-        /**ˇ/
-    "});
+        cx.set_state(
+            "/**ˇ/
+",
+        );
         cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-        cx.assert_editor_state(indoc! {"
-        /**
-        ˇ/
-    "});
+        cx.assert_editor_state(
+            "/**
+ˇ/
+",
+        );
         // Ensure that if suffix exists on same line before
         // cursor it does not add comment prefix.
-        cx.set_state(indoc! {"
-        /** */ˇ
-    "});
+        cx.set_state(
+            "/** */ˇ
+",
+        );
         cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-        cx.assert_editor_state(indoc! {"
-        /** */
-        ˇ
-    "});
+        cx.assert_editor_state(
+            "/** */
+ˇ
+",
+        );
         // Ensure that if suffix exists on same line before
         // cursor it does not add comment prefix.
-        cx.set_state(indoc! {"
-        /**
-         *
-         */ˇ
-    "});
+        cx.set_state(
+            "/**
+ *
+ */ˇ
+",
+        );
         cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-        cx.assert_editor_state(indoc! {"
-        /**
-         *
-         */
-        ˇ
-    "});
+        cx.assert_editor_state(
+            "/**
+ *
+ */
+ˇ
+",
+        );
 
         cx.set_state("fn test() {\n    /**\n     *\n     */ˇ\n}");
         cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
@@ -6204,54 +6321,62 @@ async fn test_newline_documentation_comments(cx: &mut TestAppContext) {
 
         // Ensure that inline comment followed by code
         // doesn't add comment prefix on newline
-        cx.set_state(indoc! {"
-        /** */ textˇ
-    "});
+        cx.set_state(
+            "/** */ textˇ
+",
+        );
         cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-        cx.assert_editor_state(indoc! {"
-        /** */ text
-        ˇ
-    "});
+        cx.assert_editor_state(
+            "/** */ text
+ˇ
+",
+        );
 
         // Ensure that text after comment end tag
         // doesn't add comment prefix on newline
-        cx.set_state(indoc! {"
-        /**
-         *
-         */ˇtext
-    "});
+        cx.set_state(
+            "/**
+ *
+ */ˇtext
+",
+        );
         cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-        cx.assert_editor_state(indoc! {"
-        /**
-         *
-         */
-        ˇtext
-    "});
+        cx.assert_editor_state(
+            "/**
+ *
+ */
+ˇtext
+",
+        );
 
         // Ensure if not comment block it doesn't
         // add comment prefix on newline
-        cx.set_state(indoc! {"
-        * textˇ
-    "});
+        cx.set_state(
+            "* textˇ
+",
+        );
         cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-        cx.assert_editor_state(indoc! {"
-        * text
-        ˇ
-    "});
+        cx.assert_editor_state(
+            "* text
+ˇ
+",
+        );
     }
     // Ensure that comment continuations can be disabled.
     update_test_language_settings(cx, &|settings| {
         settings.defaults.extend_comment_on_newline = Some(false);
     });
     let mut cx = EditorTestContext::new(cx).await;
-    cx.set_state(indoc! {"
-        /**ˇ
-    "});
+    cx.set_state(
+        "/**ˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.assert_editor_state(indoc! {"
-        /**
-        ˇ
-    "});
+    cx.assert_editor_state(
+        "/**
+ˇ
+",
+    );
 }
 
 #[gpui::test]
@@ -6343,24 +6468,28 @@ async fn test_newline_comments_with_block_comment(cx: &mut TestAppContext) {
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(lua_language), cx));
 
     // Line with line comment should extend
-    cx.set_state(indoc! {"
-        --ˇ
-    "});
+    cx.set_state(
+        "--ˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.assert_editor_state(indoc! {"
-        --
-        --ˇ
-    "});
+    cx.assert_editor_state(
+        "--
+--ˇ
+",
+    );
 
     // Line with block comment that matches line comment should not extend
-    cx.set_state(indoc! {"
-        --[[ˇ
-    "});
+    cx.set_state(
+        "--[[ˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.assert_editor_state(indoc! {"
-        --[[
-        ˇ
-    "});
+    cx.assert_editor_state(
+        "--[[
+ˇ
+",
+    );
 }
 
 #[gpui::test]
@@ -6425,27 +6554,31 @@ async fn test_tab(cx: &mut TestAppContext) {
     });
 
     let mut cx = EditorTestContext::new(cx).await;
-    cx.set_state(indoc! {"
-        ˇabˇc
-        ˇ🏀ˇ🏀ˇefg
-        dˇ
-    "});
+    cx.set_state(
+        "ˇabˇc
+ˇ🏀ˇ🏀ˇefg
+dˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
-    cx.assert_editor_state(indoc! {"
-           ˇab ˇc
-           ˇ🏀  ˇ🏀  ˇefg
-        d  ˇ
-    "});
+    cx.assert_editor_state(
+        "   ˇab ˇc
+   ˇ🏀  ˇ🏀  ˇefg
+d  ˇ
+",
+    );
 
-    cx.set_state(indoc! {"
-        a
-        «🏀ˇ»🏀«🏀ˇ»🏀«🏀ˇ»
-    "});
+    cx.set_state(
+        "a
+«🏀ˇ»🏀«🏀ˇ»🏀«🏀ˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        a
-           «🏀ˇ»🏀«🏀ˇ»🏀«🏀ˇ»
-    "});
+    cx.assert_editor_state(
+        "a
+   «🏀ˇ»🏀«🏀ˇ»🏀«🏀ˇ»
+",
+    );
 }
 
 #[gpui::test]
@@ -6465,183 +6598,199 @@ async fn test_tab_in_leading_whitespace_auto_indents_lines(cx: &mut TestAppConte
 
     // test when all cursors are not at suggested indent
     // then simply move to their suggested indent location
-    cx.set_state(indoc! {"
-        const a: B = (
-            c(
-        ˇ
-        ˇ    )
-        );
-    "});
+    cx.set_state(
+        "const a: B = (
+    c(
+ˇ
+ˇ    )
+);
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        const a: B = (
-            c(
-                ˇ
-            ˇ)
-        );
-    "});
+    cx.assert_editor_state(
+        "const a: B = (
+    c(
+        ˇ
+    ˇ)
+);
+",
+    );
 
     // test cursor already at suggested indent not moving when
     // other cursors are yet to reach their suggested indents
-    cx.set_state(indoc! {"
-        ˇ
-        const a: B = (
-            c(
-                d(
-        ˇ
-                )
-        ˇ
-        ˇ    )
-        );
-    "});
+    cx.set_state(
+        "ˇ
+const a: B = (
+    c(
+        d(
+ˇ
+        )
+ˇ
+ˇ    )
+);
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
-    cx.assert_editor_state(indoc! {"
+    cx.assert_editor_state(
+        "ˇ
+const a: B = (
+    c(
+        d(
+            ˇ
+        )
         ˇ
-        const a: B = (
-            c(
-                d(
-                    ˇ
-                )
-                ˇ
-            ˇ)
-        );
-    "});
+    ˇ)
+);
+",
+    );
     // test when all cursors are at suggested indent then tab is inserted
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
-    cx.assert_editor_state(indoc! {"
+    cx.assert_editor_state(
+        "    ˇ
+const a: B = (
+    c(
+        d(
+                ˇ
+        )
             ˇ
-        const a: B = (
-            c(
-                d(
-                        ˇ
-                )
-                    ˇ
-                ˇ)
-        );
-    "});
+        ˇ)
+);
+",
+    );
 
     // test when current indent is less than suggested indent,
     // we adjust line to match suggested indent and move cursor to it
     //
     // when no other cursor is at word boundary, all of them should move
-    cx.set_state(indoc! {"
-        const a: B = (
-            c(
-                d(
-        ˇ
-        ˇ   )
-        ˇ   )
-        );
-    "});
+    cx.set_state(
+        "const a: B = (
+    c(
+        d(
+ˇ
+ˇ   )
+ˇ   )
+);
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        const a: B = (
-            c(
-                d(
-                    ˇ
-                ˇ)
-            ˇ)
-        );
-    "});
+    cx.assert_editor_state(
+        "const a: B = (
+    c(
+        d(
+            ˇ
+        ˇ)
+    ˇ)
+);
+",
+    );
 
     // test when current indent is less than suggested indent,
     // we adjust line to match suggested indent and move cursor to it
     //
     // when some other cursor is at word boundary, it should not move
-    cx.set_state(indoc! {"
-        const a: B = (
-            c(
-                d(
-        ˇ
-        ˇ   )
-           ˇ)
-        );
-    "});
+    cx.set_state(
+        "const a: B = (
+    c(
+        d(
+ˇ
+ˇ   )
+   ˇ)
+);
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        const a: B = (
-            c(
-                d(
-                    ˇ
-                ˇ)
-            ˇ)
-        );
-    "});
+    cx.assert_editor_state(
+        "const a: B = (
+    c(
+        d(
+            ˇ
+        ˇ)
+    ˇ)
+);
+",
+    );
 
     // test when current indent is more than suggested indent,
     // we just move cursor to current indent instead of suggested indent
     //
     // when no other cursor is at word boundary, all of them should move
-    cx.set_state(indoc! {"
-        const a: B = (
-            c(
-                d(
-        ˇ
-        ˇ                )
-        ˇ   )
-        );
-    "});
+    cx.set_state(
+        "const a: B = (
+    c(
+        d(
+ˇ
+ˇ                )
+ˇ   )
+);
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        const a: B = (
-            c(
-                d(
-                    ˇ
-                        ˇ)
-            ˇ)
-        );
-    "});
-    cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        const a: B = (
-            c(
-                d(
-                        ˇ
-                            ˇ)
+    cx.assert_editor_state(
+        "const a: B = (
+    c(
+        d(
+            ˇ
                 ˇ)
-        );
-    "});
+    ˇ)
+);
+",
+    );
+    cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
+    cx.assert_editor_state(
+        "const a: B = (
+    c(
+        d(
+                ˇ
+                    ˇ)
+        ˇ)
+);
+",
+    );
 
     // test when current indent is more than suggested indent,
     // we just move cursor to current indent instead of suggested indent
     //
     // when some other cursor is at word boundary, it doesn't move
-    cx.set_state(indoc! {"
-        const a: B = (
-            c(
-                d(
-        ˇ
-        ˇ                )
-            ˇ)
-        );
-    "});
+    cx.set_state(
+        "const a: B = (
+    c(
+        d(
+ˇ
+ˇ                )
+    ˇ)
+);
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        const a: B = (
-            c(
-                d(
-                    ˇ
-                        ˇ)
-            ˇ)
-        );
-    "});
+    cx.assert_editor_state(
+        "const a: B = (
+    c(
+        d(
+            ˇ
+                ˇ)
+    ˇ)
+);
+",
+    );
 
     // handle auto-indent when there are multiple cursors on the same line
-    cx.set_state(indoc! {"
-        const a: B = (
-            c(
-        ˇ    ˇ
-        ˇ    )
-        );
-    "});
+    cx.set_state(
+        "const a: B = (
+    c(
+ˇ    ˇ
+ˇ    )
+);
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        const a: B = (
-            c(
-                ˇ
-            ˇ)
-        );
-    "});
+    cx.assert_editor_state(
+        "const a: B = (
+    c(
+        ˇ
+    ˇ)
+);
+",
+    );
 }
 
 #[gpui::test]
@@ -6669,22 +6818,24 @@ async fn test_tab_with_mixed_whitespace_txt(cx: &mut TestAppContext) {
     });
 
     let mut cx = EditorTestContext::new(cx).await;
-    cx.set_state(indoc! {"
-         ˇ
-        \t ˇ
-        \t  ˇ
-        \t   ˇ
-         \t  \t\t \t      \t\t   \t\t    \t \t ˇ
-    "});
+    cx.set_state(
+        " ˇ
+\t ˇ
+\t  ˇ
+\t   ˇ
+ \t  \t\t \t      \t\t   \t\t    \t \t ˇ
+",
+    );
 
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
-    cx.assert_editor_state(indoc! {"
-           ˇ
-        \t   ˇ
-        \t   ˇ
-        \t      ˇ
-         \t  \t\t \t      \t\t   \t\t    \t \t   ˇ
-    "});
+    cx.assert_editor_state(
+        "   ˇ
+\t   ˇ
+\t   ˇ
+\t      ˇ
+ \t  \t\t \t      \t\t   \t\t    \t \t   ˇ
+",
+    );
 }
 
 #[gpui::test]
@@ -6704,22 +6855,24 @@ async fn test_tab_with_mixed_whitespace_rust(cx: &mut TestAppContext) {
 
     let mut cx = EditorTestContext::new(cx).await;
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
-    cx.set_state(indoc! {"
-        fn a() {
-            if b {
-        \t ˇc
-            }
-        }
-    "});
+    cx.set_state(
+        "fn a() {
+    if b {
+\t ˇc
+    }
+}
+",
+    );
 
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        fn a() {
-            if b {
-                ˇc
-            }
-        }
-    "});
+    cx.assert_editor_state(
+        "fn a() {
+    if b {
+        ˇc
+    }
+}
+",
+    );
 }
 
 #[gpui::test]
@@ -6730,69 +6883,79 @@ async fn test_indent_outdent(cx: &mut TestAppContext) {
 
     let mut cx = EditorTestContext::new(cx).await;
 
-    cx.set_state(indoc! {"
-          «oneˇ» «twoˇ»
-        three
-         four
-    "});
+    cx.set_state(
+        "  «oneˇ» «twoˇ»
+three
+ four
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
-    cx.assert_editor_state(indoc! {"
-            «oneˇ» «twoˇ»
-        three
-         four
-    "});
+    cx.assert_editor_state(
+        "    «oneˇ» «twoˇ»
+three
+ four
+",
+    );
 
     cx.update_editor(|e, window, cx| e.backtab(&Backtab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «oneˇ» «twoˇ»
-        three
-         four
-    "});
+    cx.assert_editor_state(
+        "«oneˇ» «twoˇ»
+three
+ four
+",
+    );
 
     // select across line ending
-    cx.set_state(indoc! {"
-        one two
-        t«hree
-        ˇ» four
-    "});
+    cx.set_state(
+        "one two
+t«hree
+ˇ» four
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        one two
-            t«hree
-        ˇ» four
-    "});
+    cx.assert_editor_state(
+        "one two
+    t«hree
+ˇ» four
+",
+    );
 
     cx.update_editor(|e, window, cx| e.backtab(&Backtab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        one two
-        t«hree
-        ˇ» four
-    "});
+    cx.assert_editor_state(
+        "one two
+t«hree
+ˇ» four
+",
+    );
 
     // Ensure that indenting/outdenting works when the cursor is at column 0.
-    cx.set_state(indoc! {"
-        one two
-        ˇthree
-            four
-    "});
+    cx.set_state(
+        "one two
+ˇthree
+    four
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        one two
-            ˇthree
-            four
-    "});
+    cx.assert_editor_state(
+        "one two
+    ˇthree
+    four
+",
+    );
 
-    cx.set_state(indoc! {"
-        one two
-        ˇ    three
-            four
-    "});
+    cx.set_state(
+        "one two
+ˇ    three
+    four
+",
+    );
     cx.update_editor(|e, window, cx| e.backtab(&Backtab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        one two
-        ˇthree
-            four
-    "});
+    cx.assert_editor_state(
+        "one two
+ˇthree
+    four
+",
+    );
 }
 
 #[gpui::test]
@@ -6867,18 +7030,17 @@ async fn test_multicursor_input_preserves_yaml_indentation(cx: &mut TestAppConte
     let yaml_language = languages::language("yaml", tree_sitter_yaml::LANGUAGE.into());
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(yaml_language), cx));
 
-    let initial_state = indoc! {r#"
-        ˇcoverage:
-          ˇrange: 40..60
-        ˇstatus:
-          ˇpatch: off
-          ˇproject:
-            ˇdefault:
-              ˇinformational: true
+    let initial_state = r#"ˇcoverage:
+  ˇrange: 40..60
+ˇstatus:
+  ˇpatch: off
+  ˇproject:
+    ˇdefault:
+      ˇinformational: true
 
-        ˇ# Don't leave comments on PRs
-        ˇcomment: false
-    "#};
+ˇ# Don't leave comments on PRs
+ˇcomment: false
+"#;
 
     for input in ["2", "#"] {
         cx.set_state(initial_state);
@@ -6895,23 +7057,25 @@ async fn test_multicursor_input_preserves_yaml_indentation(cx: &mut TestAppConte
     }
 
     // A multiline replacement must not reindent the other single-line edits.
-    cx.set_state(indoc! {"
-        ˇroot:
-          ˇchild:
-            ˇleaf: 1
-        replacement:
-        «    first: 1
-            second: 2ˇ»
-    "});
+    cx.set_state(
+        "ˇroot:
+  ˇchild:
+    ˇleaf: 1
+replacement:
+«    first: 1
+    second: 2ˇ»
+",
+    );
     cx.update_editor(|editor, window, cx| editor.handle_input("2", window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        2ˇroot:
-          2ˇchild:
-            2ˇleaf: 1
-        replacement:
-            2ˇ
-    "});
+    cx.assert_editor_state(
+        "2ˇroot:
+  2ˇchild:
+    2ˇleaf: 1
+replacement:
+    2ˇ
+",
+    );
 }
 
 #[gpui::test]
@@ -6922,26 +7086,26 @@ async fn test_multicursor_input_autoindents_multiline_replacements(cx: &mut Test
     let python_language = languages::language("python", tree_sitter_python::LANGUAGE.into());
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(python_language), cx));
 
-    cx.set_state(indoc! {"
-        def f():
-        «    a = 1
-            b = 2ˇ»
-        def g():
-        «    a = 1
-            b = 2ˇ»
-    "});
+    cx.set_state(
+        "def f():
+«    a = 1
+    b = 2ˇ»
+def g():
+«    a = 1
+    b = 2ˇ»
+",
+    );
 
     cx.update_editor(|editor, window, cx| editor.handle_input("pass", window, cx));
     cx.wait_for_autoindent_applied().await;
 
     assert_eq!(
         cx.buffer_text(),
-        indoc! {"
-            def f():
-                pass
-            def g():
-                pass
-        "}
+        "def f():
+    pass
+def g():
+    pass
+"
     );
 }
 
@@ -6953,29 +7117,29 @@ async fn test_tab_indents_selected_yaml_block(cx: &mut TestAppContext) {
     let yaml_language = languages::language("yaml", tree_sitter_yaml::LANGUAGE.into());
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(yaml_language), cx));
 
-    cx.set_state(indoc! {"
-        «foo:
-          - bar
-          - zop
-          x:
-            q
-        bar:
-          qˇ»
-    "});
+    cx.set_state(
+        "«foo:
+  - bar
+  - zop
+  x:
+    q
+bar:
+  qˇ»
+",
+    );
 
     cx.update_editor(|editor, window, cx| editor.tab(&Tab, window, cx));
 
     assert_eq!(
         cx.buffer_text(),
-        indoc! {"
-            \x20   foo:
-                  - bar
-                  - zop
-                  x:
-                    q
-                bar:
-                  q
-        "}
+        "\x20   foo:
+      - bar
+      - zop
+      x:
+        q
+    bar:
+      q
+"
     );
 }
 
@@ -6984,19 +7148,21 @@ async fn test_tab_indents_overlapping_selections_consistently(cx: &mut TestAppCo
     init_test(cx, |_| {});
 
     let mut cx = EditorTestContext::new(cx).await;
-    cx.set_state(indoc! {"
-        \x20 «firstˇ»: «1
-        \x20 second: 2
-        \x20 third: 3ˇ»
-    "});
+    cx.set_state(
+        "\x20 «firstˇ»: «1
+\x20 second: 2
+\x20 third: 3ˇ»
+",
+    );
 
     cx.update_editor(|editor, window, cx| editor.tab(&Tab, window, cx));
 
-    cx.assert_editor_state(indoc! {"
-        \x20   «firstˇ»: «1
-        \x20   second: 2
-        \x20   third: 3ˇ»
-    "});
+    cx.assert_editor_state(
+        "\x20   «firstˇ»: «1
+\x20   second: 2
+\x20   third: 3ˇ»
+",
+    );
 }
 
 #[gpui::test]
@@ -7008,91 +7174,105 @@ async fn test_indent_outdent_with_hard_tabs(cx: &mut TestAppContext) {
     let mut cx = EditorTestContext::new(cx).await;
 
     // select two ranges on one line
-    cx.set_state(indoc! {"
-        «oneˇ» «twoˇ»
-        three
-        four
-    "});
+    cx.set_state(
+        "«oneˇ» «twoˇ»
+three
+four
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        \t«oneˇ» «twoˇ»
-        three
-        four
-    "});
+    cx.assert_editor_state(
+        "\t«oneˇ» «twoˇ»
+three
+four
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        \t\t«oneˇ» «twoˇ»
-        three
-        four
-    "});
+    cx.assert_editor_state(
+        "\t\t«oneˇ» «twoˇ»
+three
+four
+",
+    );
     cx.update_editor(|e, window, cx| e.backtab(&Backtab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        \t«oneˇ» «twoˇ»
-        three
-        four
-    "});
+    cx.assert_editor_state(
+        "\t«oneˇ» «twoˇ»
+three
+four
+",
+    );
     cx.update_editor(|e, window, cx| e.backtab(&Backtab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «oneˇ» «twoˇ»
-        three
-        four
-    "});
+    cx.assert_editor_state(
+        "«oneˇ» «twoˇ»
+three
+four
+",
+    );
 
     // select across a line ending
-    cx.set_state(indoc! {"
-        one two
-        t«hree
-        ˇ»four
-    "});
+    cx.set_state(
+        "one two
+t«hree
+ˇ»four
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        one two
-        \tt«hree
-        ˇ»four
-    "});
+    cx.assert_editor_state(
+        "one two
+\tt«hree
+ˇ»four
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        one two
-        \t\tt«hree
-        ˇ»four
-    "});
+    cx.assert_editor_state(
+        "one two
+\t\tt«hree
+ˇ»four
+",
+    );
     cx.update_editor(|e, window, cx| e.backtab(&Backtab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        one two
-        \tt«hree
-        ˇ»four
-    "});
+    cx.assert_editor_state(
+        "one two
+\tt«hree
+ˇ»four
+",
+    );
     cx.update_editor(|e, window, cx| e.backtab(&Backtab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        one two
-        t«hree
-        ˇ»four
-    "});
+    cx.assert_editor_state(
+        "one two
+t«hree
+ˇ»four
+",
+    );
 
     // Ensure that indenting/outdenting works when the cursor is at column 0.
-    cx.set_state(indoc! {"
-        one two
-        ˇthree
-        four
-    "});
+    cx.set_state(
+        "one two
+ˇthree
+four
+",
+    );
     cx.update_editor(|e, window, cx| e.backtab(&Backtab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        one two
-        ˇthree
-        four
-    "});
+    cx.assert_editor_state(
+        "one two
+ˇthree
+four
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        one two
-        \tˇthree
-        four
-    "});
+    cx.assert_editor_state(
+        "one two
+\tˇthree
+four
+",
+    );
     cx.update_editor(|e, window, cx| e.backtab(&Backtab, window, cx));
-    cx.assert_editor_state(indoc! {"
-        one two
-        ˇthree
-        four
-    "});
+    cx.assert_editor_state(
+        "one two
+ˇthree
+four
+",
+    );
 }
 
 #[gpui::test]
@@ -7159,22 +7339,20 @@ fn test_indent_outdent_with_excerpts(cx: &mut TestAppContext) {
 
         assert_eq!(
             editor.text(cx),
-            indoc! {"
-                a = 1
-                b = 2
+            "a = 1
+b = 2
 
-                const c: usize = 3;
-            "}
+const c: usize = 3;
+"
         );
 
         select_ranges(
             &mut editor,
-            indoc! {"
-                «aˇ» = 1
-                b = 2
+            "«aˇ» = 1
+b = 2
 
-                «const c:ˇ» usize = 3;
-            "},
+«const c:ˇ» usize = 3;
+",
             window,
             cx,
         );
@@ -7182,23 +7360,21 @@ fn test_indent_outdent_with_excerpts(cx: &mut TestAppContext) {
         editor.tab(&Tab, window, cx);
         assert_text_with_selections(
             &mut editor,
-            indoc! {"
-                  «aˇ» = 1
-                b = 2
+            "  «aˇ» = 1
+b = 2
 
-                    «const c:ˇ» usize = 3;
-            "},
+    «const c:ˇ» usize = 3;
+",
             cx,
         );
         editor.backtab(&Backtab, window, cx);
         assert_text_with_selections(
             &mut editor,
-            indoc! {"
-                «aˇ» = 1
-                b = 2
+            "«aˇ» = 1
+b = 2
 
-                «const c:ˇ» usize = 3;
-            "},
+«const c:ˇ» usize = 3;
+",
             cx,
         );
 
@@ -7213,34 +7389,38 @@ async fn test_backspace(cx: &mut TestAppContext) {
     let mut cx = EditorTestContext::new(cx).await;
 
     // Basic backspace
-    cx.set_state(indoc! {"
-        onˇe two three
-        fou«rˇ» five six
-        seven «ˇeight nine
-        »ten
-    "});
+    cx.set_state(
+        "onˇe two three
+fou«rˇ» five six
+seven «ˇeight nine
+»ten
+",
+    );
     cx.update_editor(|e, window, cx| e.backspace(&Backspace, window, cx));
-    cx.assert_editor_state(indoc! {"
-        oˇe two three
-        fouˇ five six
-        seven ˇten
-    "});
+    cx.assert_editor_state(
+        "oˇe two three
+fouˇ five six
+seven ˇten
+",
+    );
 
     // Test backspace inside and around indents
-    cx.set_state(indoc! {"
-        zero
-            ˇone
-                ˇtwo
-            ˇ ˇ ˇ  three
-        ˇ  ˇ  four
-    "});
+    cx.set_state(
+        "zero
+    ˇone
+        ˇtwo
+    ˇ ˇ ˇ  three
+ˇ  ˇ  four
+",
+    );
     cx.update_editor(|e, window, cx| e.backspace(&Backspace, window, cx));
-    cx.assert_editor_state(indoc! {"
-        zero
-        ˇone
-            ˇtwo
-        ˇ  threeˇ  four
-    "});
+    cx.assert_editor_state(
+        "zero
+ˇone
+    ˇtwo
+ˇ  threeˇ  four
+",
+    );
 }
 
 #[gpui::test]
@@ -7248,18 +7428,20 @@ async fn test_delete(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
 
     let mut cx = EditorTestContext::new(cx).await;
-    cx.set_state(indoc! {"
-        onˇe two three
-        fou«rˇ» five six
-        seven «ˇeight nine
-        »ten
-    "});
+    cx.set_state(
+        "onˇe two three
+fou«rˇ» five six
+seven «ˇeight nine
+»ten
+",
+    );
     cx.update_editor(|e, window, cx| e.delete(&Delete, window, cx));
-    cx.assert_editor_state(indoc! {"
-        onˇ two three
-        fouˇ five six
-        seven ˇten
-    "});
+    cx.assert_editor_state(
+        "onˇ two three
+fouˇ five six
+seven ˇten
+",
+    );
 }
 
 #[gpui::test]
@@ -7564,92 +7746,108 @@ async fn test_join_lines_strips_comment_prefix(cx: &mut TestAppContext) {
         cx.update_buffer(|buffer, cx| buffer.set_language(Some(rust_lang()), cx));
 
         // Strips the comment prefix (with trailing space) from the joined-in line.
-        cx.set_state(indoc! {"
-            // ˇfoo
-            // bar
-        "});
+        cx.set_state(
+            "// ˇfoo
+// bar
+",
+        );
         cx.update_editor(|e, window, cx| e.join_lines(&JoinLines, window, cx));
-        cx.assert_editor_state(indoc! {"
-            // fooˇ bar
-        "});
+        cx.assert_editor_state(
+            "// fooˇ bar
+",
+        );
 
         // Strips the longer doc-comment prefix when both `//` and `///` match.
-        cx.set_state(indoc! {"
-            /// ˇfoo
-            /// bar
-        "});
+        cx.set_state(
+            "/// ˇfoo
+/// bar
+",
+        );
         cx.update_editor(|e, window, cx| e.join_lines(&JoinLines, window, cx));
-        cx.assert_editor_state(indoc! {"
-            /// fooˇ bar
-        "});
+        cx.assert_editor_state(
+            "/// fooˇ bar
+",
+        );
 
         // Does not strip when the second line is a regular line (no comment prefix).
-        cx.set_state(indoc! {"
-            // ˇfoo
-            bar
-        "});
+        cx.set_state(
+            "// ˇfoo
+bar
+",
+        );
         cx.update_editor(|e, window, cx| e.join_lines(&JoinLines, window, cx));
-        cx.assert_editor_state(indoc! {"
-            // fooˇ bar
-        "});
+        cx.assert_editor_state(
+            "// fooˇ bar
+",
+        );
 
         // No-whitespace join also strips the comment prefix.
-        cx.set_state(indoc! {"
-            // ˇfoo
-            // bar
-        "});
+        cx.set_state(
+            "// ˇfoo
+// bar
+",
+        );
         cx.update_editor(|e, window, cx| e.join_lines_impl(false, window, cx));
-        cx.assert_editor_state(indoc! {"
-            // fooˇbar
-        "});
+        cx.assert_editor_state(
+            "// fooˇbar
+",
+        );
 
         // Strips even when the joined-in line is just the bare prefix (no trailing space).
-        cx.set_state(indoc! {"
-            // ˇfoo
-            //
-        "});
+        cx.set_state(
+            "// ˇfoo
+//
+",
+        );
         cx.update_editor(|e, window, cx| e.join_lines(&JoinLines, window, cx));
-        cx.assert_editor_state(indoc! {"
-            // fooˇ
-        "});
+        cx.assert_editor_state(
+            "// fooˇ
+",
+        );
 
         // Mixed line comment prefix types: the longer matching prefix is stripped.
-        cx.set_state(indoc! {"
-            // ˇfoo
-            /// bar
-        "});
+        cx.set_state(
+            "// ˇfoo
+/// bar
+",
+        );
         cx.update_editor(|e, window, cx| e.join_lines(&JoinLines, window, cx));
-        cx.assert_editor_state(indoc! {"
-            // fooˇ bar
-        "});
+        cx.assert_editor_state(
+            "// fooˇ bar
+",
+        );
 
         // Strips block comment body prefix (`* `) from the joined-in line.
-        cx.set_state(indoc! {"
-            /*
-             * ˇfoo
-             * bar
-             */
-        "});
+        cx.set_state(
+            "/*
+ * ˇfoo
+ * bar
+ */
+",
+        );
         cx.update_editor(|e, window, cx| e.join_lines(&JoinLines, window, cx));
-        cx.assert_editor_state(indoc! {"
-            /*
-             * fooˇ bar
-             */
-        "});
+        cx.assert_editor_state(
+            "/*
+ * fooˇ bar
+ */
+",
+        );
 
         // Strips bare block comment body prefix (`*` without trailing space).
-        cx.set_state(indoc! {"
-            /*
-             * ˇfoo
-             *
-             */
-        "});
+        cx.set_state(
+            "/*
+ * ˇfoo
+ *
+ */
+",
+        );
         cx.update_editor(|e, window, cx| e.join_lines(&JoinLines, window, cx));
-        cx.assert_editor_state(indoc! {"
-            /*
-             * fooˇ
-             */
-        "});
+        cx.assert_editor_state(
+            "/*
+ * fooˇ
+ */
+",
+        );
     }
 
     {
@@ -7665,62 +7863,74 @@ async fn test_join_lines_strips_comment_prefix(cx: &mut TestAppContext) {
         cx.update_buffer(|buffer, cx| buffer.set_language(Some(markdown_language), cx));
 
         // Strips the `- ` list marker from the joined-in line.
-        cx.set_state(indoc! {"
-            - ˇfoo
-            - bar
-        "});
+        cx.set_state(
+            "- ˇfoo
+- bar
+",
+        );
         cx.update_editor(|e, window, cx| e.join_lines(&JoinLines, window, cx));
-        cx.assert_editor_state(indoc! {"
-            - fooˇ bar
-        "});
+        cx.assert_editor_state(
+            "- fooˇ bar
+",
+        );
 
         // Strips the `* ` list marker from the joined-in line.
-        cx.set_state(indoc! {"
-            * ˇfoo
-            * bar
-        "});
+        cx.set_state(
+            "* ˇfoo
+* bar
+",
+        );
         cx.update_editor(|e, window, cx| e.join_lines(&JoinLines, window, cx));
-        cx.assert_editor_state(indoc! {"
-            * fooˇ bar
-        "});
+        cx.assert_editor_state(
+            "* fooˇ bar
+",
+        );
 
         // Strips the `+ ` list marker from the joined-in line.
-        cx.set_state(indoc! {"
-            + ˇfoo
-            + bar
-        "});
+        cx.set_state(
+            "+ ˇfoo
++ bar
+",
+        );
         cx.update_editor(|e, window, cx| e.join_lines(&JoinLines, window, cx));
-        cx.assert_editor_state(indoc! {"
-            + fooˇ bar
-        "});
+        cx.assert_editor_state(
+            "+ fooˇ bar
+",
+        );
 
-        cx.set_state(indoc! {"
-            fooˇ
-            *bar*
-        "});
+        cx.set_state(
+            "fooˇ
+*bar*
+",
+        );
         cx.update_editor(|e, window, cx| e.join_lines(&JoinLines, window, cx));
-        cx.assert_editor_state(indoc! {"
-            fooˇ *bar*
-        "});
+        cx.assert_editor_state(
+            "fooˇ *bar*
+",
+        );
 
-        cx.set_state(indoc! {"
-            * ˇfoo
-            *
-        "});
+        cx.set_state(
+            "* ˇfoo
+*
+",
+        );
         cx.update_editor(|e, window, cx| e.join_lines(&JoinLines, window, cx));
-        cx.assert_editor_state(indoc! {"
-            * fooˇ
-        "});
+        cx.assert_editor_state(
+            "* fooˇ
+",
+        );
 
         // No-whitespace join also strips the list marker.
-        cx.set_state(indoc! {"
-            - ˇfoo
-            - bar
-        "});
+        cx.set_state(
+            "- ˇfoo
+- bar
+",
+        );
         cx.update_editor(|e, window, cx| e.join_lines_impl(false, window, cx));
-        cx.assert_editor_state(indoc! {"
-            - fooˇbar
-        "});
+        cx.assert_editor_state(
+            "- fooˇbar
+",
+        );
     }
 }
 
@@ -7742,18 +7952,20 @@ async fn test_join_lines_preserves_rust_operators(cx: &mut TestAppContext) {
                 ("let value = \"text", "*text\";"),
                 ("let value = r#\"text", "*text\"#;"),
             ] {
-                cx.set_state(&formatdoc! {"
-                    fn main() {{
-                        {first_line}ˇ
-                    {indent}{next_line}
-                    }}"});
+                cx.set_state(&format!(
+                    "fn main() {{
+    {first_line}ˇ
+{indent}{next_line}
+}}"
+                ));
                 cx.update_editor(|editor, window, cx| {
                     editor.join_lines_impl(insert_whitespace, window, cx)
                 });
-                cx.assert_editor_state(&formatdoc! {"
-                    fn main() {{
-                        {first_line}ˇ{separator}{next_line}
-                    }}"});
+                cx.assert_editor_state(&format!(
+                    "fn main() {{
+    {first_line}ˇ{separator}{next_line}
+}}"
+                ));
             }
         }
     }
@@ -7769,43 +7981,49 @@ async fn test_join_lines_rust_block_comments(cx: &mut TestAppContext) {
         let separator = if insert_whitespace { " " } else { "" };
         for start in ["/*", "/**", "/*!"] {
             for next_line in ["* bar", "*bar"] {
-                cx.set_state(&formatdoc! {"
-                    {start}
-                     * fooˇ
-                     {next_line}
-                     */"});
+                cx.set_state(&format!(
+                    "{start}
+ * fooˇ
+ {next_line}
+ */"
+                ));
                 cx.update_editor(|editor, window, cx| {
                     editor.join_lines_impl(insert_whitespace, window, cx)
                 });
-                cx.assert_editor_state(&formatdoc! {"
-                    {start}
-                     * fooˇ{separator}bar
-                     */"});
+                cx.assert_editor_state(&format!(
+                    "{start}
+ * fooˇ{separator}bar
+ */"
+                ));
             }
 
-            cx.set_state(&formatdoc! {"
-                {start}
-                 * fooˇ
-                 *
-                 */"});
+            cx.set_state(&format!(
+                "{start}
+ * fooˇ
+ *
+ */"
+            ));
             cx.update_editor(|editor, window, cx| {
                 editor.join_lines_impl(insert_whitespace, window, cx)
             });
-            cx.assert_editor_state(&formatdoc! {"
-                {start}
-                 * fooˇ
-                 */"});
+            cx.assert_editor_state(&format!(
+                "{start}
+ * fooˇ
+ */"
+            ));
 
-            cx.set_state(&formatdoc! {"
-                {start}
-                 * fooˇ
-                 */"});
+            cx.set_state(&format!(
+                "{start}
+ * fooˇ
+ */"
+            ));
             cx.update_editor(|editor, window, cx| {
                 editor.join_lines_impl(insert_whitespace, window, cx)
             });
-            cx.assert_editor_state(&formatdoc! {"
-                {start}
-                 * fooˇ{separator}*/"});
+            cx.assert_editor_state(&format!(
+                "{start}
+ * fooˇ{separator}*/"
+            ));
         }
     }
 }
@@ -7841,65 +8059,71 @@ async fn test_manipulate_immutable_lines_with_single_selection(cx: &mut TestAppC
     let mut cx = EditorTestContext::new(cx).await;
 
     // Test sort_lines_case_insensitive()
-    cx.set_state(indoc! {"
-        «z
-        y
-        x
-        Z
-        Y
-        Xˇ»
-    "});
+    cx.set_state(
+        "«z
+y
+x
+Z
+Y
+Xˇ»
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.sort_lines_case_insensitive(&SortLinesCaseInsensitive, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        «x
-        X
-        y
-        Y
-        z
-        Zˇ»
-    "});
+    cx.assert_editor_state(
+        "«x
+X
+y
+Y
+z
+Zˇ»
+",
+    );
 
     // Test sort_lines_by_length()
     //
     // Demonstrates:
     // - ∞ is 3 bytes UTF-8, but sorted by its char count (1)
     // - sort is stable
-    cx.set_state(indoc! {"
-        «123
-        æ
-        12
-        ∞
-        1
-        æˇ»
-    "});
+    cx.set_state(
+        "«123
+æ
+12
+∞
+1
+æˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.sort_lines_by_length(&SortLinesByLength, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «æ
-        ∞
-        1
-        æ
-        12
-        123ˇ»
-    "});
+    cx.assert_editor_state(
+        "«æ
+∞
+1
+æ
+12
+123ˇ»
+",
+    );
 
     // Test reverse_lines()
-    cx.set_state(indoc! {"
-        «5
-        4
-        3
-        2
-        1ˇ»
-    "});
+    cx.set_state(
+        "«5
+4
+3
+2
+1ˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.reverse_lines(&ReverseLines, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «1
-        2
-        3
-        4
-        5ˇ»
-    "});
+    cx.assert_editor_state(
+        "«1
+2
+3
+4
+5ˇ»
+",
+    );
 
     // Skip testing shuffle_line()
 
@@ -7907,105 +8131,117 @@ async fn test_manipulate_immutable_lines_with_single_selection(cx: &mut TestAppC
     // Since all methods calling manipulate_immutable_lines() are doing the exact same general thing (reordering lines)
 
     // Don't manipulate when cursor is on single line, but expand the selection
-    cx.set_state(indoc! {"
-        ddˇdd
-        ccc
-        bb
-        a
-    "});
+    cx.set_state(
+        "ddˇdd
+ccc
+bb
+a
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.sort_lines_case_sensitive(&SortLinesCaseSensitive, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        «ddddˇ»
-        ccc
-        bb
-        a
-    "});
+    cx.assert_editor_state(
+        "«ddddˇ»
+ccc
+bb
+a
+",
+    );
 
     // Basic manipulate case
     // Start selection moves to column 0
     // End of selection shrinks to fit shorter line
-    cx.set_state(indoc! {"
-        dd«d
-        ccc
-        bb
-        aaaaaˇ»
-    "});
+    cx.set_state(
+        "dd«d
+ccc
+bb
+aaaaaˇ»
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.sort_lines_case_sensitive(&SortLinesCaseSensitive, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        «aaaaa
-        bb
-        ccc
-        dddˇ»
-    "});
+    cx.assert_editor_state(
+        "«aaaaa
+bb
+ccc
+dddˇ»
+",
+    );
 
     // Manipulate case with newlines
-    cx.set_state(indoc! {"
-        dd«d
-        ccc
+    cx.set_state(
+        "dd«d
+ccc
 
-        bb
-        aaaaa
+bb
+aaaaa
 
-        ˇ»
-    "});
+ˇ»
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.sort_lines_case_sensitive(&SortLinesCaseSensitive, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        «
+    cx.assert_editor_state(
+        "«
 
-        aaaaa
-        bb
-        ccc
-        dddˇ»
+aaaaa
+bb
+ccc
+dddˇ»
 
-    "});
+",
+    );
 
     // Adding new line
-    cx.set_state(indoc! {"
-        aa«a
-        bbˇ»b
-    "});
+    cx.set_state(
+        "aa«a
+bbˇ»b
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.manipulate_immutable_lines(window, cx, |lines| lines.push("added_line"))
     });
-    cx.assert_editor_state(indoc! {"
-        «aaa
-        bbb
-        added_lineˇ»
-    "});
+    cx.assert_editor_state(
+        "«aaa
+bbb
+added_lineˇ»
+",
+    );
 
     // Removing line
-    cx.set_state(indoc! {"
-        aa«a
-        bbbˇ»
-    "});
+    cx.set_state(
+        "aa«a
+bbbˇ»
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.manipulate_immutable_lines(window, cx, |lines| {
             lines.pop();
         })
     });
-    cx.assert_editor_state(indoc! {"
-        «aaaˇ»
-    "});
+    cx.assert_editor_state(
+        "«aaaˇ»
+",
+    );
 
     // Removing all lines
-    cx.set_state(indoc! {"
-        aa«a
-        bbbˇ»
-    "});
+    cx.set_state(
+        "aa«a
+bbbˇ»
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.manipulate_immutable_lines(window, cx, |lines| {
             lines.drain(..);
         })
     });
-    cx.assert_editor_state(indoc! {"
-        ˇ
-    "});
+    cx.assert_editor_state(
+        "ˇ
+",
+    );
 }
 
 #[gpui::test]
@@ -8015,55 +8251,61 @@ async fn test_unique_lines_multi_selection(cx: &mut TestAppContext) {
     let mut cx = EditorTestContext::new(cx).await;
 
     // Consider continuous selection as single selection
-    cx.set_state(indoc! {"
-        Aaa«aa
-        cˇ»c«c
-        bb
-        aaaˇ»aa
-    "});
+    cx.set_state(
+        "Aaa«aa
+cˇ»c«c
+bb
+aaaˇ»aa
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.unique_lines_case_sensitive(&UniqueLinesCaseSensitive, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        «Aaaaa
-        ccc
-        bb
-        aaaaaˇ»
-    "});
+    cx.assert_editor_state(
+        "«Aaaaa
+ccc
+bb
+aaaaaˇ»
+",
+    );
 
-    cx.set_state(indoc! {"
-        Aaa«aa
-        cˇ»c«c
-        bb
-        aaaˇ»aa
-    "});
+    cx.set_state(
+        "Aaa«aa
+cˇ»c«c
+bb
+aaaˇ»aa
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.unique_lines_case_insensitive(&UniqueLinesCaseInsensitive, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        «Aaaaa
-        ccc
-        bbˇ»
-    "});
+    cx.assert_editor_state(
+        "«Aaaaa
+ccc
+bbˇ»
+",
+    );
 
     // Consider non continuous selection as distinct dedup operations
-    cx.set_state(indoc! {"
-        «aaaaa
-        bb
-        aaaaa
-        aaaaaˇ»
+    cx.set_state(
+        "«aaaaa
+bb
+aaaaa
+aaaaaˇ»
 
-        aaa«aaˇ»
-    "});
+aaa«aaˇ»
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.unique_lines_case_sensitive(&UniqueLinesCaseSensitive, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        «aaaaa
-        bbˇ»
+    cx.assert_editor_state(
+        "«aaaaa
+bbˇ»
 
-        «aaaaaˇ»
-    "});
+«aaaaaˇ»
+",
+    );
 }
 
 #[gpui::test]
@@ -8072,30 +8314,34 @@ async fn test_unique_lines_single_selection(cx: &mut TestAppContext) {
 
     let mut cx = EditorTestContext::new(cx).await;
 
-    cx.set_state(indoc! {"
-        «Aaa
-        aAa
-        Aaaˇ»
-    "});
+    cx.set_state(
+        "«Aaa
+aAa
+Aaaˇ»
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.unique_lines_case_sensitive(&UniqueLinesCaseSensitive, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        «Aaa
-        aAaˇ»
-    "});
+    cx.assert_editor_state(
+        "«Aaa
+aAaˇ»
+",
+    );
 
-    cx.set_state(indoc! {"
-        «Aaa
-        aAa
-        aaAˇ»
-    "});
+    cx.set_state(
+        "«Aaa
+aAa
+aaAˇ»
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.unique_lines_case_insensitive(&UniqueLinesCaseInsensitive, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        «Aaaˇ»
-    "});
+    cx.assert_editor_state(
+        "«Aaaˇ»
+",
+    );
 }
 
 #[gpui::test]
@@ -8120,31 +8366,37 @@ async fn test_wrap_in_tag_single_selection(cx: &mut TestAppContext) {
 
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(js_language), cx));
 
-    cx.set_state(indoc! {"
-        «testˇ»
-    "});
+    cx.set_state(
+        "«testˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.wrap_selections_in_tag(&WrapSelectionsInTag, window, cx));
-    cx.assert_editor_state(indoc! {"
-        <«ˇ»>test</«ˇ»>
-    "});
+    cx.assert_editor_state(
+        "<«ˇ»>test</«ˇ»>
+",
+    );
 
-    cx.set_state(indoc! {"
-        «test
-         testˇ»
-    "});
+    cx.set_state(
+        "«test
+ testˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.wrap_selections_in_tag(&WrapSelectionsInTag, window, cx));
-    cx.assert_editor_state(indoc! {"
-        <«ˇ»>test
-         test</«ˇ»>
-    "});
+    cx.assert_editor_state(
+        "<«ˇ»>test
+ test</«ˇ»>
+",
+    );
 
-    cx.set_state(indoc! {"
-        teˇst
-    "});
+    cx.set_state(
+        "teˇst
+",
+    );
     cx.update_editor(|e, window, cx| e.wrap_selections_in_tag(&WrapSelectionsInTag, window, cx));
-    cx.assert_editor_state(indoc! {"
-        te<«ˇ»></«ˇ»>st
-    "});
+    cx.assert_editor_state(
+        "te<«ˇ»></«ˇ»>st
+",
+    );
 }
 
 #[gpui::test]
@@ -8169,31 +8421,35 @@ async fn test_wrap_in_tag_multi_selection(cx: &mut TestAppContext) {
 
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(js_language), cx));
 
-    cx.set_state(indoc! {"
-        «testˇ»
-        «testˇ» «testˇ»
-        «testˇ»
-    "});
+    cx.set_state(
+        "«testˇ»
+«testˇ» «testˇ»
+«testˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.wrap_selections_in_tag(&WrapSelectionsInTag, window, cx));
-    cx.assert_editor_state(indoc! {"
-        <«ˇ»>test</«ˇ»>
-        <«ˇ»>test</«ˇ»> <«ˇ»>test</«ˇ»>
-        <«ˇ»>test</«ˇ»>
-    "});
+    cx.assert_editor_state(
+        "<«ˇ»>test</«ˇ»>
+<«ˇ»>test</«ˇ»> <«ˇ»>test</«ˇ»>
+<«ˇ»>test</«ˇ»>
+",
+    );
 
-    cx.set_state(indoc! {"
-        «test
-         testˇ»
-        «test
-         testˇ»
-    "});
+    cx.set_state(
+        "«test
+ testˇ»
+«test
+ testˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.wrap_selections_in_tag(&WrapSelectionsInTag, window, cx));
-    cx.assert_editor_state(indoc! {"
-        <«ˇ»>test
-         test</«ˇ»>
-        <«ˇ»>test
-         test</«ˇ»>
-    "});
+    cx.assert_editor_state(
+        "<«ˇ»>test
+ test</«ˇ»>
+<«ˇ»>test
+ test</«ˇ»>
+",
+    );
 }
 
 #[gpui::test]
@@ -8212,13 +8468,15 @@ async fn test_wrap_in_tag_does_nothing_in_unsupported_languages(cx: &mut TestApp
 
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(plaintext_language), cx));
 
-    cx.set_state(indoc! {"
-        «testˇ»
-    "});
+    cx.set_state(
+        "«testˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.wrap_selections_in_tag(&WrapSelectionsInTag, window, cx));
-    cx.assert_editor_state(indoc! {"
-      «testˇ»
-    "});
+    cx.assert_editor_state(
+        "«testˇ»
+",
+    );
 }
 
 #[gpui::test]
@@ -8228,90 +8486,98 @@ async fn test_manipulate_immutable_lines_with_multi_selection(cx: &mut TestAppCo
     let mut cx = EditorTestContext::new(cx).await;
 
     // Manipulate with multiple selections on a single line
-    cx.set_state(indoc! {"
-        dd«dd
-        cˇ»c«c
-        bb
-        aaaˇ»aa
-    "});
+    cx.set_state(
+        "dd«dd
+cˇ»c«c
+bb
+aaaˇ»aa
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.sort_lines_case_sensitive(&SortLinesCaseSensitive, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        «aaaaa
-        bb
-        ccc
-        ddddˇ»
-    "});
+    cx.assert_editor_state(
+        "«aaaaa
+bb
+ccc
+ddddˇ»
+",
+    );
 
     // Manipulate with multiple disjoin selections
-    cx.set_state(indoc! {"
-        5«
-        4
-        3
-        2
-        1ˇ»
+    cx.set_state(
+        "5«
+4
+3
+2
+1ˇ»
 
-        dd«dd
-        ccc
-        bb
-        aaaˇ»aa
-    "});
+dd«dd
+ccc
+bb
+aaaˇ»aa
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.sort_lines_case_sensitive(&SortLinesCaseSensitive, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        «1
-        2
-        3
-        4
-        5ˇ»
+    cx.assert_editor_state(
+        "«1
+2
+3
+4
+5ˇ»
 
-        «aaaaa
-        bb
-        ccc
-        ddddˇ»
-    "});
+«aaaaa
+bb
+ccc
+ddddˇ»
+",
+    );
 
     // Adding lines on each selection
-    cx.set_state(indoc! {"
-        2«
-        1ˇ»
+    cx.set_state(
+        "2«
+1ˇ»
 
-        bb«bb
-        aaaˇ»aa
-    "});
+bb«bb
+aaaˇ»aa
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.manipulate_immutable_lines(window, cx, |lines| lines.push("added line"))
     });
-    cx.assert_editor_state(indoc! {"
-        «2
-        1
-        added lineˇ»
+    cx.assert_editor_state(
+        "«2
+1
+added lineˇ»
 
-        «bbbb
-        aaaaa
-        added lineˇ»
-    "});
+«bbbb
+aaaaa
+added lineˇ»
+",
+    );
 
     // Removing lines on each selection
-    cx.set_state(indoc! {"
-        2«
-        1ˇ»
+    cx.set_state(
+        "2«
+1ˇ»
 
-        bb«bb
-        aaaˇ»aa
-    "});
+bb«bb
+aaaˇ»aa
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.manipulate_immutable_lines(window, cx, |lines| {
             lines.pop();
         })
     });
-    cx.assert_editor_state(indoc! {"
-        «2ˇ»
+    cx.assert_editor_state(
+        "«2ˇ»
 
-        «bbbbˇ»
-    "});
+«bbbbˇ»
+",
+    );
 }
 
 #[gpui::test]
@@ -8325,34 +8591,34 @@ async fn test_convert_indentation_to_spaces(cx: &mut TestAppContext) {
     // MULTI SELECTION
     // Ln.1 "«" tests empty lines
     // Ln.9 tests just leading whitespace
-    cx.set_state(indoc! {"
-        «
-        abc                 // No indentationˇ»
-        «\tabc              // 1 tabˇ»
-        \t\tabc «      ˇ»   // 2 tabs
-        \t ab«c             // Tab followed by space
-         \tabc              // Space followed by tab (3 spaces should be the result)
-        \t \t  \t   \tabc   // Mixed indentation (tab conversion depends on the column)
-           abˇ»ˇc   ˇ    ˇ  // Already space indented«
-        \t
-        \tabc\tdef          // Only the leading tab is manipulatedˇ»
-    "});
+    cx.set_state(
+        "«
+abc                 // No indentationˇ»
+«\tabc              // 1 tabˇ»
+\t\tabc «      ˇ»   // 2 tabs
+\t ab«c             // Tab followed by space
+ \tabc              // Space followed by tab (3 spaces should be the result)
+\t \t  \t   \tabc   // Mixed indentation (tab conversion depends on the column)
+   abˇ»ˇc   ˇ    ˇ  // Already space indented«
+\t
+\tabc\tdef          // Only the leading tab is manipulatedˇ»
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.convert_indentation_to_spaces(&ConvertIndentationToSpaces, window, cx);
     });
     cx.assert_editor_state(
-        indoc! {"
-            «
-            abc                 // No indentation
-               abc              // 1 tab
-                  abc          // 2 tabs
-                abc             // Tab followed by space
-               abc              // Space followed by tab (3 spaces should be the result)
-                           abc   // Mixed indentation (tab conversion depends on the column)
-               abc         // Already space indented
-               ·
-               abc\tdef          // Only the leading tab is manipulatedˇ»
-        "}
+        "«
+abc                 // No indentation
+   abc              // 1 tab
+      abc          // 2 tabs
+    abc             // Tab followed by space
+   abc              // Space followed by tab (3 spaces should be the result)
+               abc   // Mixed indentation (tab conversion depends on the column)
+   abc         // Already space indented
+   ·
+   abc\tdef          // Only the leading tab is manipulatedˇ»
+"
         .replace("·", "")
         .as_str(), // · used as placeholder to prevent format-on-save from removing whitespace
     );
@@ -8360,18 +8626,17 @@ async fn test_convert_indentation_to_spaces(cx: &mut TestAppContext) {
     // Test on just a few lines, the others should remain unchanged
     // Only lines (3, 5, 10, 11) should change
     cx.set_state(
-        indoc! {"
-            ·
-            abc                 // No indentation
-            \tabcˇ               // 1 tab
-            \t\tabc             // 2 tabs
-            \t abcˇ              // Tab followed by space
-             \tabc              // Space followed by tab (3 spaces should be the result)
-            \t \t  \t   \tabc   // Mixed indentation (tab conversion depends on the column)
-               abc              // Already space indented
-            «\t
-            \tabc\tdef          // Only the leading tab is manipulatedˇ»
-        "}
+        "·
+abc                 // No indentation
+\tabcˇ               // 1 tab
+\t\tabc             // 2 tabs
+\t abcˇ              // Tab followed by space
+ \tabc              // Space followed by tab (3 spaces should be the result)
+\t \t  \t   \tabc   // Mixed indentation (tab conversion depends on the column)
+   abc              // Already space indented
+«\t
+\tabc\tdef          // Only the leading tab is manipulatedˇ»
+"
         .replace("·", "")
         .as_str(), // · used as placeholder to prevent format-on-save from removing whitespace
     );
@@ -8379,18 +8644,17 @@ async fn test_convert_indentation_to_spaces(cx: &mut TestAppContext) {
         e.convert_indentation_to_spaces(&ConvertIndentationToSpaces, window, cx);
     });
     cx.assert_editor_state(
-        indoc! {"
-            ·
-            abc                 // No indentation
-            «   abc               // 1 tabˇ»
-            \t\tabc             // 2 tabs
-            «    abc              // Tab followed by spaceˇ»
-             \tabc              // Space followed by tab (3 spaces should be the result)
-            \t \t  \t   \tabc   // Mixed indentation (tab conversion depends on the column)
-               abc              // Already space indented
-            «   ·
-               abc\tdef          // Only the leading tab is manipulatedˇ»
-        "}
+        "·
+abc                 // No indentation
+«   abc               // 1 tabˇ»
+\t\tabc             // 2 tabs
+«    abc              // Tab followed by spaceˇ»
+ \tabc              // Space followed by tab (3 spaces should be the result)
+\t \t  \t   \tabc   // Mixed indentation (tab conversion depends on the column)
+   abc              // Already space indented
+«   ·
+   abc\tdef          // Only the leading tab is manipulatedˇ»
+"
         .replace("·", "")
         .as_str(), // · used as placeholder to prevent format-on-save from removing whitespace
     );
@@ -8398,34 +8662,34 @@ async fn test_convert_indentation_to_spaces(cx: &mut TestAppContext) {
     // SINGLE SELECTION
     // Ln.1 "«" tests empty lines
     // Ln.9 tests just leading whitespace
-    cx.set_state(indoc! {"
-        «
-        abc                 // No indentation
-        \tabc               // 1 tab
-        \t\tabc             // 2 tabs
-        \t abc              // Tab followed by space
-         \tabc              // Space followed by tab (3 spaces should be the result)
-        \t \t  \t   \tabc   // Mixed indentation (tab conversion depends on the column)
-           abc              // Already space indented
-        \t
-        \tabc\tdef          // Only the leading tab is manipulatedˇ»
-    "});
+    cx.set_state(
+        "«
+abc                 // No indentation
+\tabc               // 1 tab
+\t\tabc             // 2 tabs
+\t abc              // Tab followed by space
+ \tabc              // Space followed by tab (3 spaces should be the result)
+\t \t  \t   \tabc   // Mixed indentation (tab conversion depends on the column)
+   abc              // Already space indented
+\t
+\tabc\tdef          // Only the leading tab is manipulatedˇ»
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.convert_indentation_to_spaces(&ConvertIndentationToSpaces, window, cx);
     });
     cx.assert_editor_state(
-        indoc! {"
-            «
-            abc                 // No indentation
-               abc               // 1 tab
-                  abc             // 2 tabs
-                abc              // Tab followed by space
-               abc              // Space followed by tab (3 spaces should be the result)
-                           abc   // Mixed indentation (tab conversion depends on the column)
-               abc              // Already space indented
-               ·
-               abc\tdef          // Only the leading tab is manipulatedˇ»
-        "}
+        "«
+abc                 // No indentation
+   abc               // 1 tab
+      abc             // 2 tabs
+    abc              // Tab followed by space
+   abc              // Space followed by tab (3 spaces should be the result)
+               abc   // Mixed indentation (tab conversion depends on the column)
+   abc              // Already space indented
+   ·
+   abc\tdef          // Only the leading tab is manipulatedˇ»
+"
         .replace("·", "")
         .as_str(), // · used as placeholder to prevent format-on-save from removing whitespace
     );
@@ -8442,56 +8706,57 @@ async fn test_convert_indentation_to_tabs(cx: &mut TestAppContext) {
     // MULTI SELECTION
     // Ln.1 "«" tests empty lines
     // Ln.11 tests just leading whitespace
-    cx.set_state(indoc! {"
-        «
-        abˇ»ˇc                 // No indentation
-         abc    ˇ        ˇ    // 1 space (< 3 so dont convert)
-          abc  «             // 2 spaces (< 3 so dont convert)
-           abc              // 3 spaces (convert)
-             abc ˇ»           // 5 spaces (1 tab + 2 spaces)
-        «\tˇ»\t«\tˇ»abc           // Already tab indented
-        «\t abc              // Tab followed by space
-         \tabc              // Space followed by tab (should be consumed due to tab)
-        \t \t  \t   \tabc   // Mixed indentation (first 3 spaces are consumed, the others are converted)
-           \tˇ»  «\t
-           abcˇ»   \t ˇˇˇ        // Only the leading spaces should be converted
-    "});
+    cx.set_state(
+        "«
+abˇ»ˇc                 // No indentation
+ abc    ˇ        ˇ    // 1 space (< 3 so dont convert)
+  abc  «             // 2 spaces (< 3 so dont convert)
+   abc              // 3 spaces (convert)
+     abc ˇ»           // 5 spaces (1 tab + 2 spaces)
+«\tˇ»\t«\tˇ»abc           // Already tab indented
+«\t abc              // Tab followed by space
+ \tabc              // Space followed by tab (should be consumed due to tab)
+\t \t  \t   \tabc   // Mixed indentation (first 3 spaces are consumed, the others are converted)
+   \tˇ»  «\t
+   abcˇ»   \t ˇˇˇ        // Only the leading spaces should be converted
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.convert_indentation_to_tabs(&ConvertIndentationToTabs, window, cx);
     });
-    cx.assert_editor_state(indoc! {"
-        «
-        abc                 // No indentation
-         abc                // 1 space (< 3 so dont convert)
-          abc               // 2 spaces (< 3 so dont convert)
-        \tabc              // 3 spaces (convert)
-        \t  abc            // 5 spaces (1 tab + 2 spaces)
-        \t\t\tabc           // Already tab indented
-        \t abc              // Tab followed by space
-        \tabc              // Space followed by tab (should be consumed due to tab)
-        \t\t\t\t\tabc   // Mixed indentation (first 3 spaces are consumed, the others are converted)
-        \t\t\t
-        \tabc   \t         // Only the leading spaces should be convertedˇ»
-    "});
+    cx.assert_editor_state(
+        "«
+abc                 // No indentation
+ abc                // 1 space (< 3 so dont convert)
+  abc               // 2 spaces (< 3 so dont convert)
+\tabc              // 3 spaces (convert)
+\t  abc            // 5 spaces (1 tab + 2 spaces)
+\t\t\tabc           // Already tab indented
+\t abc              // Tab followed by space
+\tabc              // Space followed by tab (should be consumed due to tab)
+\t\t\t\t\tabc   // Mixed indentation (first 3 spaces are consumed, the others are converted)
+\t\t\t
+\tabc   \t         // Only the leading spaces should be convertedˇ»
+",
+    );
 
     // Test on just a few lines, the other should remain unchanged
     // Only lines (4, 8, 11, 12) should change
     cx.set_state(
-        indoc! {"
-            ·
-            abc                 // No indentation
-             abc                // 1 space (< 3 so dont convert)
-              abc               // 2 spaces (< 3 so dont convert)
-            «   abc              // 3 spaces (convert)ˇ»
-                 abc            // 5 spaces (1 tab + 2 spaces)
-            \t\t\tabc           // Already tab indented
-            \t abc              // Tab followed by space
-             \tabc      ˇ        // Space followed by tab (should be consumed due to tab)
-               \t\t  \tabc      // Mixed indentation
-            \t \t  \t   \tabc   // Mixed indentation
-               \t  \tˇ
-            «   abc   \t         // Only the leading spaces should be convertedˇ»
-        "}
+        "·
+abc                 // No indentation
+ abc                // 1 space (< 3 so dont convert)
+  abc               // 2 spaces (< 3 so dont convert)
+«   abc              // 3 spaces (convert)ˇ»
+     abc            // 5 spaces (1 tab + 2 spaces)
+\t\t\tabc           // Already tab indented
+\t abc              // Tab followed by space
+ \tabc      ˇ        // Space followed by tab (should be consumed due to tab)
+   \t\t  \tabc      // Mixed indentation
+\t \t  \t   \tabc   // Mixed indentation
+   \t  \tˇ
+«   abc   \t         // Only the leading spaces should be convertedˇ»
+"
         .replace("·", "")
         .as_str(), // · used as placeholder to prevent format-on-save from removing whitespace
     );
@@ -8499,21 +8764,20 @@ async fn test_convert_indentation_to_tabs(cx: &mut TestAppContext) {
         e.convert_indentation_to_tabs(&ConvertIndentationToTabs, window, cx);
     });
     cx.assert_editor_state(
-        indoc! {"
-            ·
-            abc                 // No indentation
-             abc                // 1 space (< 3 so dont convert)
-              abc               // 2 spaces (< 3 so dont convert)
-            «\tabc              // 3 spaces (convert)ˇ»
-                 abc            // 5 spaces (1 tab + 2 spaces)
-            \t\t\tabc           // Already tab indented
-            \t abc              // Tab followed by space
-            «\tabc              // Space followed by tab (should be consumed due to tab)ˇ»
-               \t\t  \tabc      // Mixed indentation
-            \t \t  \t   \tabc   // Mixed indentation
-            «\t\t\t
-            \tabc   \t         // Only the leading spaces should be convertedˇ»
-        "}
+        "·
+abc                 // No indentation
+ abc                // 1 space (< 3 so dont convert)
+  abc               // 2 spaces (< 3 so dont convert)
+«\tabc              // 3 spaces (convert)ˇ»
+     abc            // 5 spaces (1 tab + 2 spaces)
+\t\t\tabc           // Already tab indented
+\t abc              // Tab followed by space
+«\tabc              // Space followed by tab (should be consumed due to tab)ˇ»
+   \t\t  \tabc      // Mixed indentation
+\t \t  \t   \tabc   // Mixed indentation
+«\t\t\t
+\tabc   \t         // Only the leading spaces should be convertedˇ»
+"
         .replace("·", "")
         .as_str(), // · used as placeholder to prevent format-on-save from removing whitespace
     );
@@ -8521,37 +8785,39 @@ async fn test_convert_indentation_to_tabs(cx: &mut TestAppContext) {
     // SINGLE SELECTION
     // Ln.1 "«" tests empty lines
     // Ln.11 tests just leading whitespace
-    cx.set_state(indoc! {"
-        «
-        abc                 // No indentation
-         abc                // 1 space (< 3 so dont convert)
-          abc               // 2 spaces (< 3 so dont convert)
-           abc              // 3 spaces (convert)
-             abc            // 5 spaces (1 tab + 2 spaces)
-        \t\t\tabc           // Already tab indented
-        \t abc              // Tab followed by space
-         \tabc              // Space followed by tab (should be consumed due to tab)
-        \t \t  \t   \tabc   // Mixed indentation (first 3 spaces are consumed, the others are converted)
-           \t  \t
-           abc   \t         // Only the leading spaces should be convertedˇ»
-    "});
+    cx.set_state(
+        "«
+abc                 // No indentation
+ abc                // 1 space (< 3 so dont convert)
+  abc               // 2 spaces (< 3 so dont convert)
+   abc              // 3 spaces (convert)
+     abc            // 5 spaces (1 tab + 2 spaces)
+\t\t\tabc           // Already tab indented
+\t abc              // Tab followed by space
+ \tabc              // Space followed by tab (should be consumed due to tab)
+\t \t  \t   \tabc   // Mixed indentation (first 3 spaces are consumed, the others are converted)
+   \t  \t
+   abc   \t         // Only the leading spaces should be convertedˇ»
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.convert_indentation_to_tabs(&ConvertIndentationToTabs, window, cx);
     });
-    cx.assert_editor_state(indoc! {"
-        «
-        abc                 // No indentation
-         abc                // 1 space (< 3 so dont convert)
-          abc               // 2 spaces (< 3 so dont convert)
-        \tabc              // 3 spaces (convert)
-        \t  abc            // 5 spaces (1 tab + 2 spaces)
-        \t\t\tabc           // Already tab indented
-        \t abc              // Tab followed by space
-        \tabc              // Space followed by tab (should be consumed due to tab)
-        \t\t\t\t\tabc   // Mixed indentation (first 3 spaces are consumed, the others are converted)
-        \t\t\t
-        \tabc   \t         // Only the leading spaces should be convertedˇ»
-    "});
+    cx.assert_editor_state(
+        "«
+abc                 // No indentation
+ abc                // 1 space (< 3 so dont convert)
+  abc               // 2 spaces (< 3 so dont convert)
+\tabc              // 3 spaces (convert)
+\t  abc            // 5 spaces (1 tab + 2 spaces)
+\t\t\tabc           // Already tab indented
+\t abc              // Tab followed by space
+\tabc              // Space followed by tab (should be consumed due to tab)
+\t\t\t\t\tabc   // Mixed indentation (first 3 spaces are consumed, the others are converted)
+\t\t\t
+\tabc   \t         // Only the leading spaces should be convertedˇ»
+",
+    );
 }
 
 #[gpui::test]
@@ -8561,32 +8827,38 @@ async fn test_toggle_case(cx: &mut TestAppContext) {
     let mut cx = EditorTestContext::new(cx).await;
 
     // If all lower case -> upper case
-    cx.set_state(indoc! {"
-        «hello worldˇ»
-    "});
+    cx.set_state(
+        "«hello worldˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.toggle_case(&ToggleCase, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «HELLO WORLDˇ»
-    "});
+    cx.assert_editor_state(
+        "«HELLO WORLDˇ»
+",
+    );
 
     // If all upper case -> lower case
-    cx.set_state(indoc! {"
-        «HELLO WORLDˇ»
-    "});
+    cx.set_state(
+        "«HELLO WORLDˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.toggle_case(&ToggleCase, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «hello worldˇ»
-    "});
+    cx.assert_editor_state(
+        "«hello worldˇ»
+",
+    );
 
     // If any upper case characters are identified -> lower case
     // This matches JetBrains IDEs
-    cx.set_state(indoc! {"
-        «hEllo worldˇ»
-    "});
+    cx.set_state(
+        "«hEllo worldˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.toggle_case(&ToggleCase, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «hello worldˇ»
-    "});
+    cx.assert_editor_state(
+        "«hello worldˇ»
+",
+    );
 }
 
 #[gpui::test]
@@ -8595,15 +8867,17 @@ async fn test_convert_to_sentence_case(cx: &mut TestAppContext) {
 
     let mut cx = EditorTestContext::new(cx).await;
 
-    cx.set_state(indoc! {"
-        «implement-windows-supportˇ»
-    "});
+    cx.set_state(
+        "«implement-windows-supportˇ»
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.convert_to_sentence_case(&ConvertToSentenceCase, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        «Implement windows supportˇ»
-    "});
+    cx.assert_editor_state(
+        "«Implement windows supportˇ»
+",
+    );
 }
 
 #[gpui::test]
@@ -8613,31 +8887,37 @@ async fn test_convert_to_base64(cx: &mut TestAppContext) {
     let mut cx = EditorTestContext::new(cx).await;
 
     // Encode a plain text selection
-    cx.set_state(indoc! {"
-        «helloˇ»
-    "});
+    cx.set_state(
+        "«helloˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.convert_to_base64(&ConvertToBase64, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «aGVsbG8=ˇ»
-    "});
+    cx.assert_editor_state(
+        "«aGVsbG8=ˇ»
+",
+    );
 
     // Decode a valid base64 selection
-    cx.set_state(indoc! {"
-        «aGVsbG8=ˇ»
-    "});
+    cx.set_state(
+        "«aGVsbG8=ˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.convert_from_base64(&ConvertFromBase64, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «helloˇ»
-    "});
+    cx.assert_editor_state(
+        "«helloˇ»
+",
+    );
 
     // Decode invalid base64 — should leave text unchanged
-    cx.set_state(indoc! {"
-        «not!!!ˇ»
-    "});
+    cx.set_state(
+        "«not!!!ˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.convert_from_base64(&ConvertFromBase64, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «not!!!ˇ»
-    "});
+    cx.assert_editor_state(
+        "«not!!!ˇ»
+",
+    );
 }
 
 #[gpui::test]
@@ -8702,212 +8982,252 @@ async fn test_manipulate_text(cx: &mut TestAppContext) {
     let mut cx = EditorTestContext::new(cx).await;
 
     // Test convert_to_upper_case()
-    cx.set_state(indoc! {"
-        «hello worldˇ»
-    "});
+    cx.set_state(
+        "«hello worldˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.convert_to_upper_case(&ConvertToUpperCase, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «HELLO WORLDˇ»
-    "});
+    cx.assert_editor_state(
+        "«HELLO WORLDˇ»
+",
+    );
 
     // Test convert_to_lower_case()
-    cx.set_state(indoc! {"
-        «HELLO WORLDˇ»
-    "});
+    cx.set_state(
+        "«HELLO WORLDˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.convert_to_lower_case(&ConvertToLowerCase, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «hello worldˇ»
-    "});
+    cx.assert_editor_state(
+        "«hello worldˇ»
+",
+    );
 
     // Test multiple line, single selection case
-    cx.set_state(indoc! {"
-        «The quick brown
-        fox jumps over
-        the lazy dogˇ»
-    "});
+    cx.set_state(
+        "«The quick brown
+fox jumps over
+the lazy dogˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.convert_to_title_case(&ConvertToTitleCase, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «The Quick Brown
-        Fox Jumps Over
-        The Lazy Dogˇ»
-    "});
+    cx.assert_editor_state(
+        "«The Quick Brown
+Fox Jumps Over
+The Lazy Dogˇ»
+",
+    );
 
     // Test multiple line, single selection case
-    cx.set_state(indoc! {"
-        «The quick brown
-        fox jumps over
-        the lazy dogˇ»
-    "});
+    cx.set_state(
+        "«The quick brown
+fox jumps over
+the lazy dogˇ»
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.convert_to_upper_camel_case(&ConvertToUpperCamelCase, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        «TheQuickBrown
-        FoxJumpsOver
-        TheLazyDogˇ»
-    "});
+    cx.assert_editor_state(
+        "«TheQuickBrown
+FoxJumpsOver
+TheLazyDogˇ»
+",
+    );
 
     // From here on out, test more complex cases of manipulate_text()
 
     // Test no selection case - should affect words cursors are in
     // Cursor at beginning, middle, and end of word
-    cx.set_state(indoc! {"
-        ˇhello big beauˇtiful worldˇ
-    "});
+    cx.set_state(
+        "ˇhello big beauˇtiful worldˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.convert_to_upper_case(&ConvertToUpperCase, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «HELLOˇ» big «BEAUTIFULˇ» «WORLDˇ»
-    "});
+    cx.assert_editor_state(
+        "«HELLOˇ» big «BEAUTIFULˇ» «WORLDˇ»
+",
+    );
 
     // Test multiple selections on a single line and across multiple lines
-    cx.set_state(indoc! {"
-        «Theˇ» quick «brown
-        foxˇ» jumps «overˇ»
-        the «lazyˇ» dog
-    "});
+    cx.set_state(
+        "«Theˇ» quick «brown
+foxˇ» jumps «overˇ»
+the «lazyˇ» dog
+",
+    );
     cx.update_editor(|e, window, cx| e.convert_to_upper_case(&ConvertToUpperCase, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «THEˇ» quick «BROWN
-        FOXˇ» jumps «OVERˇ»
-        the «LAZYˇ» dog
-    "});
+    cx.assert_editor_state(
+        "«THEˇ» quick «BROWN
+FOXˇ» jumps «OVERˇ»
+the «LAZYˇ» dog
+",
+    );
 
     // Test case where text length grows
-    cx.set_state(indoc! {"
-        «tschüßˇ»
-    "});
+    cx.set_state(
+        "«tschüßˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.convert_to_upper_case(&ConvertToUpperCase, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «TSCHÜSSˇ»
-    "});
+    cx.assert_editor_state(
+        "«TSCHÜSSˇ»
+",
+    );
 
     // Test to make sure we don't crash when text shrinks
-    cx.set_state(indoc! {"
-        aaa_bbbˇ
-    "});
+    cx.set_state(
+        "aaa_bbbˇ
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.convert_to_lower_camel_case(&ConvertToLowerCamelCase, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        «aaaBbbˇ»
-    "});
+    cx.assert_editor_state(
+        "«aaaBbbˇ»
+",
+    );
 
     // Test to make sure we all aware of the fact that each word can grow and shrink
     // Final selections should be aware of this fact
-    cx.set_state(indoc! {"
-        aaa_bˇbb bbˇb_ccc ˇccc_ddd
-    "});
+    cx.set_state(
+        "aaa_bˇbb bbˇb_ccc ˇccc_ddd
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.convert_to_lower_camel_case(&ConvertToLowerCamelCase, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        «aaaBbbˇ» «bbbCccˇ» «cccDddˇ»
-    "});
+    cx.assert_editor_state(
+        "«aaaBbbˇ» «bbbCccˇ» «cccDddˇ»
+",
+    );
 
-    cx.set_state(indoc! {"
-        «hElLo, WoRld!ˇ»
-    "});
+    cx.set_state(
+        "«hElLo, WoRld!ˇ»
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.convert_to_opposite_case(&ConvertToOppositeCase, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        «HeLlO, wOrLD!ˇ»
-    "});
+    cx.assert_editor_state(
+        "«HeLlO, wOrLD!ˇ»
+",
+    );
 
     // Test that case conversions backed by `to_case` preserve leading/trailing whitespace.
-    cx.set_state(indoc! {"
-        «    hello worldˇ»
-    "});
+    cx.set_state(
+        "«    hello worldˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.convert_to_title_case(&ConvertToTitleCase, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «    Hello Worldˇ»
-    "});
+    cx.assert_editor_state(
+        "«    Hello Worldˇ»
+",
+    );
 
-    cx.set_state(indoc! {"
-        «    hello worldˇ»
-    "});
+    cx.set_state(
+        "«    hello worldˇ»
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.convert_to_upper_camel_case(&ConvertToUpperCamelCase, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        «    HelloWorldˇ»
-    "});
+    cx.assert_editor_state(
+        "«    HelloWorldˇ»
+",
+    );
 
-    cx.set_state(indoc! {"
-        «    hello worldˇ»
-    "});
+    cx.set_state(
+        "«    hello worldˇ»
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.convert_to_lower_camel_case(&ConvertToLowerCamelCase, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        «    helloWorldˇ»
-    "});
+    cx.assert_editor_state(
+        "«    helloWorldˇ»
+",
+    );
 
-    cx.set_state(indoc! {"
-        «    hello worldˇ»
-    "});
+    cx.set_state(
+        "«    hello worldˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.convert_to_snake_case(&ConvertToSnakeCase, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «    hello_worldˇ»
-    "});
+    cx.assert_editor_state(
+        "«    hello_worldˇ»
+",
+    );
 
-    cx.set_state(indoc! {"
-        «    hello worldˇ»
-    "});
+    cx.set_state(
+        "«    hello worldˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.convert_to_kebab_case(&ConvertToKebabCase, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «    hello-worldˇ»
-    "});
+    cx.assert_editor_state(
+        "«    hello-worldˇ»
+",
+    );
 
-    cx.set_state(indoc! {"
-        «    hello worldˇ»
-    "});
+    cx.set_state(
+        "«    hello worldˇ»
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.convert_to_sentence_case(&ConvertToSentenceCase, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        «    Hello worldˇ»
-    "});
+    cx.assert_editor_state(
+        "«    Hello worldˇ»
+",
+    );
 
-    cx.set_state(indoc! {"
-        «    hello world\t\tˇ»
-    "});
+    cx.set_state(
+        "«    hello world\t\tˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.convert_to_title_case(&ConvertToTitleCase, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «    Hello World\t\tˇ»
-    "});
+    cx.assert_editor_state(
+        "«    Hello World\t\tˇ»
+",
+    );
 
-    cx.set_state(indoc! {"
-        «    hello world\t\tˇ»
-    "});
+    cx.set_state(
+        "«    hello world\t\tˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.convert_to_snake_case(&ConvertToSnakeCase, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «    hello_world\t\tˇ»
-    "});
+    cx.assert_editor_state(
+        "«    hello_world\t\tˇ»
+",
+    );
 
-    cx.set_state(indoc! {"
-        «hello world
-        ˇ»goodbye
-    "});
+    cx.set_state(
+        "«hello world
+ˇ»goodbye
+",
+    );
     cx.update_editor(|e, window, cx| e.convert_to_snake_case(&ConvertToSnakeCase, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «hello_world
-        ˇ»goodbye
-    "});
+    cx.assert_editor_state(
+        "«hello_world
+ˇ»goodbye
+",
+    );
 
     // Test selections with `line_mode() = true`.
     cx.update_editor(|editor, _window, _cx| editor.selections.set_line_mode(true));
-    cx.set_state(indoc! {"
-        «The quick brown
-        fox jumps over
-        tˇ»he lazy dog
-    "});
+    cx.set_state(
+        "«The quick brown
+fox jumps over
+tˇ»he lazy dog
+",
+    );
     cx.update_editor(|e, window, cx| e.convert_to_upper_case(&ConvertToUpperCase, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «THE QUICK BROWN
-        FOX JUMPS OVER
-        THE LAZY DOGˇ»
-    "});
+    cx.assert_editor_state(
+        "«THE QUICK BROWN
+FOX JUMPS OVER
+THE LAZY DOGˇ»
+",
+    );
 }
 
 #[gpui::test]
@@ -9053,96 +9373,108 @@ async fn test_rotate_selections(cx: &mut TestAppContext) {
     cx.assert_editor_state("x=«1ˇ», y=«2ˇ», z=«3ˇ»");
 
     // Rotate text selections (vertical)
-    cx.set_state(indoc! {"
-        x=«1ˇ»
-        y=«2ˇ»
-        z=«3ˇ»
-    "});
+    cx.set_state(
+        "x=«1ˇ»
+y=«2ˇ»
+z=«3ˇ»
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.rotate_selections_forward(&RotateSelectionsForward, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        x=«3ˇ»
-        y=«1ˇ»
-        z=«2ˇ»
-    "});
+    cx.assert_editor_state(
+        "x=«3ˇ»
+y=«1ˇ»
+z=«2ˇ»
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.rotate_selections_backward(&RotateSelectionsBackward, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        x=«1ˇ»
-        y=«2ˇ»
-        z=«3ˇ»
-    "});
+    cx.assert_editor_state(
+        "x=«1ˇ»
+y=«2ˇ»
+z=«3ˇ»
+",
+    );
 
     // Rotate text selections (vertical, different lengths)
-    cx.set_state(indoc! {"
-        x=\"«ˇ»\"
-        y=\"«aˇ»\"
-        z=\"«aaˇ»\"
-    "});
+    cx.set_state(
+        "x=\"«ˇ»\"
+y=\"«aˇ»\"
+z=\"«aaˇ»\"
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.rotate_selections_forward(&RotateSelectionsForward, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        x=\"«aaˇ»\"
-        y=\"«ˇ»\"
-        z=\"«aˇ»\"
-    "});
+    cx.assert_editor_state(
+        "x=\"«aaˇ»\"
+y=\"«ˇ»\"
+z=\"«aˇ»\"
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.rotate_selections_backward(&RotateSelectionsBackward, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        x=\"«ˇ»\"
-        y=\"«aˇ»\"
-        z=\"«aaˇ»\"
-    "});
+    cx.assert_editor_state(
+        "x=\"«ˇ»\"
+y=\"«aˇ»\"
+z=\"«aaˇ»\"
+",
+    );
 
     // Rotate whole lines (cursor positions preserved)
-    cx.set_state(indoc! {"
-        ˇline123
-        liˇne23
-        line3ˇ
-    "});
+    cx.set_state(
+        "ˇline123
+liˇne23
+line3ˇ
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.rotate_selections_forward(&RotateSelectionsForward, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        line3ˇ
-        ˇline123
-        liˇne23
-    "});
+    cx.assert_editor_state(
+        "line3ˇ
+ˇline123
+liˇne23
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.rotate_selections_backward(&RotateSelectionsBackward, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        ˇline123
-        liˇne23
-        line3ˇ
-    "});
+    cx.assert_editor_state(
+        "ˇline123
+liˇne23
+line3ˇ
+",
+    );
 
     // Rotate whole lines, multiple cursors per line (positions preserved)
-    cx.set_state(indoc! {"
-        ˇliˇne123
-        ˇline23
-        ˇline3
-    "});
+    cx.set_state(
+        "ˇliˇne123
+ˇline23
+ˇline3
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.rotate_selections_forward(&RotateSelectionsForward, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        ˇline3
-        ˇliˇne123
-        ˇline23
-    "});
+    cx.assert_editor_state(
+        "ˇline3
+ˇliˇne123
+ˇline23
+",
+    );
     cx.update_editor(|e, window, cx| {
         e.rotate_selections_backward(&RotateSelectionsBackward, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        ˇliˇne123
-        ˇline23
-        ˇline3
-    "});
+    cx.assert_editor_state(
+        "ˇliˇne123
+ˇline23
+ˇline3
+",
+    );
 }
 
 #[gpui::test]
@@ -9151,32 +9483,35 @@ async fn test_rotate_selections_nonconsecutive_lines(cx: &mut TestAppContext) {
 
     let mut cx = EditorTestContext::new(cx).await;
 
-    cx.set_state(indoc! {"
-        ˇline1
-        line2
-        liˇne3
-        line4ˇ
-    "});
+    cx.set_state(
+        "ˇline1
+line2
+liˇne3
+line4ˇ
+",
+    );
 
     cx.update_editor(|e, window, cx| {
         e.rotate_selections_forward(&RotateSelectionsForward, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        line4ˇ
-        line2
-        ˇline1
-        liˇne3
-    "});
+    cx.assert_editor_state(
+        "line4ˇ
+line2
+ˇline1
+liˇne3
+",
+    );
 
     cx.update_editor(|e, window, cx| {
         e.rotate_selections_backward(&RotateSelectionsBackward, window, cx)
     });
-    cx.assert_editor_state(indoc! {"
-        ˇline1
-        line2
-        liˇne3
-        line4ˇ
-    "});
+    cx.assert_editor_state(
+        "ˇline1
+line2
+liˇne3
+line4ˇ
+",
+    );
 }
 
 #[gpui::test]
@@ -9673,334 +10008,296 @@ async fn test_rewrap(cx: &mut TestAppContext) {
 
     // Test basic rewrapping of a long line with a cursor
     assert_rewrap(
-        indoc! {"
-            // ˇThis is a long comment that needs to be wrapped.
-        "},
-        indoc! {"
-            // ˇThis is a long comment that needs to
-            // be wrapped.
-        "},
+        "// ˇThis is a long comment that needs to be wrapped.
+",
+        "// ˇThis is a long comment that needs to
+// be wrapped.
+",
         cpp_language.clone(),
         &mut cx,
     );
 
     // Test rewrapping a full selection
     assert_rewrap(
-        indoc! {"
-            «// This selected long comment needs to be wrapped.ˇ»"
-        },
-        indoc! {"
-            «// This selected long comment needs to
-            // be wrapped.ˇ»"
-        },
+        "«// This selected long comment needs to be wrapped.ˇ»",
+        "«// This selected long comment needs to
+// be wrapped.ˇ»",
         cpp_language.clone(),
         &mut cx,
     );
 
     // Test multiple cursors on different lines within the same paragraph are preserved after rewrapping
     assert_rewrap(
-        indoc! {"
-            // ˇThis is the first line.
-            // Thisˇ is the second line.
-            // This is the thirdˇ line, all part of one paragraph.
-         "},
-        indoc! {"
-            // ˇThis is the first line. Thisˇ is the
-            // second line. This is the thirdˇ line,
-            // all part of one paragraph.
-         "},
+        "// ˇThis is the first line.
+// Thisˇ is the second line.
+// This is the thirdˇ line, all part of one paragraph.
+",
+        "// ˇThis is the first line. Thisˇ is the
+// second line. This is the thirdˇ line,
+// all part of one paragraph.
+",
         cpp_language.clone(),
         &mut cx,
     );
 
     // Test multiple cursors in different paragraphs trigger separate rewraps
     assert_rewrap(
-        indoc! {"
-            // ˇThis is the first paragraph, first line.
-            // ˇThis is the first paragraph, second line.
+        "// ˇThis is the first paragraph, first line.
+// ˇThis is the first paragraph, second line.
 
-            // ˇThis is the second paragraph, first line.
-            // ˇThis is the second paragraph, second line.
-        "},
-        indoc! {"
-            // ˇThis is the first paragraph, first
-            // line. ˇThis is the first paragraph,
-            // second line.
+// ˇThis is the second paragraph, first line.
+// ˇThis is the second paragraph, second line.
+",
+        "// ˇThis is the first paragraph, first
+// line. ˇThis is the first paragraph,
+// second line.
 
-            // ˇThis is the second paragraph, first
-            // line. ˇThis is the second paragraph,
-            // second line.
-        "},
+// ˇThis is the second paragraph, first
+// line. ˇThis is the second paragraph,
+// second line.
+",
         cpp_language.clone(),
         &mut cx,
     );
 
     // Test that change in comment prefix (e.g., `//` to `///`) trigger separate rewraps
     assert_rewrap(
-        indoc! {"
-            «// A regular long long comment to be wrapped.
-            /// A documentation long comment to be wrapped.ˇ»
-          "},
-        indoc! {"
-            «// A regular long long comment to be
-            // wrapped.
-            /// A documentation long comment to be
-            /// wrapped.ˇ»
-          "},
+        "«// A regular long long comment to be wrapped.
+/// A documentation long comment to be wrapped.ˇ»
+",
+        "«// A regular long long comment to be
+// wrapped.
+/// A documentation long comment to be
+/// wrapped.ˇ»
+",
         rust_language.clone(),
         &mut cx,
     );
 
     // Test that change in indentation level trigger separate rewraps
     assert_rewrap(
-        indoc! {"
-            fn foo() {
-                «// This is a long comment at the base indent.
-                    // This is a long comment at the next indent.ˇ»
-            }
-        "},
-        indoc! {"
-            fn foo() {
-                «// This is a long comment at the
-                // base indent.
-                    // This is a long comment at the
-                    // next indent.ˇ»
-            }
-        "},
+        "fn foo() {
+    «// This is a long comment at the base indent.
+        // This is a long comment at the next indent.ˇ»
+}
+",
+        "fn foo() {
+    «// This is a long comment at the
+    // base indent.
+        // This is a long comment at the
+        // next indent.ˇ»
+}
+",
         rust_language.clone(),
         &mut cx,
     );
 
     // Test that different comment prefix characters (e.g., '#') are handled correctly
     assert_rewrap(
-        indoc! {"
-            # ˇThis is a long comment using a pound sign.
-        "},
-        indoc! {"
-            # ˇThis is a long comment using a pound
-            # sign.
-        "},
+        "# ˇThis is a long comment using a pound sign.
+",
+        "# ˇThis is a long comment using a pound
+# sign.
+",
         python_language,
         &mut cx,
     );
 
     // Test rewrapping only affects comments, not code even when selected
     assert_rewrap(
-        indoc! {"
-            «/// This doc comment is long and should be wrapped.
-            fn my_func(a: u32, b: u32, c: u32, d: u32, e: u32, f: u32) {}ˇ»
-        "},
-        indoc! {"
-            «/// This doc comment is long and should
-            /// be wrapped.
-            fn my_func(a: u32, b: u32, c: u32, d: u32, e: u32, f: u32) {}ˇ»
-        "},
+        "«/// This doc comment is long and should be wrapped.
+fn my_func(a: u32, b: u32, c: u32, d: u32, e: u32, f: u32) {}ˇ»
+",
+        "«/// This doc comment is long and should
+/// be wrapped.
+fn my_func(a: u32, b: u32, c: u32, d: u32, e: u32, f: u32) {}ˇ»
+",
         rust_language.clone(),
         &mut cx,
     );
 
     // Test that rewrapping works in Markdown documents where `allow_rewrap` is `Anywhere`
     assert_rewrap(
-        indoc! {"
-            # Header
+        "# Header
 
-            A long long long line of markdown text to wrap.ˇ
-         "},
-        indoc! {"
-            # Header
+A long long long line of markdown text to wrap.ˇ
+",
+        "# Header
 
-            A long long long line of markdown text
-            to wrap.ˇ
-         "},
+A long long long line of markdown text
+to wrap.ˇ
+",
         markdown_language.clone(),
         &mut cx,
     );
 
     // Test that rewrapping boundary works and preserves relative indent for Markdown documents
     assert_rewrap(
-        indoc! {"
-            «1. This is a numbered list item that is very long and needs to be wrapped properly.
-            2. This is a numbered list item that is very long and needs to be wrapped properly.
-            - This is an unordered list item that is also very long and should not merge with the numbered item.ˇ»
-        "},
-        indoc! {"
-            «1. This is a numbered list item that is
-               very long and needs to be wrapped
-               properly.
-            2. This is a numbered list item that is
-               very long and needs to be wrapped
-               properly.
-            - This is an unordered list item that is
-              also very long and should not merge
-              with the numbered item.ˇ»
-        "},
+        "«1. This is a numbered list item that is very long and needs to be wrapped properly.
+2. This is a numbered list item that is very long and needs to be wrapped properly.
+- This is an unordered list item that is also very long and should not merge with the numbered item.ˇ»
+",
+        "«1. This is a numbered list item that is
+   very long and needs to be wrapped
+   properly.
+2. This is a numbered list item that is
+   very long and needs to be wrapped
+   properly.
+- This is an unordered list item that is
+  also very long and should not merge
+  with the numbered item.ˇ»
+",
         markdown_language.clone(),
         &mut cx,
     );
 
     // Test that rewrapping add indents for rewrapping boundary if not exists already.
     assert_rewrap(
-        indoc! {"
-            «1. This is a numbered list item that is
-            very long and needs to be wrapped
-            properly.
-            2. This is a numbered list item that is
-            very long and needs to be wrapped
-            properly.
-            - This is an unordered list item that is
-            also very long and should not merge with
-            the numbered item.ˇ»
-        "},
-        indoc! {"
-            «1. This is a numbered list item that is
-               very long and needs to be wrapped
-               properly.
-            2. This is a numbered list item that is
-               very long and needs to be wrapped
-               properly.
-            - This is an unordered list item that is
-              also very long and should not merge
-              with the numbered item.ˇ»
-        "},
+        "«1. This is a numbered list item that is
+very long and needs to be wrapped
+properly.
+2. This is a numbered list item that is
+very long and needs to be wrapped
+properly.
+- This is an unordered list item that is
+also very long and should not merge with
+the numbered item.ˇ»
+",
+        "«1. This is a numbered list item that is
+   very long and needs to be wrapped
+   properly.
+2. This is a numbered list item that is
+   very long and needs to be wrapped
+   properly.
+- This is an unordered list item that is
+  also very long and should not merge
+  with the numbered item.ˇ»
+",
         markdown_language.clone(),
         &mut cx,
     );
 
     // Test that rewrapping maintain indents even when they already exists.
     assert_rewrap(
-        indoc! {"
-            «1. This is a numbered list
-               item that is very long and needs to be wrapped properly.
-            2. This is a numbered list
-               item that is very long and needs to be wrapped properly.
-            - This is an unordered list item that is also very long and
-              should not merge with the numbered item.ˇ»
-        "},
-        indoc! {"
-            «1. This is a numbered list item that is
-               very long and needs to be wrapped
-               properly.
-            2. This is a numbered list item that is
-               very long and needs to be wrapped
-               properly.
-            - This is an unordered list item that is
-              also very long and should not merge
-              with the numbered item.ˇ»
-        "},
+        "«1. This is a numbered list
+   item that is very long and needs to be wrapped properly.
+2. This is a numbered list
+   item that is very long and needs to be wrapped properly.
+- This is an unordered list item that is also very long and
+  should not merge with the numbered item.ˇ»
+",
+        "«1. This is a numbered list item that is
+   very long and needs to be wrapped
+   properly.
+2. This is a numbered list item that is
+   very long and needs to be wrapped
+   properly.
+- This is an unordered list item that is
+  also very long and should not merge
+  with the numbered item.ˇ»
+",
         markdown_language.clone(),
         &mut cx,
     );
 
     // Test that empty selection rewrap on a numbered list item does not merge adjacent items
     assert_rewrap(
-        indoc! {"
-            1. This is the first numbered list item that is very long and needs to be wrapped properly.
-            2. ˇThis is the second numbered list item that is also very long and needs to be wrapped.
-            3. This is the third numbered list item, shorter.
-        "},
-        indoc! {"
-            1. This is the first numbered list item
-               that is very long and needs to be
-               wrapped properly.
-            2. ˇThis is the second numbered list item
-               that is also very long and needs to
-               be wrapped.
-            3. This is the third numbered list item,
-               shorter.
-        "},
+        "1. This is the first numbered list item that is very long and needs to be wrapped properly.
+2. ˇThis is the second numbered list item that is also very long and needs to be wrapped.
+3. This is the third numbered list item, shorter.
+",
+        "1. This is the first numbered list item
+   that is very long and needs to be
+   wrapped properly.
+2. ˇThis is the second numbered list item
+   that is also very long and needs to
+   be wrapped.
+3. This is the third numbered list item,
+   shorter.
+",
         markdown_language.clone(),
         &mut cx,
     );
 
     // Test that empty selection rewrap on a bullet list item does not merge adjacent items
     assert_rewrap(
-        indoc! {"
-            - This is the first bullet item that is very long and needs wrapping properly here.
-            - ˇThis is the second bullet item that is also very long and needs to be wrapped.
-            - This is the third bullet item, shorter.
-        "},
-        indoc! {"
-            - This is the first bullet item that is
-              very long and needs wrapping properly
-              here.
-            - ˇThis is the second bullet item that is
-              also very long and needs to be
-              wrapped.
-            - This is the third bullet item,
-              shorter.
-        "},
+        "- This is the first bullet item that is very long and needs wrapping properly here.
+- ˇThis is the second bullet item that is also very long and needs to be wrapped.
+- This is the third bullet item, shorter.
+",
+        "- This is the first bullet item that is
+  very long and needs wrapping properly
+  here.
+- ˇThis is the second bullet item that is
+  also very long and needs to be
+  wrapped.
+- This is the third bullet item,
+  shorter.
+",
         markdown_language,
         &mut cx,
     );
 
     // Test that rewrapping works in plain text where `allow_rewrap` is `Anywhere`
     assert_rewrap(
-        indoc! {"
-            ˇThis is a very long line of plain text that will be wrapped.
-        "},
-        indoc! {"
-            ˇThis is a very long line of plain text
-            that will be wrapped.
-        "},
+        "ˇThis is a very long line of plain text that will be wrapped.
+",
+        "ˇThis is a very long line of plain text
+that will be wrapped.
+",
         plaintext_language.clone(),
         &mut cx,
     );
 
     // Test that non-commented code acts as a paragraph boundary within a selection
     assert_rewrap(
-        indoc! {"
-               «// This is the first long comment block to be wrapped.
-               fn my_func(a: u32);
-               // This is the second long comment block to be wrapped.ˇ»
-           "},
-        indoc! {"
-               «// This is the first long comment block
-               // to be wrapped.
-               fn my_func(a: u32);
-               // This is the second long comment block
-               // to be wrapped.ˇ»
-           "},
+        "«// This is the first long comment block to be wrapped.
+fn my_func(a: u32);
+// This is the second long comment block to be wrapped.ˇ»
+",
+        "«// This is the first long comment block
+// to be wrapped.
+fn my_func(a: u32);
+// This is the second long comment block
+// to be wrapped.ˇ»
+",
         rust_language,
         &mut cx,
     );
 
     // Test rewrapping multiple selections, including ones with blank lines or tabs
     assert_rewrap(
-        indoc! {"
-            «ˇThis is a very long line that will be wrapped.
+        "«ˇThis is a very long line that will be wrapped.
 
-            This is another paragraph in the same selection.»
+This is another paragraph in the same selection.»
 
-            «\tThis is a very long indented line that will be wrapped.ˇ»
-         "},
-        indoc! {"
-            «ˇThis is a very long line that will be
-            wrapped.
+«\tThis is a very long indented line that will be wrapped.ˇ»
+",
+        "«ˇThis is a very long line that will be
+wrapped.
 
-            This is another paragraph in the same
-            selection.»
+This is another paragraph in the same
+selection.»
 
-            «\tThis is a very long indented line
-            \tthat will be wrapped.ˇ»
-         "},
+«\tThis is a very long indented line
+\tthat will be wrapped.ˇ»
+",
         plaintext_language,
         &mut cx,
     );
 
     // Test that an empty comment line acts as a paragraph boundary
     assert_rewrap(
-        indoc! {"
-            // ˇThis is a long comment that will be wrapped.
-            //
-            // And this is another long comment that will also be wrapped.ˇ
-         "},
-        indoc! {"
-            // ˇThis is a long comment that will be
-            // wrapped.
-            //
-            // And this is another long comment that
-            // will also be wrapped.ˇ
-         "},
+        "// ˇThis is a long comment that will be wrapped.
+//
+// And this is another long comment that will also be wrapped.ˇ
+",
+        "// ˇThis is a long comment that will be
+// wrapped.
+//
+// And this is another long comment that
+// will also be wrapped.ˇ
+",
         cpp_language,
         &mut cx,
     );
@@ -10062,240 +10359,216 @@ async fn test_rewrap_block_comments(cx: &mut TestAppContext) {
 
     // regular block comment
     assert_rewrap(
-        indoc! {"
-            /*
-             *ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit.
-             */
-            /*ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit. */
-        "},
-        indoc! {"
-            /*
-             *ˇ Lorem ipsum dolor sit amet,
-             * consectetur adipiscing elit.
-             */
-            /*
-             *ˇ Lorem ipsum dolor sit amet,
-             * consectetur adipiscing elit.
-             */
-        "},
+        "/*
+ *ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+ */
+/*ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit. */
+",
+        "/*
+ *ˇ Lorem ipsum dolor sit amet,
+ * consectetur adipiscing elit.
+ */
+/*
+ *ˇ Lorem ipsum dolor sit amet,
+ * consectetur adipiscing elit.
+ */
+",
         rust_lang.clone(),
         &mut cx,
     );
 
     // indent is respected
     assert_rewrap(
-        indoc! {"
-            {}
-                /*ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit. */
-        "},
-        indoc! {"
-            {}
-                /*
-                 *ˇ Lorem ipsum dolor sit amet,
-                 * consectetur adipiscing elit.
-                 */
-        "},
+        "{}
+    /*ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit. */
+",
+        "{}
+    /*
+     *ˇ Lorem ipsum dolor sit amet,
+     * consectetur adipiscing elit.
+     */
+",
         rust_lang.clone(),
         &mut cx,
     );
 
     // short block comments with inline delimiters
     assert_rewrap(
-        indoc! {"
-            /*ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit. */
-            /*ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit.
-             */
-            /*
-             *ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit. */
-        "},
-        indoc! {"
-            /*
-             *ˇ Lorem ipsum dolor sit amet,
-             * consectetur adipiscing elit.
-             */
-            /*
-             *ˇ Lorem ipsum dolor sit amet,
-             * consectetur adipiscing elit.
-             */
-            /*
-             *ˇ Lorem ipsum dolor sit amet,
-             * consectetur adipiscing elit.
-             */
-        "},
+        "/*ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit. */
+/*ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+ */
+/*
+ *ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit. */
+",
+        "/*
+ *ˇ Lorem ipsum dolor sit amet,
+ * consectetur adipiscing elit.
+ */
+/*
+ *ˇ Lorem ipsum dolor sit amet,
+ * consectetur adipiscing elit.
+ */
+/*
+ *ˇ Lorem ipsum dolor sit amet,
+ * consectetur adipiscing elit.
+ */
+",
         rust_lang.clone(),
         &mut cx,
     );
 
     // multiline block comment with inline start/end delimiters
     assert_rewrap(
-        indoc! {"
-            /*ˇ Lorem ipsum dolor sit amet,
-             * consectetur adipiscing elit. */
-        "},
-        indoc! {"
-            /*
-             *ˇ Lorem ipsum dolor sit amet,
-             * consectetur adipiscing elit.
-             */
-        "},
+        "/*ˇ Lorem ipsum dolor sit amet,
+ * consectetur adipiscing elit. */
+",
+        "/*
+ *ˇ Lorem ipsum dolor sit amet,
+ * consectetur adipiscing elit.
+ */
+",
         rust_lang.clone(),
         &mut cx,
     );
 
     // block comment rewrap still respects paragraph bounds
     assert_rewrap(
-        indoc! {"
-            /*
-             *ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit.
-             *
-             * Lorem ipsum dolor sit amet, consectetur adipiscing elit.
-             */
-        "},
-        indoc! {"
-            /*
-             *ˇ Lorem ipsum dolor sit amet,
-             * consectetur adipiscing elit.
-             *
-             * Lorem ipsum dolor sit amet, consectetur adipiscing elit.
-             */
-        "},
+        "/*
+ *ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+ *
+ * Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+ */
+",
+        "/*
+ *ˇ Lorem ipsum dolor sit amet,
+ * consectetur adipiscing elit.
+ *
+ * Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+ */
+",
         rust_lang.clone(),
         &mut cx,
     );
 
     // documentation comments
     assert_rewrap(
-        indoc! {"
-            /**ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit. */
-            /**
-             *ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit.
-             */
-        "},
-        indoc! {"
-            /**
-             *ˇ Lorem ipsum dolor sit amet,
-             * consectetur adipiscing elit.
-             */
-            /**
-             *ˇ Lorem ipsum dolor sit amet,
-             * consectetur adipiscing elit.
-             */
-        "},
+        "/**ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit. */
+/**
+ *ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+ */
+",
+        "/**
+ *ˇ Lorem ipsum dolor sit amet,
+ * consectetur adipiscing elit.
+ */
+/**
+ *ˇ Lorem ipsum dolor sit amet,
+ * consectetur adipiscing elit.
+ */
+",
         rust_lang.clone(),
         &mut cx,
     );
 
     // different, adjacent comments
     assert_rewrap(
-        indoc! {"
-            /**
-             *ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit.
-             */
-            /*ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit. */
-            //ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit.
-        "},
-        indoc! {"
-            /**
-             *ˇ Lorem ipsum dolor sit amet,
-             * consectetur adipiscing elit.
-             */
-            /*
-             *ˇ Lorem ipsum dolor sit amet,
-             * consectetur adipiscing elit.
-             */
-            //ˇ Lorem ipsum dolor sit amet,
-            // consectetur adipiscing elit.
-        "},
+        "/**
+ *ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+ */
+/*ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit. */
+//ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+",
+        "/**
+ *ˇ Lorem ipsum dolor sit amet,
+ * consectetur adipiscing elit.
+ */
+/*
+ *ˇ Lorem ipsum dolor sit amet,
+ * consectetur adipiscing elit.
+ */
+//ˇ Lorem ipsum dolor sit amet,
+// consectetur adipiscing elit.
+",
         rust_lang.clone(),
         &mut cx,
     );
 
     // selection w/ single short block comment
     assert_rewrap(
-        indoc! {"
-            «/* Lorem ipsum dolor sit amet, consectetur adipiscing elit. */ˇ»
-        "},
-        indoc! {"
-            «/*
-             * Lorem ipsum dolor sit amet,
-             * consectetur adipiscing elit.
-             */ˇ»
-        "},
+        "«/* Lorem ipsum dolor sit amet, consectetur adipiscing elit. */ˇ»
+",
+        "«/*
+ * Lorem ipsum dolor sit amet,
+ * consectetur adipiscing elit.
+ */ˇ»
+",
         rust_lang.clone(),
         &mut cx,
     );
 
     // rewrapping a single comment w/ abutting comments
     assert_rewrap(
-        indoc! {"
-            /* ˇLorem ipsum dolor sit amet, consectetur adipiscing elit. */
-            /* Lorem ipsum dolor sit amet, consectetur adipiscing elit. */
-        "},
-        indoc! {"
-            /*
-             * ˇLorem ipsum dolor sit amet,
-             * consectetur adipiscing elit.
-             */
-            /* Lorem ipsum dolor sit amet, consectetur adipiscing elit. */
-        "},
+        "/* ˇLorem ipsum dolor sit amet, consectetur adipiscing elit. */
+/* Lorem ipsum dolor sit amet, consectetur adipiscing elit. */
+",
+        "/*
+ * ˇLorem ipsum dolor sit amet,
+ * consectetur adipiscing elit.
+ */
+/* Lorem ipsum dolor sit amet, consectetur adipiscing elit. */
+",
         rust_lang.clone(),
         &mut cx,
     );
 
     // selection w/ non-abutting short block comments
     assert_rewrap(
-        indoc! {"
-            «/* Lorem ipsum dolor sit amet, consectetur adipiscing elit. */
+        "«/* Lorem ipsum dolor sit amet, consectetur adipiscing elit. */
 
-            /* Lorem ipsum dolor sit amet, consectetur adipiscing elit. */ˇ»
-        "},
-        indoc! {"
-            «/*
-             * Lorem ipsum dolor sit amet,
-             * consectetur adipiscing elit.
-             */
+/* Lorem ipsum dolor sit amet, consectetur adipiscing elit. */ˇ»
+",
+        "«/*
+ * Lorem ipsum dolor sit amet,
+ * consectetur adipiscing elit.
+ */
 
-            /*
-             * Lorem ipsum dolor sit amet,
-             * consectetur adipiscing elit.
-             */ˇ»
-        "},
+/*
+ * Lorem ipsum dolor sit amet,
+ * consectetur adipiscing elit.
+ */ˇ»
+",
         rust_lang.clone(),
         &mut cx,
     );
 
     // selection of multiline block comments
     assert_rewrap(
-        indoc! {"
-            «/* Lorem ipsum dolor sit amet,
-             * consectetur adipiscing elit. */ˇ»
-        "},
-        indoc! {"
-            «/*
-             * Lorem ipsum dolor sit amet,
-             * consectetur adipiscing elit.
-             */ˇ»
-        "},
+        "«/* Lorem ipsum dolor sit amet,
+ * consectetur adipiscing elit. */ˇ»
+",
+        "«/*
+ * Lorem ipsum dolor sit amet,
+ * consectetur adipiscing elit.
+ */ˇ»
+",
         rust_lang.clone(),
         &mut cx,
     );
 
     // partial selection of multiline block comments
     assert_rewrap(
-        indoc! {"
-            «/* Lorem ipsum dolor sit amet,ˇ»
-             * consectetur adipiscing elit. */
-            /* Lorem ipsum dolor sit amet,
-             «* consectetur adipiscing elit. */ˇ»
-        "},
-        indoc! {"
-            «/*
-             * Lorem ipsum dolor sit amet,ˇ»
-             * consectetur adipiscing elit. */
-            /* Lorem ipsum dolor sit amet,
-             «* consectetur adipiscing elit.
-             */ˇ»
-        "},
+        "«/* Lorem ipsum dolor sit amet,ˇ»
+ * consectetur adipiscing elit. */
+/* Lorem ipsum dolor sit amet,
+ «* consectetur adipiscing elit. */ˇ»
+",
+        "«/*
+ * Lorem ipsum dolor sit amet,ˇ»
+ * consectetur adipiscing elit. */
+/* Lorem ipsum dolor sit amet,
+ «* consectetur adipiscing elit.
+ */ˇ»
+",
         rust_lang.clone(),
         &mut cx,
     );
@@ -10303,10 +10576,9 @@ async fn test_rewrap_block_comments(cx: &mut TestAppContext) {
     // selection w/ abutting short block comments
     // TODO: should not be combined; should rewrap as 2 comments
     assert_rewrap(
-        indoc! {"
-            «/* Lorem ipsum dolor sit amet, consectetur adipiscing elit. */
-            /* Lorem ipsum dolor sit amet, consectetur adipiscing elit. */ˇ»
-        "},
+        "«/* Lorem ipsum dolor sit amet, consectetur adipiscing elit. */
+/* Lorem ipsum dolor sit amet, consectetur adipiscing elit. */ˇ»
+",
         // desired behavior:
         // indoc! {"
         //     «/*
@@ -10319,14 +10591,13 @@ async fn test_rewrap_block_comments(cx: &mut TestAppContext) {
         //      */ˇ»
         // "},
         // actual behaviour:
-        indoc! {"
-            «/*
-             * Lorem ipsum dolor sit amet,
-             * consectetur adipiscing elit. Lorem
-             * ipsum dolor sit amet, consectetur
-             * adipiscing elit.
-             */ˇ»
-        "},
+        "«/*
+ * Lorem ipsum dolor sit amet,
+ * consectetur adipiscing elit. Lorem
+ * ipsum dolor sit amet, consectetur
+ * adipiscing elit.
+ */ˇ»
+",
         rust_lang.clone(),
         &mut cx,
     );
@@ -10369,14 +10640,13 @@ async fn test_rewrap_block_comments(cx: &mut TestAppContext) {
 
     // TODO these are unhandled edge cases; not correct, just documenting known issues
     assert_rewrap(
-        indoc! {"
-            /*
-             //ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit.
-             */
-            /*
-             //ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit. */
-            /*ˇ Lorem ipsum dolor sit amet */ /* consectetur adipiscing elit. */
-        "},
+        "/*
+ //ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+ */
+/*
+ //ˇ Lorem ipsum dolor sit amet, consectetur adipiscing elit. */
+/*ˇ Lorem ipsum dolor sit amet */ /* consectetur adipiscing elit. */
+",
         // desired:
         // indoc! {"
         //     /*
@@ -10392,20 +10662,19 @@ async fn test_rewrap_block_comments(cx: &mut TestAppContext) {
         //      */ /* consectetur adipiscing elit. */
         // "},
         // actual:
-        indoc! {"
-            /*
-             //ˇ Lorem ipsum dolor sit amet,
-             // consectetur adipiscing elit.
-             */
-            /*
-             * //ˇ Lorem ipsum dolor sit amet,
-             * consectetur adipiscing elit.
-             */
-            /*
-             *ˇ Lorem ipsum dolor sit amet */ /*
-             * consectetur adipiscing elit.
-             */
-        "},
+        "/*
+ //ˇ Lorem ipsum dolor sit amet,
+ // consectetur adipiscing elit.
+ */
+/*
+ * //ˇ Lorem ipsum dolor sit amet,
+ * consectetur adipiscing elit.
+ */
+/*
+ *ˇ Lorem ipsum dolor sit amet */ /*
+ * consectetur adipiscing elit.
+ */
+",
         rust_lang,
         &mut cx,
     );
@@ -10442,14 +10711,16 @@ async fn test_rewrap_line_comment_in_go(cx: &mut TestAppContext) {
     let go_lang = languages::language("go", tree_sitter_go::LANGUAGE.into());
 
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(go_lang), cx));
-    cx.set_state(indoc! {"
-        // Lorem ipsum dolor sit amet, consectetur adipiscing elit.ˇ
-    "});
+    cx.set_state(
+        "// Lorem ipsum dolor sit amet, consectetur adipiscing elit.ˇ
+",
+    );
     cx.update_editor(|e, _, cx| e.rewrap(RewrapOptions::default(), cx));
-    cx.assert_editor_state(indoc! {"
-        // Lorem ipsum dolor sit amet,
-        // consectetur adipiscing elit.ˇ
-    "});
+    cx.assert_editor_state(
+        "// Lorem ipsum dolor sit amet,
+// consectetur adipiscing elit.ˇ
+",
+    );
 }
 
 #[gpui::test]
@@ -10470,14 +10741,16 @@ async fn test_rewrap_line_comment_in_c(cx: &mut TestAppContext) {
     let c_lang = languages::language("c", tree_sitter_c::LANGUAGE.into());
 
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(c_lang), cx));
-    cx.set_state(indoc! {"
-        // Lorem ipsum dolor sit amet, consectetur adipiscing elit.ˇ
-    "});
+    cx.set_state(
+        "// Lorem ipsum dolor sit amet, consectetur adipiscing elit.ˇ
+",
+    );
     cx.update_editor(|e, _, cx| e.rewrap(RewrapOptions::default(), cx));
-    cx.assert_editor_state(indoc! {"
-        // Lorem ipsum dolor sit amet,
-        // consectetur adipiscing elit.ˇ
-    "});
+    cx.assert_editor_state(
+        "// Lorem ipsum dolor sit amet,
+// consectetur adipiscing elit.ˇ
+",
+    );
 }
 
 #[gpui::test]
@@ -10490,42 +10763,38 @@ async fn test_hard_wrap(cx: &mut TestAppContext) {
         editor.set_hard_wrap(Some(14), cx);
     });
 
-    cx.set_state(indoc!(
-        "
-        one two three ˇ
-        "
-    ));
+    cx.set_state(
+        "one two three ˇ
+",
+    );
     cx.simulate_input("four");
     cx.run_until_parked();
 
-    cx.assert_editor_state(indoc!(
-        "
-        one two three
-        fourˇ
-        "
-    ));
+    cx.assert_editor_state(
+        "one two three
+fourˇ
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.newline(&Default::default(), window, cx);
     });
     cx.run_until_parked();
-    cx.assert_editor_state(indoc!(
-        "
-        one two three
-        four
-        ˇ
-        "
-    ));
+    cx.assert_editor_state(
+        "one two three
+four
+ˇ
+",
+    );
 
     cx.simulate_input("five");
     cx.run_until_parked();
-    cx.assert_editor_state(indoc!(
-        "
-        one two three
-        four
-        fiveˇ
-        "
-    ));
+    cx.assert_editor_state(
+        "one two three
+four
+fiveˇ
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.newline(&Default::default(), window, cx);
@@ -10533,40 +10802,37 @@ async fn test_hard_wrap(cx: &mut TestAppContext) {
     cx.run_until_parked();
     cx.simulate_input("# ");
     cx.run_until_parked();
-    cx.assert_editor_state(indoc!(
-        "
-        one two three
-        four
-        five
-        # ˇ
-        "
-    ));
+    cx.assert_editor_state(
+        "one two three
+four
+five
+# ˇ
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.newline(&Default::default(), window, cx);
     });
     cx.run_until_parked();
-    cx.assert_editor_state(indoc!(
-        "
-        one two three
-        four
-        five
-        #\x20
-        #ˇ
-        "
-    ));
+    cx.assert_editor_state(
+        "one two three
+four
+five
+#\x20
+#ˇ
+",
+    );
 
     cx.simulate_input(" 6");
     cx.run_until_parked();
-    cx.assert_editor_state(indoc!(
-        "
-        one two three
-        four
-        five
-        #
-        # 6ˇ
-        "
-    ));
+    cx.assert_editor_state(
+        "one two three
+four
+five
+#
+# 6ˇ
+",
+    );
 }
 
 #[gpui::test]
@@ -10575,36 +10841,41 @@ async fn test_cut_line_ends(cx: &mut TestAppContext) {
 
     let mut cx = EditorTestContext::new(cx).await;
 
-    cx.set_state(indoc! {"The quick brownˇ"});
+    cx.set_state("The quick brownˇ");
     cx.update_editor(|e, window, cx| e.cut_to_end_of_line(&CutToEndOfLine::default(), window, cx));
-    cx.assert_editor_state(indoc! {"The quick brownˇ"});
+    cx.assert_editor_state("The quick brownˇ");
 
-    cx.set_state(indoc! {"The emacs foxˇ"});
+    cx.set_state("The emacs foxˇ");
     cx.update_editor(|e, window, cx| e.kill_ring_cut(&KillRingCut, window, cx));
-    cx.assert_editor_state(indoc! {"The emacs foxˇ"});
+    cx.assert_editor_state("The emacs foxˇ");
 
-    cx.set_state(indoc! {"
-        The quick« brownˇ»
-        fox jumps overˇ
-        the lazy dog"});
+    cx.set_state(
+        "The quick« brownˇ»
+fox jumps overˇ
+the lazy dog",
+    );
     cx.update_editor(|e, window, cx| e.cut(&Cut, window, cx));
-    cx.assert_editor_state(indoc! {"
-        The quickˇ
-        ˇthe lazy dog"});
+    cx.assert_editor_state(
+        "The quickˇ
+ˇthe lazy dog",
+    );
 
-    cx.set_state(indoc! {"
-        The quick« brownˇ»
-        fox jumps overˇ
-        the lazy dog"});
+    cx.set_state(
+        "The quick« brownˇ»
+fox jumps overˇ
+the lazy dog",
+    );
     cx.update_editor(|e, window, cx| e.cut_to_end_of_line(&CutToEndOfLine::default(), window, cx));
-    cx.assert_editor_state(indoc! {"
-        The quickˇ
-        fox jumps overˇthe lazy dog"});
+    cx.assert_editor_state(
+        "The quickˇ
+fox jumps overˇthe lazy dog",
+    );
 
-    cx.set_state(indoc! {"
-        The quick« brownˇ»
-        fox jumps overˇ
-        the lazy dog"});
+    cx.set_state(
+        "The quick« brownˇ»
+fox jumps overˇ
+the lazy dog",
+    );
     cx.update_editor(|e, window, cx| {
         e.cut_to_end_of_line(
             &CutToEndOfLine {
@@ -10614,19 +10885,22 @@ async fn test_cut_line_ends(cx: &mut TestAppContext) {
             cx,
         )
     });
-    cx.assert_editor_state(indoc! {"
-        The quickˇ
-        fox jumps overˇ
-        the lazy dog"});
+    cx.assert_editor_state(
+        "The quickˇ
+fox jumps overˇ
+the lazy dog",
+    );
 
-    cx.set_state(indoc! {"
-        The quick« brownˇ»
-        fox jumps overˇ
-        the lazy dog"});
+    cx.set_state(
+        "The quick« brownˇ»
+fox jumps overˇ
+the lazy dog",
+    );
     cx.update_editor(|e, window, cx| e.kill_ring_cut(&KillRingCut, window, cx));
-    cx.assert_editor_state(indoc! {"
-        The quickˇ
-        fox jumps overˇthe lazy dog"});
+    cx.assert_editor_state(
+        "The quickˇ
+fox jumps overˇthe lazy dog",
+    );
 
     for selection in ["The quick «brownˇ» fox", "The quick «ˇbrown» fox"] {
         cx.set_state(selection);
@@ -10923,33 +11197,38 @@ async fn test_clipboard(cx: &mut TestAppContext) {
     );
 
     // Cut with three selections, one of which is full-line.
-    cx.set_state(indoc! {"
-        1«2ˇ»3
-        4ˇ567
-        «8ˇ»9"});
+    cx.set_state(
+        "1«2ˇ»3
+4ˇ567
+«8ˇ»9",
+    );
     cx.update_editor(|e, window, cx| e.cut(&Cut, window, cx));
-    cx.assert_editor_state(indoc! {"
-        1ˇ3
-        ˇ9"});
+    cx.assert_editor_state(
+        "1ˇ3
+ˇ9",
+    );
 
     // Paste with three selections, noticing how the copied selection that was full-line
     // gets inserted before the second cursor.
-    cx.set_state(indoc! {"
-        1ˇ3
-        9ˇ
-        «oˇ»ne"});
+    cx.set_state(
+        "1ˇ3
+9ˇ
+«oˇ»ne",
+    );
     cx.update_editor(|e, window, cx| e.paste(&Paste, window, cx));
-    cx.assert_editor_state(indoc! {"
-        12ˇ3
-        4567
-        9ˇ
-        8ˇne"});
+    cx.assert_editor_state(
+        "12ˇ3
+4567
+9ˇ
+8ˇne",
+    );
 
     // Copy with a single cursor only, which writes the whole line into the clipboard.
-    cx.set_state(indoc! {"
-        The quick brown
-        fox juˇmps over
-        the lazy dog"});
+    cx.set_state(
+        "The quick brown
+fox juˇmps over
+the lazy dog",
+    );
     cx.update_editor(|e, window, cx| e.copy(&Copy, window, cx));
     assert_eq!(
         cx.read_from_clipboard()
@@ -10959,18 +11238,20 @@ async fn test_clipboard(cx: &mut TestAppContext) {
 
     // Paste with three selections, noticing how the copied full-line selection is inserted
     // before the empty selections but replaces the selection that is non-empty.
-    cx.set_state(indoc! {"
-        Tˇhe quick brown
-        «foˇ»x jumps over
-        tˇhe lazy dog"});
+    cx.set_state(
+        "Tˇhe quick brown
+«foˇ»x jumps over
+tˇhe lazy dog",
+    );
     cx.update_editor(|e, window, cx| e.paste(&Paste, window, cx));
-    cx.assert_editor_state(indoc! {"
-        fox jumps over
-        Tˇhe quick brown
-        fox jumps over
-        ˇx jumps over
-        fox jumps over
-        tˇhe lazy dog"});
+    cx.assert_editor_state(
+        "fox jumps over
+Tˇhe quick brown
+fox jumps over
+ˇx jumps over
+fox jumps over
+tˇhe lazy dog",
+    );
 }
 
 #[gpui::test]
@@ -10980,10 +11261,11 @@ async fn test_copy_and_paste_non_empty_selection_followed_by_empty_selection(
     init_test(cx, |_| {});
 
     let mut cx = EditorTestContext::new(cx).await;
-    cx.set_state(indoc! {"
-        «fooˇ»
-        barˇ
-    "});
+    cx.set_state(
+        "«fooˇ»
+barˇ
+",
+    );
 
     cx.update_editor(|editor, window, cx| editor.copy(&Copy, window, cx));
     assert_eq!(
@@ -10992,11 +11274,12 @@ async fn test_copy_and_paste_non_empty_selection_followed_by_empty_selection(
     );
 
     cx.update_editor(|editor, window, cx| editor.paste(&Paste, window, cx));
-    cx.assert_editor_state(indoc! {"
-        fooˇ
-        bar
-        barˇ
-    "});
+    cx.assert_editor_state(
+        "fooˇ
+bar
+barˇ
+",
+    );
 }
 
 #[gpui::test]
@@ -11209,11 +11492,12 @@ async fn test_copy_trim_line_mode(cx: &mut TestAppContext) {
 
     let mut cx = EditorTestContext::new(cx).await;
 
-    cx.set_state(indoc! {"
-        «    fn main() {
-                1
-            }ˇ»
-    "});
+    cx.set_state(
+        "«    fn main() {
+        1
+    }ˇ»
+",
+    );
     cx.update_editor(|editor, _window, _cx| editor.selections.set_line_mode(true));
     cx.update_editor(|editor, window, cx| editor.copy_and_trim(&CopyAndTrim, window, cx));
 
@@ -11234,11 +11518,12 @@ async fn test_copy_trim_line_mode(cx: &mut TestAppContext) {
     assert_eq!(clipboard_selections.len(), 1);
     assert!(clipboard_selections[0].is_entire_line);
 
-    cx.set_state(indoc! {"
-        «fn main() {
-            1
-        }ˇ»
-    "});
+    cx.set_state(
+        "«fn main() {
+    1
+}ˇ»
+",
+    );
     cx.update_editor(|editor, _window, _cx| editor.selections.set_line_mode(true));
     cx.update_editor(|editor, window, cx| editor.copy_and_trim(&CopyAndTrim, window, cx));
 
@@ -11624,134 +11909,146 @@ async fn test_paste_multiline(cx: &mut TestAppContext) {
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(rust_lang()), cx));
 
     // Cut an indented block, without the leading whitespace.
-    cx.set_state(indoc! {"
-        const a: B = (
-            c(),
-            «d(
-                e,
-                f
-            )ˇ»
-        );
-    "});
+    cx.set_state(
+        "const a: B = (
+    c(),
+    «d(
+        e,
+        f
+    )ˇ»
+);
+",
+    );
     cx.update_editor(|e, window, cx| e.cut(&Cut, window, cx));
-    cx.assert_editor_state(indoc! {"
-        const a: B = (
-            c(),
-            ˇ
-        );
-    "});
+    cx.assert_editor_state(
+        "const a: B = (
+    c(),
+    ˇ
+);
+",
+    );
 
     // Paste it at the same position.
     cx.update_editor(|e, window, cx| e.paste(&Paste, window, cx));
-    cx.assert_editor_state(indoc! {"
-        const a: B = (
-            c(),
-            d(
-                e,
-                f
-            )ˇ
-        );
-    "});
+    cx.assert_editor_state(
+        "const a: B = (
+    c(),
+    d(
+        e,
+        f
+    )ˇ
+);
+",
+    );
 
     // Paste it at a line with a lower indent level.
-    cx.set_state(indoc! {"
-        ˇ
-        const a: B = (
-            c(),
-        );
-    "});
+    cx.set_state(
+        "ˇ
+const a: B = (
+    c(),
+);
+",
+    );
     cx.update_editor(|e, window, cx| e.paste(&Paste, window, cx));
-    cx.assert_editor_state(indoc! {"
-        d(
-            e,
-            f
-        )ˇ
-        const a: B = (
-            c(),
-        );
-    "});
+    cx.assert_editor_state(
+        "d(
+    e,
+    f
+)ˇ
+const a: B = (
+    c(),
+);
+",
+    );
 
     // Cut an indented block, with the leading whitespace.
-    cx.set_state(indoc! {"
-        const a: B = (
-            c(),
-        «    d(
-                e,
-                f
-            )
-        ˇ»);
-    "});
+    cx.set_state(
+        "const a: B = (
+    c(),
+«    d(
+        e,
+        f
+    )
+ˇ»);
+",
+    );
     cx.update_editor(|e, window, cx| e.cut(&Cut, window, cx));
-    cx.assert_editor_state(indoc! {"
-        const a: B = (
-            c(),
-        ˇ);
-    "});
+    cx.assert_editor_state(
+        "const a: B = (
+    c(),
+ˇ);
+",
+    );
 
     // Paste it at the same position.
     cx.update_editor(|e, window, cx| e.paste(&Paste, window, cx));
-    cx.assert_editor_state(indoc! {"
-        const a: B = (
-            c(),
-            d(
-                e,
-                f
-            )
-        ˇ);
-    "});
+    cx.assert_editor_state(
+        "const a: B = (
+    c(),
+    d(
+        e,
+        f
+    )
+ˇ);
+",
+    );
 
     // Paste it at a line with a higher indent level.
-    cx.set_state(indoc! {"
-        const a: B = (
-            c(),
-            d(
-                e,
-                fˇ
-            )
-        );
-    "});
+    cx.set_state(
+        "const a: B = (
+    c(),
+    d(
+        e,
+        fˇ
+    )
+);
+",
+    );
     cx.update_editor(|e, window, cx| e.paste(&Paste, window, cx));
-    cx.assert_editor_state(indoc! {"
-        const a: B = (
-            c(),
-            d(
-                e,
-                f    d(
-                    e,
-                    f
-                )
-        ˇ
-            )
-        );
-    "});
+    cx.assert_editor_state(
+        "const a: B = (
+    c(),
+    d(
+        e,
+        f    d(
+            e,
+            f
+        )
+ˇ
+    )
+);
+",
+    );
 
     // Copy an indented block, starting mid-line
-    cx.set_state(indoc! {"
-        const a: B = (
-            c(),
-            somethin«g(
-                e,
-                f
-            )ˇ»
-        );
-    "});
+    cx.set_state(
+        "const a: B = (
+    c(),
+    somethin«g(
+        e,
+        f
+    )ˇ»
+);
+",
+    );
     cx.update_editor(|e, window, cx| e.copy(&Copy, window, cx));
 
     // Paste it on a line with a lower indent level
     cx.update_editor(|e, window, cx| e.move_to_end(&Default::default(), window, cx));
     cx.update_editor(|e, window, cx| e.paste(&Paste, window, cx));
-    cx.assert_editor_state(indoc! {"
-        const a: B = (
-            c(),
-            something(
-                e,
-                f
-            )
-        );
-        g(
-            e,
-            f
-        )ˇ"});
+    cx.assert_editor_state(
+        "const a: B = (
+    c(),
+    something(
+        e,
+        f
+    )
+);
+g(
+    e,
+    f
+)ˇ",
+    );
 }
 
 #[gpui::test]
@@ -11796,45 +12093,49 @@ async fn test_paste_content_from_other_app(cx: &mut TestAppContext) {
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(rust_lang()), cx));
     cx.run_until_parked();
 
-    cx.set_state(indoc! {"
-        fn a() {
-            b();
-            if c() {
-                ˇ
-            }
-        }
-    "});
+    cx.set_state(
+        "fn a() {
+    b();
+    if c() {
+        ˇ
+    }
+}
+",
+    );
 
     cx.update_editor(|e, window, cx| e.paste(&Paste, window, cx));
-    cx.assert_editor_state(indoc! {"
-        fn a() {
-            b();
-            if c() {
-                d(
-                    e
-                );
-        ˇ
-            }
-        }
-    "});
+    cx.assert_editor_state(
+        "fn a() {
+    b();
+    if c() {
+        d(
+            e
+        );
+ˇ
+    }
+}
+",
+    );
 
-    cx.set_state(indoc! {"
-        fn a() {
-            b();
-            ˇ
-        }
-    "});
+    cx.set_state(
+        "fn a() {
+    b();
+    ˇ
+}
+",
+    );
 
     cx.update_editor(|e, window, cx| e.paste(&Paste, window, cx));
-    cx.assert_editor_state(indoc! {"
-        fn a() {
-            b();
-            d(
-                e
-            );
-        ˇ
-        }
-    "});
+    cx.assert_editor_state(
+        "fn a() {
+    b();
+    d(
+        e
+    );
+ˇ
+}
+",
+    );
 }
 
 #[gpui::test]
@@ -14257,14 +14558,14 @@ async fn test_add_selection_above_below_with_fold(cx: &mut TestAppContext) {
 
     let mut cx = EditorTestContext::new(cx).await;
 
-    cx.set_state(indoc!(
+    cx.set_state(
         r#"fn foo() {
-            aaaa
-            bbbb
-        }
-        one
-        twoˇ"#
-    ));
+    aaaa
+    bbbb
+}
+one
+twoˇ"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.fold_creases(
@@ -14288,14 +14589,14 @@ async fn test_add_selection_above_below_with_fold(cx: &mut TestAppContext) {
         );
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"fn foo() {
-            aaaa
-            bbbb
-        }
-        oneˇ
-        twoˇ"#
-    ));
+    aaaa
+    bbbb
+}
+oneˇ
+twoˇ"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_above(
@@ -14307,23 +14608,23 @@ async fn test_add_selection_above_below_with_fold(cx: &mut TestAppContext) {
         );
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"fn ˇfoo() {
-            aaaa
-            bbbb
-        }
-        oneˇ
-        twoˇ"#
-    ));
+    aaaa
+    bbbb
+}
+oneˇ
+twoˇ"#,
+    );
 
-    cx.set_state(indoc!(
+    cx.set_state(
         r#"fn fˇoo() {
-            aaaa
-            bbbb
-        }
-        one
-        two"#
-    ));
+    aaaa
+    bbbb
+}
+one
+two"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.fold_creases(
@@ -14347,14 +14648,14 @@ async fn test_add_selection_above_below_with_fold(cx: &mut TestAppContext) {
         );
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"fn fˇoo() {
-            aaaa
-            bbbb
-        }
-        oneˇ
-        two"#
-    ));
+    aaaa
+    bbbb
+}
+oneˇ
+two"#,
+    );
 }
 
 #[gpui::test]
@@ -14363,284 +14664,285 @@ async fn test_add_selection_above_below(cx: &mut TestAppContext) {
 
     let mut cx = EditorTestContext::new(cx).await;
 
-    cx.set_state(indoc!(
+    cx.set_state(
         r#"abc
-           defˇghi
+defˇghi
 
-           jk
-           nlmo
-           "#
-    ));
-
-    cx.update_editor(|editor, window, cx| {
-        editor.add_selection_above(&Default::default(), window, cx);
-    });
-
-    cx.assert_editor_state(indoc!(
-        r#"abcˇ
-           defˇghi
-
-           jk
-           nlmo
-           "#
-    ));
+jk
+nlmo
+"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_above(&Default::default(), window, cx);
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"abcˇ
-            defˇghi
+defˇghi
 
-            jk
-            nlmo
-            "#
-    ));
+jk
+nlmo
+"#,
+    );
+
+    cx.update_editor(|editor, window, cx| {
+        editor.add_selection_above(&Default::default(), window, cx);
+    });
+
+    cx.assert_editor_state(
+        r#"abcˇ
+defˇghi
+
+jk
+nlmo
+"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_below(&Default::default(), window, cx);
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"abc
-           defˇghi
+defˇghi
 
-           jk
-           nlmo
-           "#
-    ));
+jk
+nlmo
+"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.undo_selection(&Default::default(), window, cx);
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"abcˇ
-           defˇghi
+defˇghi
 
-           jk
-           nlmo
-           "#
-    ));
+jk
+nlmo
+"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.redo_selection(&Default::default(), window, cx);
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"abc
-           defˇghi
+defˇghi
 
-           jk
-           nlmo
-           "#
-    ));
+jk
+nlmo
+"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_below(&Default::default(), window, cx);
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"abc
-           defˇghi
-           ˇ
-           jk
-           nlmo
-           "#
-    ));
+defˇghi
+ˇ
+jk
+nlmo
+"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_below(&Default::default(), window, cx);
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"abc
-           defˇghi
-           ˇ
-           jkˇ
-           nlmo
-           "#
-    ));
+defˇghi
+ˇ
+jkˇ
+nlmo
+"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_below(&Default::default(), window, cx);
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"abc
-           defˇghi
-           ˇ
-           jkˇ
-           nlmˇo
-           "#
-    ));
+defˇghi
+ˇ
+jkˇ
+nlmˇo
+"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_below(&Default::default(), window, cx);
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"abc
-           defˇghi
-           ˇ
-           jkˇ
-           nlmˇo
-           ˇ"#
-    ));
+defˇghi
+ˇ
+jkˇ
+nlmˇo
+ˇ"#,
+    );
 
     // change selections
-    cx.set_state(indoc!(
+    cx.set_state(
         r#"abc
-           def«ˇg»hi
+def«ˇg»hi
 
-           jk
-           nlmo
-           "#
-    ));
+jk
+nlmo
+"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_below(&Default::default(), window, cx);
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"abc
-           def«ˇg»hi
+def«ˇg»hi
 
-           jk
-           nlm«ˇo»
-           "#
-    ));
+jk
+nlm«ˇo»
+"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_below(&Default::default(), window, cx);
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"abc
-           def«ˇg»hi
+def«ˇg»hi
 
-           jk
-           nlm«ˇo»
-           "#
-    ));
+jk
+nlm«ˇo»
+"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_above(&Default::default(), window, cx);
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"abc
-           def«ˇg»hi
+def«ˇg»hi
 
-           jk
-           nlmo
-           "#
-    ));
+jk
+nlmo
+"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_above(&Default::default(), window, cx);
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"abc
-           def«ˇg»hi
+def«ˇg»hi
 
-           jk
-           nlmo
-           "#
-    ));
+jk
+nlmo
+"#,
+    );
 
     // Change selections again
-    cx.set_state(indoc!(
+    cx.set_state(
         r#"a«bc
-           defgˇ»hi
+defgˇ»hi
 
-           jk
-           nlmo
-           "#
-    ));
-
-    cx.update_editor(|editor, window, cx| {
-        editor.add_selection_below(&Default::default(), window, cx);
-    });
-
-    cx.assert_editor_state(indoc!(
-        r#"a«bcˇ»
-           d«efgˇ»hi
-
-           j«kˇ»
-           nlmo
-           "#
-    ));
+jk
+nlmo
+"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_below(&Default::default(), window, cx);
     });
-    cx.assert_editor_state(indoc!(
-        r#"a«bcˇ»
-           d«efgˇ»hi
 
-           j«kˇ»
-           n«lmoˇ»
-           "#
-    ));
+    cx.assert_editor_state(
+        r#"a«bcˇ»
+d«efgˇ»hi
+
+j«kˇ»
+nlmo
+"#,
+    );
+
+    cx.update_editor(|editor, window, cx| {
+        editor.add_selection_below(&Default::default(), window, cx);
+    });
+    cx.assert_editor_state(
+        r#"a«bcˇ»
+d«efgˇ»hi
+
+j«kˇ»
+n«lmoˇ»
+"#,
+    );
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_above(&Default::default(), window, cx);
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"a«bcˇ»
-           d«efgˇ»hi
+d«efgˇ»hi
 
-           j«kˇ»
-           nlmo
-           "#
-    ));
+j«kˇ»
+nlmo
+"#,
+    );
 
     // Change selections again
-    cx.set_state(indoc!(
+    cx.set_state(
         r#"abc
-           d«ˇefghi
+d«ˇefghi
 
-           jk
-           nlm»o
-           "#
-    ));
+jk
+nlm»o
+"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_above(&Default::default(), window, cx);
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"a«ˇbc»
-           d«ˇef»ghi
+d«ˇef»ghi
 
-           j«ˇk»
-           n«ˇlm»o
-           "#
-    ));
+j«ˇk»
+n«ˇlm»o
+"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_below(&Default::default(), window, cx);
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"abc
-           d«ˇef»ghi
+d«ˇef»ghi
 
-           j«ˇk»
-           n«ˇlm»o
-           "#
-    ));
+j«ˇk»
+n«ˇlm»o
+"#,
+    );
 
     // Assert that the oldest selection's goal column is used when adding more
     // selections, not the most recently added selection's actual column.
-    cx.set_state(indoc! {"
-        foo bar bazˇ
-        foo
-        foo bar
-    "});
+    cx.set_state(
+        "foo bar bazˇ
+foo
+foo bar
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_below(
@@ -14652,11 +14954,12 @@ async fn test_add_selection_above_below(cx: &mut TestAppContext) {
         );
     });
 
-    cx.assert_editor_state(indoc! {"
-        foo bar bazˇ
-        fooˇ
-        foo bar
-    "});
+    cx.assert_editor_state(
+        "foo bar bazˇ
+fooˇ
+foo bar
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_below(
@@ -14668,33 +14971,19 @@ async fn test_add_selection_above_below(cx: &mut TestAppContext) {
         );
     });
 
-    cx.assert_editor_state(indoc! {"
-        foo bar bazˇ
-        fooˇ
-        foo barˇ
-    "});
+    cx.assert_editor_state(
+        "foo bar bazˇ
+fooˇ
+foo barˇ
+",
+    );
 
-    cx.set_state(indoc! {"
-        foo bar baz
-        foo
-        foo barˇ
-    "});
-
-    cx.update_editor(|editor, window, cx| {
-        editor.add_selection_above(
-            &AddSelectionAbove {
-                skip_soft_wrap: true,
-            },
-            window,
-            cx,
-        );
-    });
-
-    cx.assert_editor_state(indoc! {"
-        foo bar baz
-        fooˇ
-        foo barˇ
-    "});
+    cx.set_state(
+        "foo bar baz
+foo
+foo barˇ
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_above(
@@ -14706,11 +14995,29 @@ async fn test_add_selection_above_below(cx: &mut TestAppContext) {
         );
     });
 
-    cx.assert_editor_state(indoc! {"
-        foo barˇ baz
-        fooˇ
-        foo barˇ
-    "});
+    cx.assert_editor_state(
+        "foo bar baz
+fooˇ
+foo barˇ
+",
+    );
+
+    cx.update_editor(|editor, window, cx| {
+        editor.add_selection_above(
+            &AddSelectionAbove {
+                skip_soft_wrap: true,
+            },
+            window,
+            cx,
+        );
+    });
+
+    cx.assert_editor_state(
+        "foo barˇ baz
+fooˇ
+foo barˇ
+",
+    );
 }
 
 #[gpui::test]
@@ -14718,24 +15025,24 @@ async fn test_add_selection_above_below_multi_cursor(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
     let mut cx = EditorTestContext::new(cx).await;
 
-    cx.set_state(indoc!(
+    cx.set_state(
         r#"line onˇe
-           liˇne two
-           line three
-           line four"#
-    ));
+liˇne two
+line three
+line four"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_below(&Default::default(), window, cx);
     });
 
     // test multiple cursors expand in the same direction
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"line onˇe
-           liˇne twˇo
-           liˇne three
-           line four"#
-    ));
+liˇne twˇo
+liˇne three
+line four"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_below(&Default::default(), window, cx);
@@ -14746,24 +15053,24 @@ async fn test_add_selection_above_below_multi_cursor(cx: &mut TestAppContext) {
     });
 
     // test multiple cursors expand below overflow
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"line onˇe
-           liˇne twˇo
-           liˇne thˇree
-           liˇne foˇur"#
-    ));
+liˇne twˇo
+liˇne thˇree
+liˇne foˇur"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_above(&Default::default(), window, cx);
     });
 
     // test multiple cursors retrieves back correctly
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"line onˇe
-           liˇne twˇo
-           liˇne thˇree
-           line four"#
-    ));
+liˇne twˇo
+liˇne thˇree
+line four"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_above(&Default::default(), window, cx);
@@ -14774,115 +15081,115 @@ async fn test_add_selection_above_below_multi_cursor(cx: &mut TestAppContext) {
     });
 
     // test multiple cursor groups maintain independent direction - first expands up, second shrinks above
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"liˇne onˇe
-           liˇne two
-           line three
-           line four"#
-    ));
+liˇne two
+line three
+line four"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.undo_selection(&Default::default(), window, cx);
     });
 
     // test undo
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"line onˇe
-           liˇne twˇo
-           line three
-           line four"#
-    ));
+liˇne twˇo
+line three
+line four"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.redo_selection(&Default::default(), window, cx);
     });
 
     // test redo
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"liˇne onˇe
-           liˇne two
-           line three
-           line four"#
-    ));
+liˇne two
+line three
+line four"#,
+    );
 
-    cx.set_state(indoc!(
+    cx.set_state(
         r#"abcd
-           ef«ghˇ»
-           ijkl
-           «mˇ»nop"#
-    ));
+ef«ghˇ»
+ijkl
+«mˇ»nop"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_above(&Default::default(), window, cx);
     });
 
     // test multiple selections expand in the same direction
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"ab«cdˇ»
-           ef«ghˇ»
-           «iˇ»jkl
-           «mˇ»nop"#
-    ));
+ef«ghˇ»
+«iˇ»jkl
+«mˇ»nop"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_above(&Default::default(), window, cx);
     });
 
     // test multiple selection upward overflow
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"ab«cdˇ»
-           «eˇ»f«ghˇ»
-           «iˇ»jkl
-           «mˇ»nop"#
-    ));
+«eˇ»f«ghˇ»
+«iˇ»jkl
+«mˇ»nop"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_below(&Default::default(), window, cx);
     });
 
     // test multiple selection retrieves back correctly
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"abcd
-           ef«ghˇ»
-           «iˇ»jkl
-           «mˇ»nop"#
-    ));
+ef«ghˇ»
+«iˇ»jkl
+«mˇ»nop"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_below(&Default::default(), window, cx);
     });
 
     // test multiple cursor groups maintain independent direction - first shrinks down, second expands below
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"abcd
-           ef«ghˇ»
-           ij«klˇ»
-           «mˇ»nop"#
-    ));
+ef«ghˇ»
+ij«klˇ»
+«mˇ»nop"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.undo_selection(&Default::default(), window, cx);
     });
 
     // test undo
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"abcd
-           ef«ghˇ»
-           «iˇ»jkl
-           «mˇ»nop"#
-    ));
+ef«ghˇ»
+«iˇ»jkl
+«mˇ»nop"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.redo_selection(&Default::default(), window, cx);
     });
 
     // test redo
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"abcd
-           ef«ghˇ»
-           ij«klˇ»
-           «mˇ»nop"#
-    ));
+ef«ghˇ»
+ij«klˇ»
+«mˇ»nop"#,
+    );
 }
 
 #[gpui::test]
@@ -14890,12 +15197,12 @@ async fn test_add_selection_above_below_multi_cursor_existing_state(cx: &mut Tes
     init_test(cx, |_| {});
     let mut cx = EditorTestContext::new(cx).await;
 
-    cx.set_state(indoc!(
+    cx.set_state(
         r#"line onˇe
-           liˇne two
-           line three
-           line four"#
-    ));
+liˇne two
+line three
+line four"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_below(&Default::default(), window, cx);
@@ -14904,12 +15211,12 @@ async fn test_add_selection_above_below_multi_cursor_existing_state(cx: &mut Tes
     });
 
     // initial state with two multi cursor groups
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"line onˇe
-           liˇne twˇo
-           liˇne thˇree
-           liˇne foˇur"#
-    ));
+liˇne twˇo
+liˇne thˇree
+liˇne foˇur"#,
+    );
 
     // add single cursor in middle - simulate opt click
     cx.update_editor(|editor, window, cx| {
@@ -14918,56 +15225,56 @@ async fn test_add_selection_above_below_multi_cursor_existing_state(cx: &mut Tes
         editor.end_selection(window, cx);
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"line onˇe
-           liˇne twˇo
-           liˇneˇ thˇree
-           liˇne foˇur"#
-    ));
+liˇne twˇo
+liˇneˇ thˇree
+liˇne foˇur"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_above(&Default::default(), window, cx);
     });
 
     // test new added selection expands above and existing selection shrinks
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"line onˇe
-           liˇneˇ twˇo
-           liˇneˇ thˇree
-           line four"#
-    ));
+liˇneˇ twˇo
+liˇneˇ thˇree
+line four"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_above(&Default::default(), window, cx);
     });
 
     // test new added selection expands above and existing selection shrinks
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"lineˇ onˇe
-           liˇneˇ twˇo
-           lineˇ three
-           line four"#
-    ));
+liˇneˇ twˇo
+lineˇ three
+line four"#,
+    );
 
     // intial state with two selection groups
-    cx.set_state(indoc!(
+    cx.set_state(
         r#"abcd
-           ef«ghˇ»
-           ijkl
-           «mˇ»nop"#
-    ));
+ef«ghˇ»
+ijkl
+«mˇ»nop"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_above(&Default::default(), window, cx);
         editor.add_selection_above(&Default::default(), window, cx);
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"ab«cdˇ»
-           «eˇ»f«ghˇ»
-           «iˇ»jkl
-           «mˇ»nop"#
-    ));
+«eˇ»f«ghˇ»
+«iˇ»jkl
+«mˇ»nop"#,
+    );
 
     // add single selection in middle - simulate opt drag
     cx.update_editor(|editor, window, cx| {
@@ -14983,24 +15290,24 @@ async fn test_add_selection_above_below_multi_cursor_existing_state(cx: &mut Tes
         editor.end_selection(window, cx);
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"ab«cdˇ»
-           «eˇ»f«ghˇ»
-           «iˇ»jk«lˇ»
-           «mˇ»nop"#
-    ));
+«eˇ»f«ghˇ»
+«iˇ»jk«lˇ»
+«mˇ»nop"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_below(&Default::default(), window, cx);
     });
 
     // test new added selection expands below, others shrinks from above
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"abcd
-           ef«ghˇ»
-           «iˇ»jk«lˇ»
-           «mˇ»no«pˇ»"#
-    ));
+ef«ghˇ»
+«iˇ»jk«lˇ»
+«mˇ»no«pˇ»"#,
+    );
 }
 
 #[gpui::test]
@@ -15010,19 +15317,19 @@ async fn test_add_selection_above_below_multibyte(cx: &mut TestAppContext) {
 
     // Cursor after "Häl" (byte column 4, char column 3) should align to
     // char column 3 on the ASCII line below, not byte column 4.
-    cx.set_state(indoc!(
+    cx.set_state(
         r#"Hälˇlö
-           Hallo"#
-    ));
+Hallo"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.add_selection_below(&Default::default(), window, cx);
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         r#"Hälˇlö
-           Halˇlo"#
-    ));
+Halˇlo"#,
+    );
 }
 
 #[gpui::test]
@@ -15268,13 +15575,14 @@ async fn test_undo_format_scrolls_to_last_edit_pos(cx: &mut TestAppContext) {
     )
     .await;
 
-    cx.set_state(indoc! {"
-        line 1
-        line 2
-        linˇe 3
-        line 4
-        line 5
-    "});
+    cx.set_state(
+        "line 1
+line 2
+linˇe 3
+line 4
+line 5
+",
+    );
 
     // Make an edit
     cx.update_editor(|editor, window, cx| {
@@ -15288,13 +15596,14 @@ async fn test_undo_format_scrolls_to_last_edit_pos(cx: &mut TestAppContext) {
         });
     });
 
-    cx.assert_editor_state(indoc! {"
-        line 1
-        line 2
-        linXe 3
-        line 4
-        liˇne 5
-    "});
+    cx.assert_editor_state(
+        "line 1
+line 2
+linXe 3
+line 4
+liˇne 5
+",
+    );
 
     cx.lsp
         .set_request_handler::<lsp::request::Formatting, _, _>(move |_, _| async move {
@@ -15309,13 +15618,14 @@ async fn test_undo_format_scrolls_to_last_edit_pos(cx: &mut TestAppContext) {
         .await
         .unwrap();
 
-    cx.assert_editor_state(indoc! {"
-        PREFIX line 1
-        line 2
-        linXe 3
-        line 4
-        liˇne 5
-    "});
+    cx.assert_editor_state(
+        "PREFIX line 1
+line 2
+linXe 3
+line 4
+liˇne 5
+",
+    );
 
     // Undo formatting
     cx.update_editor(|editor, window, cx| {
@@ -15323,13 +15633,14 @@ async fn test_undo_format_scrolls_to_last_edit_pos(cx: &mut TestAppContext) {
     });
 
     // Verify cursor moved back to position after edit
-    cx.assert_editor_state(indoc! {"
-        line 1
-        line 2
-        linXˇe 3
-        line 4
-        line 5
-    "});
+    cx.assert_editor_state(
+        "line 1
+line 2
+linXˇe 3
+line 4
+line 5
+",
+    );
 }
 
 #[gpui::test]
@@ -15393,23 +15704,26 @@ async fn test_select_previous_multibuffer(cx: &mut TestAppContext) {
     let mut cx =
         EditorTestContext::new_multibuffer(cx, ["aaa\n«bbb\nccc»\nddd", "aaa\n«bbb\nccc»\nddd"]);
 
-    cx.assert_editor_state(indoc! {"
-        ˇbbb
-        ccc
-        bbb
-        ccc"});
+    cx.assert_editor_state(
+        "ˇbbb
+ccc
+bbb
+ccc",
+    );
     cx.dispatch_action(SelectPrevious::default());
-    cx.assert_editor_state(indoc! {"
-                «bbbˇ»
-                ccc
-                bbb
-                ccc"});
+    cx.assert_editor_state(
+        "«bbbˇ»
+ccc
+bbb
+ccc",
+    );
     cx.dispatch_action(SelectPrevious::default());
-    cx.assert_editor_state(indoc! {"
-                «bbbˇ»
-                ccc
-                «bbbˇ»
-                ccc"});
+    cx.assert_editor_state(
+        "«bbbˇ»
+ccc
+«bbbˇ»
+ccc",
+    );
 }
 
 #[gpui::test]
@@ -15595,13 +15909,12 @@ async fn test_select_larger_smaller_syntax_node(cx: &mut TestAppContext) {
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                use mod1::mod2::{mod3, «mod4ˇ»};
+            r#"use mod1::mod2::{mod3, «mod4ˇ»};
 
-                fn fn_1«ˇ(param1: bool, param2: &str)» {
-                    let var1 = "«textˇ»";
-                }
-            "#},
+fn fn_1«ˇ(param1: bool, param2: &str)» {
+    let var1 = "«textˇ»";
+}
+"#,
             cx,
         );
     });
@@ -15612,13 +15925,12 @@ async fn test_select_larger_smaller_syntax_node(cx: &mut TestAppContext) {
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                use mod1::mod2::«{mod3, mod4}ˇ»;
+            r#"use mod1::mod2::«{mod3, mod4}ˇ»;
 
-                «ˇfn fn_1(param1: bool, param2: &str) {
-                    let var1 = "text";
-                }»
-            "#},
+«ˇfn fn_1(param1: bool, param2: &str) {
+    let var1 = "text";
+}»
+"#,
             cx,
         );
     });
@@ -15650,13 +15962,12 @@ async fn test_select_larger_smaller_syntax_node(cx: &mut TestAppContext) {
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                use mod1::mod2::«{mod3, mod4}ˇ»;
+            r#"use mod1::mod2::«{mod3, mod4}ˇ»;
 
-                «ˇfn fn_1(param1: bool, param2: &str) {
-                    let var1 = "text";
-                }»
-            "#},
+«ˇfn fn_1(param1: bool, param2: &str) {
+    let var1 = "text";
+}»
+"#,
             cx,
         );
     });
@@ -15667,13 +15978,12 @@ async fn test_select_larger_smaller_syntax_node(cx: &mut TestAppContext) {
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                use mod1::mod2::{mod3, «mod4ˇ»};
+            r#"use mod1::mod2::{mod3, «mod4ˇ»};
 
-                fn fn_1«ˇ(param1: bool, param2: &str)» {
-                    let var1 = "«textˇ»";
-                }
-            "#},
+fn fn_1«ˇ(param1: bool, param2: &str)» {
+    let var1 = "«textˇ»";
+}
+"#,
             cx,
         );
     });
@@ -15684,13 +15994,12 @@ async fn test_select_larger_smaller_syntax_node(cx: &mut TestAppContext) {
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                use mod1::mod2::{mod3, moˇd4};
+            r#"use mod1::mod2::{mod3, moˇd4};
 
-                fn fn_1(para«ˇm1: bool, pa»ram2: &str) {
-                    let var1 = "teˇxt";
-                }
-            "#},
+fn fn_1(para«ˇm1: bool, pa»ram2: &str) {
+    let var1 = "teˇxt";
+}
+"#,
             cx,
         );
     });
@@ -15702,13 +16011,12 @@ async fn test_select_larger_smaller_syntax_node(cx: &mut TestAppContext) {
     editor.update_in(cx, |editor, _, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                use mod1::mod2::{mod3, moˇd4};
+            r#"use mod1::mod2::{mod3, moˇd4};
 
-                fn fn_1(para«ˇm1: bool, pa»ram2: &str) {
-                    let var1 = "teˇxt";
-                }
-            "#},
+fn fn_1(para«ˇm1: bool, pa»ram2: &str) {
+    let var1 = "teˇxt";
+}
+"#,
             cx,
         );
     });
@@ -15736,13 +16044,12 @@ async fn test_select_larger_smaller_syntax_node(cx: &mut TestAppContext) {
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                use mod1::mod2::«{mod3, mod4}ˇ»;
+            r#"use mod1::mod2::«{mod3, mod4}ˇ»;
 
-                fn fn_1«ˇ(param1: bool, param2: &str)» {
-                    let var1 = "«textˇ»";
-                }
-            "#},
+fn fn_1«ˇ(param1: bool, param2: &str)» {
+    let var1 = "«textˇ»";
+}
+"#,
             cx,
         );
     });
@@ -15761,13 +16068,12 @@ async fn test_select_larger_smaller_syntax_node(cx: &mut TestAppContext) {
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                use mod1::mod2::{mod3, «mod4ˇ»};
+            r#"use mod1::mod2::{mod3, «mod4ˇ»};
 
-                fn fn_1(param1: bool, param2: &str) {
-                    let var1 = "«textˇ»";
-                }
-            "#},
+fn fn_1(param1: bool, param2: &str) {
+    let var1 = "«textˇ»";
+}
+"#,
             cx,
         );
     });
@@ -15873,11 +16179,10 @@ async fn test_select_larger_syntax_node_for_cursor_at_symbol(cx: &mut TestAppCon
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                let a = {ˇ
-                    key: "value",
-                };
-            "#},
+            r#"let a = {ˇ
+    key: "value",
+};
+"#,
             cx,
         );
     });
@@ -15887,11 +16192,10 @@ async fn test_select_larger_syntax_node_for_cursor_at_symbol(cx: &mut TestAppCon
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                let a = «ˇ{
-                    key: "value",
-                }»;
-            "#},
+            r#"let a = «ˇ{
+    key: "value",
+}»;
+"#,
             cx,
         );
     });
@@ -15907,11 +16211,10 @@ async fn test_select_larger_syntax_node_for_cursor_at_symbol(cx: &mut TestAppCon
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                let a = {
-                    key:ˇ "value",
-                };
-            "#},
+            r#"let a = {
+    key:ˇ "value",
+};
+"#,
             cx,
         );
     });
@@ -15921,11 +16224,10 @@ async fn test_select_larger_syntax_node_for_cursor_at_symbol(cx: &mut TestAppCon
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                let a = {
-                    «ˇkey: "value"»,
-                };
-            "#},
+            r#"let a = {
+    «ˇkey: "value"»,
+};
+"#,
             cx,
         );
     });
@@ -15935,11 +16237,10 @@ async fn test_select_larger_syntax_node_for_cursor_at_symbol(cx: &mut TestAppCon
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                let a = «ˇ{
-                    key: "value",
-                }»;
-            "#},
+            r#"let a = «ˇ{
+    key: "value",
+}»;
+"#,
             cx,
         );
     });
@@ -15955,11 +16256,10 @@ async fn test_select_larger_syntax_node_for_cursor_at_symbol(cx: &mut TestAppCon
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                let a = {
-                    key: "value",ˇ
-                };
-            "#},
+            r#"let a = {
+    key: "value",ˇ
+};
+"#,
             cx,
         );
     });
@@ -15969,11 +16269,10 @@ async fn test_select_larger_syntax_node_for_cursor_at_symbol(cx: &mut TestAppCon
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                let a = «ˇ{
-                    key: "value",
-                }»;
-            "#},
+            r#"let a = «ˇ{
+    key: "value",
+}»;
+"#,
             cx,
         );
     });
@@ -15989,11 +16288,10 @@ async fn test_select_larger_syntax_node_for_cursor_at_symbol(cx: &mut TestAppCon
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                let a = {
-                    key: "value",
-                };ˇ
-            "#},
+            r#"let a = {
+    key: "value",
+};ˇ
+"#,
             cx,
         );
     });
@@ -16003,11 +16301,10 @@ async fn test_select_larger_syntax_node_for_cursor_at_symbol(cx: &mut TestAppCon
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                «ˇlet a = {
-                    key: "value",
-                };
-                »"#},
+            r#"«ˇlet a = {
+    key: "value",
+};
+»"#,
             cx,
         );
     });
@@ -16050,25 +16347,23 @@ async fn test_select_larger_smaller_syntax_node_for_string(cx: &mut TestAppConte
     editor.update_in(cx, |editor, window, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                use mod1::mod2::{mod3, mod4};
+            r#"use mod1::mod2::{mod3, mod4};
 
-                fn fn_1(param1: bool, param2: &str) {
-                    let var1 = "hˇello world";
-                }
-            "#},
+fn fn_1(param1: bool, param2: &str) {
+    let var1 = "hˇello world";
+}
+"#,
             cx,
         );
         editor.select_larger_syntax_node(&SelectLargerSyntaxNode, window, cx);
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                use mod1::mod2::{mod3, mod4};
+            r#"use mod1::mod2::{mod3, mod4};
 
-                fn fn_1(param1: bool, param2: &str) {
-                    let var1 = "«ˇhello» world";
-                }
-            "#},
+fn fn_1(param1: bool, param2: &str) {
+    let var1 = "«ˇhello» world";
+}
+"#,
             cx,
         );
     });
@@ -16084,25 +16379,23 @@ async fn test_select_larger_smaller_syntax_node_for_string(cx: &mut TestAppConte
     editor.update_in(cx, |editor, window, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                use mod1::mod2::{mod3, mod4};
+            r#"use mod1::mod2::{mod3, mod4};
 
-                fn fn_1(param1: bool, param2: &str) {
-                    let var1 = "h«elˇ»lo world";
-                }
-            "#},
+fn fn_1(param1: bool, param2: &str) {
+    let var1 = "h«elˇ»lo world";
+}
+"#,
             cx,
         );
         editor.select_larger_syntax_node(&SelectLargerSyntaxNode, window, cx);
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                use mod1::mod2::{mod3, mod4};
+            r#"use mod1::mod2::{mod3, mod4};
 
-                fn fn_1(param1: bool, param2: &str) {
-                    let var1 = "«ˇhello» world";
-                }
-            "#},
+fn fn_1(param1: bool, param2: &str) {
+    let var1 = "«ˇhello» world";
+}
+"#,
             cx,
         );
     });
@@ -16118,25 +16411,23 @@ async fn test_select_larger_smaller_syntax_node_for_string(cx: &mut TestAppConte
     editor.update_in(cx, |editor, window, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                use mod1::mod2::{mod3, mod4};
+            r#"use mod1::mod2::{mod3, mod4};
 
-                fn fn_1(param1: bool, param2: &str) {
-                    let var1 = "«helloˇ» world";
-                }
-            "#},
+fn fn_1(param1: bool, param2: &str) {
+    let var1 = "«helloˇ» world";
+}
+"#,
             cx,
         );
         editor.select_larger_syntax_node(&SelectLargerSyntaxNode, window, cx);
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                use mod1::mod2::{mod3, mod4};
+            r#"use mod1::mod2::{mod3, mod4};
 
-                fn fn_1(param1: bool, param2: &str) {
-                    let var1 = "«hello worldˇ»";
-                }
-            "#},
+fn fn_1(param1: bool, param2: &str) {
+    let var1 = "«hello worldˇ»";
+}
+"#,
             cx,
         );
     });
@@ -16152,25 +16443,23 @@ async fn test_select_larger_smaller_syntax_node_for_string(cx: &mut TestAppConte
     editor.update_in(cx, |editor, window, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                use mod1::mod2::{mod3, mod4};
+            r#"use mod1::mod2::{mod3, mod4};
 
-                fn fn_1(param1: bool, param2: &str) {
-                    let var1 = "hel«lo woˇ»rld";
-                }
-            "#},
+fn fn_1(param1: bool, param2: &str) {
+    let var1 = "hel«lo woˇ»rld";
+}
+"#,
             cx,
         );
         editor.select_larger_syntax_node(&SelectLargerSyntaxNode, window, cx);
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                use mod1::mod2::{mod3, mod4};
+            r#"use mod1::mod2::{mod3, mod4};
 
-                fn fn_1(param1: bool, param2: &str) {
-                    let var1 = "«ˇhello world»";
-                }
-            "#},
+fn fn_1(param1: bool, param2: &str) {
+    let var1 = "«ˇhello world»";
+}
+"#,
             cx,
         );
     });
@@ -16181,13 +16470,12 @@ async fn test_select_larger_smaller_syntax_node_for_string(cx: &mut TestAppConte
         editor.select_larger_syntax_node(&SelectLargerSyntaxNode, window, cx);
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                use mod1::mod2::{mod3, mod4};
+            r#"use mod1::mod2::{mod3, mod4};
 
-                fn fn_1(param1: bool, param2: &str) {
-                    «ˇlet var1 = "hello world";»
-                }
-            "#},
+fn fn_1(param1: bool, param2: &str) {
+    «ˇlet var1 = "hello world";»
+}
+"#,
             cx,
         );
     });
@@ -16208,24 +16496,26 @@ async fn test_unwrap_syntax_nodes(cx: &mut gpui::TestAppContext) {
         buffer.set_language(Some(language), cx);
     });
 
-    cx.set_state(indoc! { r#"use mod1::{mod2::{«mod3ˇ», mod4}, mod5::{mod6, «mod7ˇ»}};"# });
+    cx.set_state(r#"use mod1::{mod2::{«mod3ˇ», mod4}, mod5::{mod6, «mod7ˇ»}};"#);
     cx.update_editor(|editor, window, cx| {
         editor.unwrap_syntax_node(&UnwrapSyntaxNode, window, cx);
     });
 
-    cx.assert_editor_state(indoc! { r#"use mod1::{mod2::«mod3ˇ», mod5::«mod7ˇ»};"# });
+    cx.assert_editor_state(r#"use mod1::{mod2::«mod3ˇ», mod5::«mod7ˇ»};"#);
 
-    cx.set_state(indoc! { r#"fn a() {
-          // what
-          // a
-          // ˇlong
-          // method
-          // I
-          // sure
-          // hope
-          // it
-          // works
-    }"# });
+    cx.set_state(
+        r#"fn a() {
+      // what
+      // a
+      // ˇlong
+      // method
+      // I
+      // sure
+      // hope
+      // it
+      // works
+}"#,
+    );
 
     let buffer = cx.update_multibuffer(|multibuffer, _| multibuffer.as_singleton().unwrap());
     let multi_buffer = cx.new(|_| MultiBuffer::new(Capability::ReadWrite));
@@ -16252,12 +16542,13 @@ async fn test_unwrap_syntax_nodes(cx: &mut gpui::TestAppContext) {
         })
     });
 
-    cx.assert_editor_state(indoc! { "
-        fn a() {
-              // what
-              // a
-        ˇ      // long
-              // method"});
+    cx.assert_editor_state(
+        "fn a() {
+      // what
+      // a
+ˇ      // long
+      // method",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.unwrap_syntax_node(&UnwrapSyntaxNode, window, cx);
@@ -16266,12 +16557,13 @@ async fn test_unwrap_syntax_nodes(cx: &mut gpui::TestAppContext) {
     // Although we could potentially make the action work when the syntax node
     // is half-hidden, it seems a bit dangerous as you can't easily tell what it
     // did. Maybe we could also expand the excerpt to contain the range?
-    cx.assert_editor_state(indoc! { "
-        fn a() {
-              // what
-              // a
-        ˇ      // long
-              // method"});
+    cx.assert_editor_state(
+        "fn a() {
+      // what
+      // a
+ˇ      // long
+      // method",
+    );
 }
 
 #[gpui::test]
@@ -16507,15 +16799,12 @@ async fn test_autoindent_disabled(cx: &mut TestAppContext) {
         editor.newline(&Newline, window, cx);
         assert_eq!(
             editor.text(cx),
-            indoc!(
-                "
-                fn a(
+            "fn a(
 
-                ) {
+) {
 
-                }
-                "
-            )
+}
+"
         );
         assert_eq!(
             editor.selections.ranges(&editor.display_snapshot(cx)),
@@ -16536,22 +16825,24 @@ async fn test_autoindent_none_does_not_preserve_indentation_on_newline(cx: &mut 
 
     let mut cx = EditorTestContext::new(cx).await;
 
-    cx.set_state(indoc! {"
-        hello
-            indented lineˇ
-        world
-    "});
+    cx.set_state(
+        "hello
+    indented lineˇ
+world
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.newline(&Newline, window, cx);
     });
 
-    cx.assert_editor_state(indoc! {"
-        hello
-            indented line
-        ˇ
-        world
-    "});
+    cx.assert_editor_state(
+        "hello
+    indented line
+ˇ
+world
+",
+    );
 }
 
 #[gpui::test]
@@ -16564,23 +16855,25 @@ async fn test_autoindent_preserve_indent_maintains_indentation_on_newline(cx: &m
 
     let mut cx = EditorTestContext::new(cx).await;
 
-    cx.set_state(indoc! {"
-        hello
-            indented lineˇ
-        world
-    "});
+    cx.set_state(
+        "hello
+    indented lineˇ
+world
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.newline(&Newline, window, cx);
     });
 
     // The new line SHOULD have the same indentation as the previous line
-    cx.assert_editor_state(indoc! {"
-        hello
-            indented line
-            ˇ
-        world
-    "});
+    cx.assert_editor_state(
+        "hello
+    indented line
+    ˇ
+world
+",
+    );
 }
 
 #[gpui::test]
@@ -16838,11 +17131,11 @@ async fn test_autoindent_disabled_with_nested_language(cx: &mut TestAppContext) 
         editor.newline(&Default::default(), window, cx);
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         "struct A {
-            ˇ
-        }"
-    ));
+    ˇ
+}",
+    );
 
     cx.set_state(r#"select_biased!(ˇ)"#);
 
@@ -16854,13 +17147,13 @@ async fn test_autoindent_disabled_with_nested_language(cx: &mut TestAppContext) 
         editor.handle_input("a", window, cx);
     });
 
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         "select_biased!(
-        def (
-        aˇ
-        )
-        )"
-    ));
+def (
+aˇ
+)
+)",
+    );
 }
 
 #[gpui::test]
@@ -16869,48 +17162,49 @@ async fn test_autoindent_selections(cx: &mut TestAppContext) {
 
     {
         let mut cx = EditorLspTestContext::new_rust(Default::default(), cx).await;
-        cx.set_state(indoc! {"
-            impl A {
+        cx.set_state(
+            "impl A {
 
-                fn b() {}
+    fn b() {}
 
-            «fn c() {
+«fn c() {
 
-            }ˇ»
-            }
-        "});
+}ˇ»
+}
+",
+        );
 
         cx.update_editor(|editor, window, cx| {
             editor.autoindent(&Default::default(), window, cx);
         });
         cx.wait_for_autoindent_applied().await;
 
-        cx.assert_editor_state(indoc! {"
-            impl A {
+        cx.assert_editor_state(
+            "impl A {
 
-                fn b() {}
+    fn b() {}
 
-                «fn c() {
+    «fn c() {
 
-                }ˇ»
-            }
-        "});
+    }ˇ»
+}
+",
+        );
     }
 
     {
         let mut cx = EditorTestContext::new_multibuffer(
             cx,
-            [indoc! { "
-                impl A {
-                «
-                // a
-                fn b(){}
-                »
-                «
-                    }
-                    fn c(){}
-                »
-            "}],
+            ["impl A {
+«
+// a
+fn b(){}
+»
+«
+    }
+    fn c(){}
+»
+"],
         );
 
         let buffer = cx.update_editor(|editor, _, cx| {
@@ -16931,17 +17225,16 @@ async fn test_autoindent_selections(cx: &mut TestAppContext) {
         cx.update(|_, cx| {
             assert_eq!(
                 buffer.read(cx).text(),
-                indoc! { "
-                    impl A {
+                "impl A {
 
-                        // a
-                        fn b(){}
+    // a
+    fn b(){}
 
 
-                    }
-                    fn c(){}
+}
+fn c(){}
 
-                " }
+"
             )
         });
     }
@@ -17627,69 +17920,79 @@ async fn test_autoclose_quotes_with_scope_awareness(cx: &mut TestAppContext) {
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
 
     // Double quote inside single-quoted string
-    cx.set_state(indoc! {r#"
-        def main():
-            items = ['"', ˇ]
-    "#});
+    cx.set_state(
+        r#"def main():
+    items = ['"', ˇ]
+"#,
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("\"", window, cx);
     });
-    cx.assert_editor_state(indoc! {r#"
-        def main():
-            items = ['"', "ˇ"]
-    "#});
+    cx.assert_editor_state(
+        r#"def main():
+    items = ['"', "ˇ"]
+"#,
+    );
 
     // Two double quotes inside single-quoted string
-    cx.set_state(indoc! {r#"
-        def main():
-            items = ['""', ˇ]
-    "#});
+    cx.set_state(
+        r#"def main():
+    items = ['""', ˇ]
+"#,
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("\"", window, cx);
     });
-    cx.assert_editor_state(indoc! {r#"
-        def main():
-            items = ['""', "ˇ"]
-    "#});
+    cx.assert_editor_state(
+        r#"def main():
+    items = ['""', "ˇ"]
+"#,
+    );
 
     // Single quote inside double-quoted string
-    cx.set_state(indoc! {r#"
-        def main():
-            items = ["'", ˇ]
-    "#});
+    cx.set_state(
+        r#"def main():
+    items = ["'", ˇ]
+"#,
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("'", window, cx);
     });
-    cx.assert_editor_state(indoc! {r#"
-        def main():
-            items = ["'", 'ˇ']
-    "#});
+    cx.assert_editor_state(
+        r#"def main():
+    items = ["'", 'ˇ']
+"#,
+    );
 
     // Two single quotes inside double-quoted string
-    cx.set_state(indoc! {r#"
-        def main():
-            items = ["''", ˇ]
-    "#});
+    cx.set_state(
+        r#"def main():
+    items = ["''", ˇ]
+"#,
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("'", window, cx);
     });
-    cx.assert_editor_state(indoc! {r#"
-        def main():
-            items = ["''", 'ˇ']
-    "#});
+    cx.assert_editor_state(
+        r#"def main():
+    items = ["''", 'ˇ']
+"#,
+    );
 
     // Mixed quotes on same line
-    cx.set_state(indoc! {r#"
-        def main():
-            items = ['"""', "'''''", ˇ]
-    "#});
+    cx.set_state(
+        r#"def main():
+    items = ['"""', "'''''", ˇ]
+"#,
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("\"", window, cx);
     });
-    cx.assert_editor_state(indoc! {r#"
-        def main():
-            items = ['"""', "'''''", "ˇ"]
-    "#});
+    cx.assert_editor_state(
+        r#"def main():
+    items = ['"""', "'''''", "ˇ"]
+"#,
+    );
     cx.update_editor(|editor, window, cx| {
         editor.move_right(&MoveRight, window, cx);
     });
@@ -17699,10 +18002,11 @@ async fn test_autoclose_quotes_with_scope_awareness(cx: &mut TestAppContext) {
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("'", window, cx);
     });
-    cx.assert_editor_state(indoc! {r#"
-        def main():
-            items = ['"""', "'''''", "", 'ˇ']
-    "#});
+    cx.assert_editor_state(
+        r#"def main():
+    items = ['"""', "'''''", "", 'ˇ']
+"#,
+    );
 }
 
 #[gpui::test]
@@ -17713,17 +18017,19 @@ async fn test_autoclose_quotes_with_multibyte_characters(cx: &mut TestAppContext
     let language = languages::language("python", tree_sitter_python::LANGUAGE.into());
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
 
-    cx.set_state(indoc! {r#"
-        def main():
-            items = ["🎉", ˇ]
-    "#});
+    cx.set_state(
+        r#"def main():
+    items = ["🎉", ˇ]
+"#,
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("\"", window, cx);
     });
-    cx.assert_editor_state(indoc! {r#"
-        def main():
-            items = ["🎉", "ˇ"]
-    "#});
+    cx.assert_editor_state(
+        r#"def main():
+    items = ["🎉", "ˇ"]
+"#,
+    );
 }
 
 #[gpui::test]
@@ -17737,33 +18043,37 @@ async fn test_surround_backticks_in_rust(cx: &mut TestAppContext) {
     });
 
     // Surround a selection inside a doc comment with backticks
-    cx.set_state(indoc! {"
-        /// «Aˇ»
-        fn main() {}
-    "});
+    cx.set_state(
+        "/// «Aˇ»
+fn main() {}
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("`", window, cx);
     });
-    cx.assert_editor_state(indoc! {"
-        /// `«Aˇ»`
-        fn main() {}
-    "});
+    cx.assert_editor_state(
+        "/// `«Aˇ»`
+fn main() {}
+",
+    );
 
     // When inside a string literal, the backtick pair is disabled so typing a
     // backtick should replace the selection instead of surrounding it.
-    cx.set_state(indoc! {r#"
-        fn main() {
-            let name = "«Jesper Kouthoofdˇ»";
-        }
-    "#});
+    cx.set_state(
+        r#"fn main() {
+    let name = "«Jesper Kouthoofdˇ»";
+}
+"#,
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("`", window, cx);
     });
-    cx.assert_editor_state(indoc! {r#"
-        fn main() {
-            let name = "`ˇ";
-        }
-    "#});
+    cx.assert_editor_state(
+        r#"fn main() {
+    let name = "`ˇ";
+}
+"#,
+    );
 }
 
 #[gpui::test]
@@ -18214,10 +18524,8 @@ async fn test_snippet_placeholder_choices(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
 
     let (text, insertion_ranges) = marked_text_ranges(
-        indoc! {"
-            ˇ
-        "},
-        false,
+        "ˇ
+", false,
     );
 
     let buffer = cx.update(|cx| MultiBuffer::build_simple(&text, cx));
@@ -18253,9 +18561,8 @@ async fn test_snippet_placeholder_choices(cx: &mut TestAppContext) {
         assert(
             editor,
             cx,
-            indoc! {"
-            type «» =•
-            "},
+            "type «» =•
+",
         );
 
         assert!(editor.context_menu_visible(), "There should be a matches");
@@ -18267,10 +18574,8 @@ async fn test_snippet_choices_menu_survives_completion_refresh(cx: &mut TestAppC
     init_test(cx, |_| {});
 
     let (text, insertion_ranges) = marked_text_ranges(
-        indoc! {"
-            ˇ
-        "},
-        false,
+        "ˇ
+", false,
     );
 
     let buffer = cx.update(|cx| MultiBuffer::build_simple(&text, cx));
@@ -18322,10 +18627,8 @@ async fn test_snippet_tabstop_navigation_with_placeholders(cx: &mut TestAppConte
     }
 
     let (text, insertion_ranges) = marked_text_ranges(
-        indoc! {"
-            ˇ
-        "},
-        false,
+        "ˇ
+", false,
     );
 
     let buffer = cx.update(|cx| MultiBuffer::build_simple(&text, cx));
@@ -18349,9 +18652,8 @@ async fn test_snippet_tabstop_navigation_with_placeholders(cx: &mut TestAppConte
         assert_state(
             editor,
             cx,
-            indoc! {"
-            type «» = ;•
-            "},
+            "type «» = ;•
+",
         );
 
         assert!(
@@ -18364,9 +18666,8 @@ async fn test_snippet_tabstop_navigation_with_placeholders(cx: &mut TestAppConte
         assert_state(
             editor,
             cx,
-            indoc! {"
-            type  = «»;•
-            "},
+            "type  = «»;•
+",
         );
 
         assert!(
@@ -18379,9 +18680,8 @@ async fn test_snippet_tabstop_navigation_with_placeholders(cx: &mut TestAppConte
         assert_state(
             editor,
             cx,
-            indoc! {"
-            type  = ; ˇ
-            "},
+            "type  = ; ˇ
+",
         );
 
         editor.next_snippet_tabstop(&NextSnippetTabstop, window, cx);
@@ -18389,9 +18689,8 @@ async fn test_snippet_tabstop_navigation_with_placeholders(cx: &mut TestAppConte
         assert_state(
             editor,
             cx,
-            indoc! {"
-            type  = ; ˇ
-            "},
+            "type  = ; ˇ
+",
         );
     });
 
@@ -18443,11 +18742,12 @@ async fn test_snippets(cx: &mut TestAppContext) {
 
     let mut cx = EditorTestContext::new(cx).await;
 
-    cx.set_state(indoc! {"
-        a.ˇ b
-        a.ˇ b
-        a.ˇ b
-    "});
+    cx.set_state(
+        "a.ˇ b
+a.ˇ b
+a.ˇ b
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         let snippet = Snippet::parse("f(${1:one}, ${2:two}, ${1:three})$0").unwrap();
@@ -18462,58 +18762,65 @@ async fn test_snippets(cx: &mut TestAppContext) {
             .unwrap();
     });
 
-    cx.assert_editor_state(indoc! {"
-        a.f(«oneˇ», two, «threeˇ») b
-        a.f(«oneˇ», two, «threeˇ») b
-        a.f(«oneˇ», two, «threeˇ») b
-    "});
+    cx.assert_editor_state(
+        "a.f(«oneˇ», two, «threeˇ») b
+a.f(«oneˇ», two, «threeˇ») b
+a.f(«oneˇ», two, «threeˇ») b
+",
+    );
 
     // Can't move earlier than the first tab stop
     cx.update_editor(|editor, window, cx| {
         assert!(!editor.move_to_prev_snippet_tabstop(window, cx))
     });
-    cx.assert_editor_state(indoc! {"
-        a.f(«oneˇ», two, «threeˇ») b
-        a.f(«oneˇ», two, «threeˇ») b
-        a.f(«oneˇ», two, «threeˇ») b
-    "});
+    cx.assert_editor_state(
+        "a.f(«oneˇ», two, «threeˇ») b
+a.f(«oneˇ», two, «threeˇ») b
+a.f(«oneˇ», two, «threeˇ») b
+",
+    );
 
     cx.update_editor(|editor, window, cx| assert!(editor.move_to_next_snippet_tabstop(window, cx)));
-    cx.assert_editor_state(indoc! {"
-        a.f(one, «twoˇ», three) b
-        a.f(one, «twoˇ», three) b
-        a.f(one, «twoˇ», three) b
-    "});
+    cx.assert_editor_state(
+        "a.f(one, «twoˇ», three) b
+a.f(one, «twoˇ», three) b
+a.f(one, «twoˇ», three) b
+",
+    );
 
     cx.update_editor(|editor, window, cx| assert!(editor.move_to_prev_snippet_tabstop(window, cx)));
-    cx.assert_editor_state(indoc! {"
-        a.f(«oneˇ», two, «threeˇ») b
-        a.f(«oneˇ», two, «threeˇ») b
-        a.f(«oneˇ», two, «threeˇ») b
-    "});
+    cx.assert_editor_state(
+        "a.f(«oneˇ», two, «threeˇ») b
+a.f(«oneˇ», two, «threeˇ») b
+a.f(«oneˇ», two, «threeˇ») b
+",
+    );
 
     cx.update_editor(|editor, window, cx| assert!(editor.move_to_next_snippet_tabstop(window, cx)));
-    cx.assert_editor_state(indoc! {"
-        a.f(one, «twoˇ», three) b
-        a.f(one, «twoˇ», three) b
-        a.f(one, «twoˇ», three) b
-    "});
+    cx.assert_editor_state(
+        "a.f(one, «twoˇ», three) b
+a.f(one, «twoˇ», three) b
+a.f(one, «twoˇ», three) b
+",
+    );
     cx.update_editor(|editor, window, cx| assert!(editor.move_to_next_snippet_tabstop(window, cx)));
-    cx.assert_editor_state(indoc! {"
-        a.f(one, two, three)ˇ b
-        a.f(one, two, three)ˇ b
-        a.f(one, two, three)ˇ b
-    "});
+    cx.assert_editor_state(
+        "a.f(one, two, three)ˇ b
+a.f(one, two, three)ˇ b
+a.f(one, two, three)ˇ b
+",
+    );
 
     // As soon as the last tab stop is reached, snippet state is gone
     cx.update_editor(|editor, window, cx| {
         assert!(!editor.move_to_prev_snippet_tabstop(window, cx))
     });
-    cx.assert_editor_state(indoc! {"
-        a.f(one, two, three)ˇ b
-        a.f(one, two, three)ˇ b
-        a.f(one, two, three)ˇ b
-    "});
+    cx.assert_editor_state(
+        "a.f(one, two, three)ˇ b
+a.f(one, two, three)ˇ b
+a.f(one, two, three)ˇ b
+",
+    );
 }
 
 #[gpui::test]
@@ -18523,13 +18830,14 @@ async fn test_snippet_indentation(cx: &mut TestAppContext) {
     let mut cx = EditorTestContext::new(cx).await;
 
     cx.update_editor(|editor, window, cx| {
-        let snippet = Snippet::parse(indoc! {"
-            /*
-             * Multiline comment with leading indentation
-             *
-             * $1
-             */
-            $0"})
+        let snippet = Snippet::parse(
+            "/*
+ * Multiline comment with leading indentation
+ *
+ * $1
+ */
+$0",
+        )
         .unwrap();
         let insertion_ranges = editor
             .selections
@@ -18542,22 +18850,24 @@ async fn test_snippet_indentation(cx: &mut TestAppContext) {
             .unwrap();
     });
 
-    cx.assert_editor_state(indoc! {"
-        /*
-         * Multiline comment with leading indentation
-         *
-         * ˇ
-         */
-    "});
+    cx.assert_editor_state(
+        "/*
+ * Multiline comment with leading indentation
+ *
+ * ˇ
+ */
+",
+    );
 
     cx.update_editor(|editor, window, cx| assert!(editor.move_to_next_snippet_tabstop(window, cx)));
-    cx.assert_editor_state(indoc! {"
-        /*
-         * Multiline comment with leading indentation
-         *
-         *•
-         */
-        ˇ"});
+    cx.assert_editor_state(
+        "/*
+ * Multiline comment with leading indentation
+ *
+ *•
+ */
+ˇ",
+    );
 }
 
 #[gpui::test]
@@ -19411,38 +19721,37 @@ async fn test_multibuffer_format_during_save(cx: &mut TestAppContext) {
     assert!(cx.read(|cx| multi_buffer_editor.is_dirty(cx)));
 
     // First two buffers should be edited, but not the third one.
-    pretty_assertions::assert_eq!(
+    assert_eq!(
         editor_content_with_blocks(&multi_buffer_editor, cx),
-        indoc! {"
-            § main.rs
-            § -----
-            a|one|two|three|aa
-            bbbb
-            cccc
-            § -----
-            ffff
-            gggg
-            § -----
-            jjjj
-            § other.rs
-            § -----
-            llll
-            mmmm
-            nnnn|four|five|six|
-            § -----
+        "§ main.rs
+§ -----
+a|one|two|three|aa
+bbbb
+cccc
+§ -----
+ffff
+gggg
+§ -----
+jjjj
+§ other.rs
+§ -----
+llll
+mmmm
+nnnn|four|five|six|
+§ -----
 
-            § -----
-            uuuu
-            § lib.rs
-            § -----
-            vvvv
-            wwww
-            xxxx
-            § -----
-            {{{{
-            ||||
-            § -----
-            ...."}
+§ -----
+uuuu
+§ lib.rs
+§ -----
+vvvv
+wwww
+xxxx
+§ -----
+{{{{
+||||
+§ -----
+...."
     );
     buffer_1.update(cx, |buffer, _| {
         assert!(buffer.is_dirty());
@@ -19495,36 +19804,35 @@ async fn test_multibuffer_format_during_save(cx: &mut TestAppContext) {
     assert!(cx.read(|cx| !multi_buffer_editor.is_dirty(cx)));
     assert_eq!(
         editor_content_with_blocks(&multi_buffer_editor, cx),
-        indoc! {"
-            § main.rs
-            § -----
-            a|o[formatted]bbbb
-            cccc
-            § -----
-            ffff
-            gggg
-            § -----
-            jjjj
+        "§ main.rs
+§ -----
+a|o[formatted]bbbb
+cccc
+§ -----
+ffff
+gggg
+§ -----
+jjjj
 
-            § other.rs
-            § -----
-            lll[formatted]mmmm
-            nnnn|four|five|six|
-            § -----
+§ other.rs
+§ -----
+lll[formatted]mmmm
+nnnn|four|five|six|
+§ -----
 
-            § -----
-            uuuu
+§ -----
+uuuu
 
-            § lib.rs
-            § -----
-            vvvv
-            wwww
-            xxxx
-            § -----
-            {{{{
-            ||||
-            § -----
-            ...."}
+§ lib.rs
+§ -----
+vvvv
+wwww
+xxxx
+§ -----
+{{{{
+||||
+§ -----
+...."
     );
     buffer_1.update(cx, |buffer, _| {
         assert!(!buffer.is_dirty());
@@ -22027,9 +22335,10 @@ async fn test_concurrent_format_requests(cx: &mut TestAppContext) {
     )
     .await;
 
-    cx.set_state(indoc! {"
-        one.twoˇ
-    "});
+    cx.set_state(
+        "one.twoˇ
+",
+    );
 
     // The format request takes a long time. When it completes, it inserts
     // a newline and an indent before the `.`
@@ -22063,10 +22372,11 @@ async fn test_concurrent_format_requests(cx: &mut TestAppContext) {
     format_2.await.unwrap();
 
     // The formatting edits only happens once.
-    cx.assert_editor_state(indoc! {"
-        one
-            .twoˇ
-    "});
+    cx.assert_editor_state(
+        "one
+    .twoˇ
+",
+    );
 }
 
 #[gpui::test]
@@ -22374,13 +22684,14 @@ async fn test_signature_help_delay_only_for_auto(cx: &mut TestAppContext) {
         active_parameter: Some(0),
     };
 
-    cx.set_state(indoc! {"
-        fn main() {
-            sample(ˇ);
-        }
+    cx.set_state(
+        "fn main() {
+    sample(ˇ);
+}
 
-        fn sample(param1: u8) {}
-    "});
+fn sample(param1: u8) {}
+",
+    );
 
     // Manual trigger should show immediately without delay
     cx.update_editor(|editor, window, cx| {
@@ -22404,13 +22715,14 @@ async fn test_signature_help_delay_only_for_auto(cx: &mut TestAppContext) {
     });
 
     // Auto trigger (cursor movement into brackets) should respect delay
-    cx.set_state(indoc! {"
-        fn main() {
-            sampleˇ();
-        }
+    cx.set_state(
+        "fn main() {
+    sampleˇ();
+}
 
-        fn sample(param1: u8) {}
-    "});
+fn sample(param1: u8) {}
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.move_right(&MoveRight, window, cx);
     });
@@ -22495,11 +22807,12 @@ async fn test_signature_help_after_edits_no_delay(cx: &mut TestAppContext) {
         active_parameter: Some(0),
     };
 
-    cx.set_state(indoc! {"
-        fn main() {
-            sampleˇ
-        }
-    "});
+    cx.set_state(
+        "fn main() {
+    sampleˇ
+}
+",
+    );
 
     // Typing bracket should show signature help immediately without delay
     cx.update_editor(|editor, window, cx| {
@@ -22791,13 +23104,14 @@ async fn test_signature_help(cx: &mut TestAppContext) {
     });
 
     // When exiting outside from inside the brackets, `signature_help` is closed.
-    cx.set_state(indoc! {"
-        fn main() {
-            sample(ˇ);
-        }
+    cx.set_state(
+        "fn main() {
+    sample(ˇ);
+}
 
-        fn sample(param1: u8, param2: u8) {}
-    "});
+fn sample(param1: u8, param2: u8) {}
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.change_selections(SelectionEffects::no_scroll(), window, cx, |s| {
@@ -22820,13 +23134,14 @@ async fn test_signature_help(cx: &mut TestAppContext) {
     });
 
     // When entering inside the brackets from outside, `show_signature_help` is automatically called.
-    cx.set_state(indoc! {"
-        fn main() {
-            sample(ˇ);
-        }
+    cx.set_state(
+        "fn main() {
+    sample(ˇ);
+}
 
-        fn sample(param1: u8, param2: u8) {}
-    "});
+fn sample(param1: u8, param2: u8) {}
+",
+    );
 
     let mocked_response = lsp::SignatureHelp {
         signatures: vec![lsp::SignatureInformation {
@@ -22855,13 +23170,14 @@ async fn test_signature_help(cx: &mut TestAppContext) {
     });
 
     // Restore the popover with more parameter input
-    cx.set_state(indoc! {"
-        fn main() {
-            sample(param1, param2ˇ);
-        }
+    cx.set_state(
+        "fn main() {
+    sample(param1, param2ˇ);
+}
 
-        fn sample(param1: u8, param2: u8) {}
-    "});
+fn sample(param1: u8, param2: u8) {}
+",
+    );
 
     let mocked_response = lsp::SignatureHelp {
         signatures: vec![lsp::SignatureInformation {
@@ -22893,13 +23209,14 @@ async fn test_signature_help(cx: &mut TestAppContext) {
             s.select_ranges(Some(Point::new(1, 25)..Point::new(1, 19)));
         })
     });
-    cx.assert_editor_state(indoc! {"
-        fn main() {
-            sample(param1, «ˇparam2»);
-        }
+    cx.assert_editor_state(
+        "fn main() {
+    sample(param1, «ˇparam2»);
+}
 
-        fn sample(param1: u8, param2: u8) {}
-    "});
+fn sample(param1: u8, param2: u8) {}
+",
+    );
     cx.editor(|editor, _, _| {
         assert!(!editor.signature_help_state.is_shown());
     });
@@ -22910,13 +23227,14 @@ async fn test_signature_help(cx: &mut TestAppContext) {
             s.select_ranges(Some(Point::new(1, 19)..Point::new(1, 19)));
         })
     });
-    cx.assert_editor_state(indoc! {"
-        fn main() {
-            sample(param1, ˇparam2);
-        }
+    cx.assert_editor_state(
+        "fn main() {
+    sample(param1, ˇparam2);
+}
 
-        fn sample(param1: u8, param2: u8) {}
-    "});
+fn sample(param1: u8, param2: u8) {}
+",
+    );
     handle_signature_help_request(&mut cx, mocked_response).await;
     cx.condition(|editor, _| editor.signature_help_state.is_shown())
         .await;
@@ -22931,13 +23249,14 @@ async fn test_signature_help(cx: &mut TestAppContext) {
             s.select_ranges(Some(Point::new(1, 19)..Point::new(1, 19)));
         })
     });
-    cx.assert_editor_state(indoc! {"
-        fn main() {
-            sample(param1, ˇparam2);
-        }
+    cx.assert_editor_state(
+        "fn main() {
+    sample(param1, ˇparam2);
+}
 
-        fn sample(param1: u8, param2: u8) {}
-    "});
+fn sample(param1: u8, param2: u8) {}
+",
+    );
 
     let mocked_response = lsp::SignatureHelp {
         signatures: vec![lsp::SignatureInformation {
@@ -22971,25 +23290,27 @@ async fn test_signature_help(cx: &mut TestAppContext) {
             s.select_ranges(Some(Point::new(1, 25)..Point::new(1, 19)));
         })
     });
-    cx.assert_editor_state(indoc! {"
-        fn main() {
-            sample(param1, «ˇparam2»);
-        }
+    cx.assert_editor_state(
+        "fn main() {
+    sample(param1, «ˇparam2»);
+}
 
-        fn sample(param1: u8, param2: u8) {}
-    "});
+fn sample(param1: u8, param2: u8) {}
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.change_selections(SelectionEffects::no_scroll(), window, cx, |s| {
             s.select_ranges(Some(Point::new(1, 19)..Point::new(1, 19)));
         })
     });
-    cx.assert_editor_state(indoc! {"
-        fn main() {
-            sample(param1, ˇparam2);
-        }
+    cx.assert_editor_state(
+        "fn main() {
+    sample(param1, ˇparam2);
+}
 
-        fn sample(param1: u8, param2: u8) {}
-    "});
+fn sample(param1: u8, param2: u8) {}
+",
+    );
     cx.condition(|editor, _| !editor.signature_help_state.is_shown()) // because hidden by escape
         .await;
 }
@@ -23009,11 +23330,12 @@ async fn test_signature_help_multiple_signatures(cx: &mut TestAppContext) {
     )
     .await;
 
-    cx.set_state(indoc! {"
-        fn main() {
-            overloadedˇ
-        }
-    "});
+    cx.set_state(
+        "fn main() {
+    overloadedˇ
+}
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("(", window, cx);
@@ -23870,51 +24192,48 @@ async fn test_completion_replacing_surrounding_text_with_multicursors(cx: &mut T
 
     // scenario: surrounding text matches completion text
     let completion_text = "to_offset";
-    let initial_state = indoc! {"
-        1. buf.to_offˇsuffix
-        2. buf.to_offˇsuf
-        3. buf.to_offˇfix
-        4. buf.to_offˇ
-        5. into_offˇensive
-        6. ˇsuffix
-        7. let ˇ //
-        8. aaˇzz
-        9. buf.to_off«zzzzzˇ»suffix
-        10. buf.«ˇzzzzz»suffix
-        11. to_off«ˇzzzzz»
+    let initial_state = "1. buf.to_offˇsuffix
+2. buf.to_offˇsuf
+3. buf.to_offˇfix
+4. buf.to_offˇ
+5. into_offˇensive
+6. ˇsuffix
+7. let ˇ //
+8. aaˇzz
+9. buf.to_off«zzzzzˇ»suffix
+10. buf.«ˇzzzzz»suffix
+11. to_off«ˇzzzzz»
 
-        buf.to_offˇsuffix  // newest cursor
-    "};
-    let completion_marked_buffer = indoc! {"
-        1. buf.to_offsuffix
-        2. buf.to_offsuf
-        3. buf.to_offfix
-        4. buf.to_off
-        5. into_offensive
-        6. suffix
-        7. let  //
-        8. aazz
-        9. buf.to_offzzzzzsuffix
-        10. buf.zzzzzsuffix
-        11. to_offzzzzz
+buf.to_offˇsuffix  // newest cursor
+";
+    let completion_marked_buffer = "1. buf.to_offsuffix
+2. buf.to_offsuf
+3. buf.to_offfix
+4. buf.to_off
+5. into_offensive
+6. suffix
+7. let  //
+8. aazz
+9. buf.to_offzzzzzsuffix
+10. buf.zzzzzsuffix
+11. to_offzzzzz
 
-        buf.<to_off|suffix>  // newest cursor
-    "};
-    let expected = indoc! {"
-        1. buf.to_offsetˇ
-        2. buf.to_offsetˇsuf
-        3. buf.to_offsetˇfix
-        4. buf.to_offsetˇ
-        5. into_offsetˇensive
-        6. to_offsetˇsuffix
-        7. let to_offsetˇ //
-        8. aato_offsetˇzz
-        9. buf.to_offsetˇ
-        10. buf.to_offsetˇsuffix
-        11. to_offsetˇ
+buf.<to_off|suffix>  // newest cursor
+";
+    let expected = "1. buf.to_offsetˇ
+2. buf.to_offsetˇsuf
+3. buf.to_offsetˇfix
+4. buf.to_offsetˇ
+5. into_offsetˇensive
+6. to_offsetˇsuffix
+7. let to_offsetˇ //
+8. aato_offsetˇzz
+9. buf.to_offsetˇ
+10. buf.to_offsetˇsuffix
+11. to_offsetˇ
 
-        buf.to_offsetˇ  // newest cursor
-    "};
+buf.to_offsetˇ  // newest cursor
+";
     cx.set_state(initial_state);
     cx.update_editor(|editor, window, cx| {
         editor.show_completions(&ShowCompletions, window, cx);
@@ -23939,36 +24258,33 @@ async fn test_completion_replacing_surrounding_text_with_multicursors(cx: &mut T
 
     // scenario: surrounding text matches surroundings of newest cursor, inserting at the end
     let completion_text = "foo_and_bar";
-    let initial_state = indoc! {"
-        1. ooanbˇ
-        2. zooanbˇ
-        3. ooanbˇz
-        4. zooanbˇz
-        5. ooanˇ
-        6. oanbˇ
+    let initial_state = "1. ooanbˇ
+2. zooanbˇ
+3. ooanbˇz
+4. zooanbˇz
+5. ooanˇ
+6. oanbˇ
 
-        ooanbˇ
-    "};
-    let completion_marked_buffer = indoc! {"
-        1. ooanb
-        2. zooanb
-        3. ooanbz
-        4. zooanbz
-        5. ooan
-        6. oanb
+ooanbˇ
+";
+    let completion_marked_buffer = "1. ooanb
+2. zooanb
+3. ooanbz
+4. zooanbz
+5. ooan
+6. oanb
 
-        <ooanb|>
-    "};
-    let expected = indoc! {"
-        1. foo_and_barˇ
-        2. zfoo_and_barˇ
-        3. foo_and_barˇz
-        4. zfoo_and_barˇz
-        5. ooanfoo_and_barˇ
-        6. oanbfoo_and_barˇ
+<ooanb|>
+";
+    let expected = "1. foo_and_barˇ
+2. zfoo_and_barˇ
+3. foo_and_barˇz
+4. zfoo_and_barˇz
+5. ooanfoo_and_barˇ
+6. oanbfoo_and_barˇ
 
-        foo_and_barˇ
-    "};
+foo_and_barˇ
+";
     cx.set_state(initial_state);
     cx.update_editor(|editor, window, cx| {
         editor.show_completions(&ShowCompletions, window, cx);
@@ -23994,30 +24310,27 @@ async fn test_completion_replacing_surrounding_text_with_multicursors(cx: &mut T
     // scenario: surrounding text matches surroundings of newest cursor, inserted at the middle
     // (expects the same as if it was inserted at the end)
     let completion_text = "foo_and_bar";
-    let initial_state = indoc! {"
-        1. ooˇanb
-        2. zooˇanb
-        3. ooˇanbz
-        4. zooˇanbz
+    let initial_state = "1. ooˇanb
+2. zooˇanb
+3. ooˇanbz
+4. zooˇanbz
 
-        ooˇanb
-    "};
-    let completion_marked_buffer = indoc! {"
-        1. ooanb
-        2. zooanb
-        3. ooanbz
-        4. zooanbz
+ooˇanb
+";
+    let completion_marked_buffer = "1. ooanb
+2. zooanb
+3. ooanbz
+4. zooanbz
 
-        <oo|anb>
-    "};
-    let expected = indoc! {"
-        1. foo_and_barˇ
-        2. zfoo_and_barˇ
-        3. foo_and_barˇz
-        4. zfoo_and_barˇz
+<oo|anb>
+";
+    let expected = "1. foo_and_barˇ
+2. zfoo_and_barˇ
+3. foo_and_barˇz
+4. zfoo_and_barˇz
 
-        foo_and_barˇ
-    "};
+foo_and_barˇ
+";
     cx.set_state(initial_state);
     cx.update_editor(|editor, window, cx| {
         editor.show_completions(&ShowCompletions, window, cx);
@@ -24046,37 +24359,34 @@ async fn test_completion_replacing_surrounding_text_with_multicursors(cx: &mut T
 async fn test_completion_in_multibuffer_with_replace_range(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
 
-    let buffer_text = indoc! {"
-        fn main() {
-            10.satu;
+    let buffer_text = "fn main() {
+    10.satu;
 
-            //
-            // separate1
-            // separate2
-            // separate3
-            //
+    //
+    // separate1
+    // separate2
+    // separate3
+    //
 
-            10.satu20;
-        }
-    "};
-    let multibuffer_text_with_selections = indoc! {"
-        fn main() {
-            10.satuˇ;
+    10.satu20;
+}
+";
+    let multibuffer_text_with_selections = "fn main() {
+    10.satuˇ;
 
-            //
+    //
 
-            10.satuˇ20;
-        }
-    "};
-    let expected_multibuffer = indoc! {"
-        fn main() {
-            10.saturating_sub()ˇ;
+    10.satuˇ20;
+}
+";
+    let expected_multibuffer = "fn main() {
+    10.saturating_sub()ˇ;
 
-            //
+    //
 
-            10.saturating_sub()ˇ;
-        }
-    "};
+    10.saturating_sub()ˇ;
+}
+";
 
     let fs = FakeFs::new(cx.executor());
     fs.insert_tree(
@@ -24218,14 +24528,12 @@ async fn test_completion_in_multibuffer_with_newest_selection_in_other_buffer(
 ) {
     init_test(cx, |_| {});
 
-    let main_text = indoc! {"
-        fn main() {
-            10.satu
-        }
-    "};
-    let other_text = indoc! {"
-        const VALUE: u32 = 0;
-    "};
+    let main_text = "fn main() {
+    10.satu
+}
+";
+    let other_text = "const VALUE: u32 = 0;
+";
 
     let fs = FakeFs::new(cx.executor());
     fs.insert_tree(
@@ -24399,11 +24707,10 @@ async fn test_completion_in_multibuffer_with_newest_selection_in_other_buffer(
     main_buffer.read_with(cx, |buffer, _| {
         assert_eq!(
             buffer.text(),
-            indoc! {"
-                fn main() {
-                    10.saturating_sub()
-                }
-            "}
+            "fn main() {
+    10.saturating_sub()
+}
+"
         );
     });
 }
@@ -24489,18 +24796,18 @@ async fn test_completion(cx: &mut TestAppContext) {
     .await;
     let counter = Arc::new(AtomicUsize::new(0));
 
-    cx.set_state(indoc! {"
-        oneˇ
-        two
-        three
-    "});
+    cx.set_state(
+        "oneˇ
+two
+three
+",
+    );
     cx.simulate_keystroke(".");
     handle_completion_request(
-        indoc! {"
-            one.|<>
-            two
-            three
-        "},
+        "one.|<>
+two
+three
+",
         vec!["first_completion", "second_completion"],
         true,
         counter.clone(),
@@ -24548,11 +24855,12 @@ async fn test_completion(cx: &mut TestAppContext) {
             .confirm_completion(&ConfirmCompletion::default(), window, cx)
             .unwrap()
     });
-    cx.assert_editor_state(indoc! {"
-        one.second_completionˇ
-        two
-        three
-    "});
+    cx.assert_editor_state(
+        "one.second_completionˇ
+two
+three
+",
+    );
 
     handle_resolve_completion_request(
         &mut cx,
@@ -24560,56 +24868,56 @@ async fn test_completion(cx: &mut TestAppContext) {
             (
                 //This overlaps with the primary completion edit which is
                 //misbehavior from the LSP spec, test that we filter it out
-                indoc! {"
-                    one.second_ˇcompletion
-                    two
-                    threeˇ
-                "},
+                "one.second_ˇcompletion
+two
+threeˇ
+",
                 "overlapping additional edit",
             ),
             (
-                indoc! {"
-                    one.second_completion
-                    two
-                    threeˇ
-                "},
+                "one.second_completion
+two
+threeˇ
+",
                 "\nadditional edit",
             ),
         ]),
     )
     .await;
     apply_additional_edits.await.unwrap();
-    cx.assert_editor_state(indoc! {"
-        one.second_completionˇ
-        two
-        three
-        additional edit
-    "});
+    cx.assert_editor_state(
+        "one.second_completionˇ
+two
+three
+additional edit
+",
+    );
 
-    cx.set_state(indoc! {"
-        one.second_completion
-        twoˇ
-        threeˇ
-        additional edit
-    "});
+    cx.set_state(
+        "one.second_completion
+twoˇ
+threeˇ
+additional edit
+",
+    );
     cx.simulate_keystroke(" ");
     assert!(cx.editor(|e, _, _| e.context_menu.borrow_mut().is_none()));
     cx.simulate_keystroke("s");
     assert!(cx.editor(|e, _, _| e.context_menu.borrow_mut().is_none()));
 
-    cx.assert_editor_state(indoc! {"
-        one.second_completion
-        two sˇ
-        three sˇ
-        additional edit
-    "});
+    cx.assert_editor_state(
+        "one.second_completion
+two sˇ
+three sˇ
+additional edit
+",
+    );
     handle_completion_request(
-        indoc! {"
-            one.second_completion
-            two s
-            three <s|>
-            additional edit
-        "},
+        "one.second_completion
+two s
+three <s|>
+additional edit
+",
         vec!["fourth_completion", "fifth_completion", "sixth_completion"],
         true,
         counter.clone(),
@@ -24623,12 +24931,11 @@ async fn test_completion(cx: &mut TestAppContext) {
     cx.simulate_keystroke("i");
 
     handle_completion_request(
-        indoc! {"
-            one.second_completion
-            two si
-            three <si|>
-            additional edit
-        "},
+        "one.second_completion
+two si
+three <si|>
+additional edit
+",
         vec!["fourth_completion", "fifth_completion", "sixth_completion"],
         true,
         counter.clone(),
@@ -24644,12 +24951,13 @@ async fn test_completion(cx: &mut TestAppContext) {
             .confirm_completion(&ConfirmCompletion::default(), window, cx)
             .unwrap()
     });
-    cx.assert_editor_state(indoc! {"
-        one.second_completion
-        two sixth_completionˇ
-        three sixth_completionˇ
-        additional edit
-    "});
+    cx.assert_editor_state(
+        "one.second_completion
+two sixth_completionˇ
+three sixth_completionˇ
+additional edit
+",
+    );
 
     apply_additional_edits.await.unwrap();
 
@@ -25039,11 +25347,12 @@ async fn test_word_completion(cx: &mut TestAppContext) {
                 }
             });
 
-    cx.set_state(indoc! {"
-        oneˇ
-        two
-        three
-    "});
+    cx.set_state(
+        "oneˇ
+two
+three
+",
+    );
     cx.simulate_keystroke(".");
     cx.executor().run_until_parked();
     cx.condition(|editor, _| editor.context_menu_visible())
@@ -25123,11 +25432,13 @@ async fn test_word_completions_do_not_duplicate_lsp_ones(cx: &mut TestAppContext
                 ])))
             });
 
-    cx.set_state(indoc! {"ˇ
-        first
-        last
-        second
-    "});
+    cx.set_state(
+        "ˇ
+first
+last
+second
+",
+    );
     cx.simulate_keystroke(".");
     cx.executor().run_until_parked();
     cx.condition(|editor, _| editor.context_menu_visible())
@@ -25177,11 +25488,13 @@ async fn test_word_completions_continue_on_typing(cx: &mut TestAppContext) {
                 panic!("LSP completions should not be queried when dealing with word completions")
             });
 
-    cx.set_state(indoc! {"ˇ
-        first
-        last
-        second
-    "});
+    cx.set_state(
+        "ˇ
+first
+last
+second
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.show_word_completions(&ShowWordCompletions, window, cx);
     });
@@ -25246,11 +25559,13 @@ async fn test_completions_use_selection_head(cx: &mut TestAppContext) {
                 panic!("LSP completions should not be queried when dealing with word completions")
             });
 
-    cx.set_state(indoc! {"«applˇ»
-        applepie
-        banana
-        cherry
-    "});
+    cx.set_state(
+        "«applˇ»
+applepie
+banana
+cherry
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.show_word_completions(&ShowWordCompletions, window, cx);
     });
@@ -25284,12 +25599,14 @@ async fn test_word_completions_usually_skip_digits(cx: &mut TestAppContext) {
 
     let mut cx = EditorLspTestContext::new_rust(lsp::ServerCapabilities::default(), cx).await;
 
-    cx.set_state(indoc! {"ˇ
-        0_usize
-        let
-        33
-        4.5f32
-    "});
+    cx.set_state(
+        "ˇ
+0_usize
+let
+33
+4.5f32
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.show_completions(&ShowCompletions, window, cx);
     });
@@ -25310,12 +25627,14 @@ async fn test_word_completions_usually_skip_digits(cx: &mut TestAppContext) {
         editor.cancel(&Cancel, window, cx);
     });
 
-    cx.set_state(indoc! {"3ˇ
-        0_usize
-        let
-        3
-        33.35f32
-    "});
+    cx.set_state(
+        "3ˇ
+0_usize
+let
+3
+33.35f32
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.show_completions(&ShowCompletions, window, cx);
     });
@@ -25345,11 +25664,13 @@ async fn test_word_completions_do_not_show_before_threshold(cx: &mut TestAppCont
     });
 
     let mut cx = EditorLspTestContext::new_rust(lsp::ServerCapabilities::default(), cx).await;
-    cx.set_state(indoc! {"ˇ
-        wow
-        wowen
-        wowser
-    "});
+    cx.set_state(
+        "ˇ
+wow
+wowen
+wowser
+",
+    );
     cx.simulate_keystroke("w");
     cx.executor().run_until_parked();
     cx.update_editor(|editor, _, _| {
@@ -25417,11 +25738,13 @@ async fn test_word_completions_disabled(cx: &mut TestAppContext) {
     cx.update_editor(|editor, _, _| {
         editor.disable_word_completions();
     });
-    cx.set_state(indoc! {"ˇ
-        wow
-        wowen
-        wowser
-    "});
+    cx.set_state(
+        "ˇ
+wow
+wowen
+wowser
+",
+    );
     cx.simulate_keystroke("w");
     cx.executor().run_until_parked();
     cx.update_editor(|editor, _, _| {
@@ -25460,11 +25783,13 @@ async fn test_word_completions_disabled_with_no_provider(cx: &mut TestAppContext
     cx.update_editor(|editor, _, _| {
         editor.set_completion_provider(None);
     });
-    cx.set_state(indoc! {"ˇ
-        wow
-        wowen
-        wowser
-    "});
+    cx.set_state(
+        "ˇ
+wow
+wowen
+wowser
+",
+    );
     cx.simulate_keystroke("w");
     cx.executor().run_until_parked();
     cx.update_editor(|editor, _, _| {
@@ -26068,111 +26393,122 @@ async fn test_toggle_comment(cx: &mut TestAppContext) {
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
 
     // If multiple selections intersect a line, the line is only toggled once.
-    cx.set_state(indoc! {"
-        fn a() {
-            «//b();
-            ˇ»// «c();
-            //ˇ»  d();
-        }
-    "});
+    cx.set_state(
+        "fn a() {
+    «//b();
+    ˇ»// «c();
+    //ˇ»  d();
+}
+",
+    );
 
     cx.update_editor(|e, window, cx| e.toggle_comments(&ToggleComments::default(), window, cx));
 
-    cx.assert_editor_state(indoc! {"
-        fn a() {
-            «b();
-            ˇ»«c();
-            ˇ» d();
-        }
-    "});
+    cx.assert_editor_state(
+        "fn a() {
+    «b();
+    ˇ»«c();
+    ˇ» d();
+}
+",
+    );
 
     // The comment prefix is inserted at the same column for every line in a
     // selection.
     cx.update_editor(|e, window, cx| e.toggle_comments(&ToggleComments::default(), window, cx));
 
-    cx.assert_editor_state(indoc! {"
-        fn a() {
-            // «b();
-            ˇ»// «c();
-            ˇ» // d();
-        }
-    "});
+    cx.assert_editor_state(
+        "fn a() {
+    // «b();
+    ˇ»// «c();
+    ˇ» // d();
+}
+",
+    );
 
     // If a selection ends at the beginning of a line, that line is not toggled.
-    cx.set_selections_state(indoc! {"
-        fn a() {
-            // b();
-            «// c();
-        ˇ»     // d();
-        }
-    "});
+    cx.set_selections_state(
+        "fn a() {
+    // b();
+    «// c();
+ˇ»     // d();
+}
+",
+    );
 
     cx.update_editor(|e, window, cx| e.toggle_comments(&ToggleComments::default(), window, cx));
 
-    cx.assert_editor_state(indoc! {"
-        fn a() {
-            // b();
-            «c();
-        ˇ»     // d();
-        }
-    "});
+    cx.assert_editor_state(
+        "fn a() {
+    // b();
+    «c();
+ˇ»     // d();
+}
+",
+    );
 
     // If a selection span a single line and is empty, the line is toggled.
-    cx.set_state(indoc! {"
-        fn a() {
-            a();
-            b();
-        ˇ
-        }
-    "});
+    cx.set_state(
+        "fn a() {
+    a();
+    b();
+ˇ
+}
+",
+    );
 
     cx.update_editor(|e, window, cx| e.toggle_comments(&ToggleComments::default(), window, cx));
 
-    cx.assert_editor_state(indoc! {"
-        fn a() {
-            a();
-            b();
-        //•ˇ
-        }
-    "});
+    cx.assert_editor_state(
+        "fn a() {
+    a();
+    b();
+//•ˇ
+}
+",
+    );
 
     // If a selection spans multiple lines, empty lines are also toggled.
-    cx.set_state(indoc! {"
-        fn a() {
-            «a();
+    cx.set_state(
+        "fn a() {
+    «a();
 
-            c();ˇ»
-        }
-    "});
+    c();ˇ»
+}
+",
+    );
 
     cx.update_editor(|e, window, cx| e.toggle_comments(&ToggleComments::default(), window, cx));
 
-    cx.assert_editor_state(indoc! {"
-        fn a() {
-        //     «a();
-        //•
-        //     c();ˇ»
-        }
-    "});
+    cx.assert_editor_state(
+        "fn a() {
+//     «a();
+//•
+//     c();ˇ»
+}
+",
+    );
 
     // If a selection includes multiple comment prefixes, all lines are uncommented.
-    cx.set_state(indoc! {"
-        fn a() {
-            «// a();
-            /// b();
-            //! c();ˇ»
-        }
-    "});
+    cx.set_state(
+        "fn a() {
+    «// a();
+    /// b();
+    //! c();ˇ»
+}
+",
+    );
 
     cx.update_editor(|e, window, cx| e.toggle_comments(&ToggleComments::default(), window, cx));
 
-    cx.assert_editor_state(indoc! {"
-        fn a() {
-            «a();
-            b();
-            c();ˇ»
-        }
-    "});
+    cx.assert_editor_state(
+        "fn a() {
+    «a();
+    b();
+    c();ˇ»
+}
+",
+    );
 }
 
 #[gpui::test]
@@ -26195,110 +26531,121 @@ async fn test_toggle_comment_ignore_indent(cx: &mut TestAppContext) {
     };
 
     // If multiple selections intersect a line, the line is only toggled once.
-    cx.set_state(indoc! {"
-        fn a() {
-        //    «b();
-        //    c();
-        //    ˇ» d();
-        }
-    "});
+    cx.set_state(
+        "fn a() {
+//    «b();
+//    c();
+//    ˇ» d();
+}
+",
+    );
 
     cx.update_editor(|e, window, cx| e.toggle_comments(toggle_comments, window, cx));
 
-    cx.assert_editor_state(indoc! {"
-        fn a() {
-            «b();
-            c();
-            ˇ» d();
-        }
-    "});
+    cx.assert_editor_state(
+        "fn a() {
+    «b();
+    c();
+    ˇ» d();
+}
+",
+    );
 
     // The comment prefix is inserted at the beginning of each line
     cx.update_editor(|e, window, cx| e.toggle_comments(toggle_comments, window, cx));
 
-    cx.assert_editor_state(indoc! {"
-        fn a() {
-        //    «b();
-        //    c();
-        //    ˇ» d();
-        }
-    "});
+    cx.assert_editor_state(
+        "fn a() {
+//    «b();
+//    c();
+//    ˇ» d();
+}
+",
+    );
 
     // If a selection ends at the beginning of a line, that line is not toggled.
-    cx.set_selections_state(indoc! {"
-        fn a() {
-        //    b();
-        //    «c();
-        ˇ»//     d();
-        }
-    "});
+    cx.set_selections_state(
+        "fn a() {
+//    b();
+//    «c();
+ˇ»//     d();
+}
+",
+    );
 
     cx.update_editor(|e, window, cx| e.toggle_comments(toggle_comments, window, cx));
 
-    cx.assert_editor_state(indoc! {"
-        fn a() {
-        //    b();
-            «c();
-        ˇ»//     d();
-        }
-    "});
+    cx.assert_editor_state(
+        "fn a() {
+//    b();
+    «c();
+ˇ»//     d();
+}
+",
+    );
 
     // If a selection span a single line and is empty, the line is toggled.
-    cx.set_state(indoc! {"
-        fn a() {
-            a();
-            b();
-        ˇ
-        }
-    "});
+    cx.set_state(
+        "fn a() {
+    a();
+    b();
+ˇ
+}
+",
+    );
 
     cx.update_editor(|e, window, cx| e.toggle_comments(toggle_comments, window, cx));
 
-    cx.assert_editor_state(indoc! {"
-        fn a() {
-            a();
-            b();
-        //ˇ
-        }
-    "});
+    cx.assert_editor_state(
+        "fn a() {
+    a();
+    b();
+//ˇ
+}
+",
+    );
 
     // If a selection span multiple lines, empty lines are not toggled.
-    cx.set_state(indoc! {"
-        fn a() {
-            «a();
+    cx.set_state(
+        "fn a() {
+    «a();
 
-            c();ˇ»
-        }
-    "});
+    c();ˇ»
+}
+",
+    );
 
     cx.update_editor(|e, window, cx| e.toggle_comments(toggle_comments, window, cx));
 
-    cx.assert_editor_state(indoc! {"
-        fn a() {
-        //    «a();
+    cx.assert_editor_state(
+        "fn a() {
+//    «a();
 
-        //    c();ˇ»
-        }
-    "});
+//    c();ˇ»
+}
+",
+    );
 
     // If a selection includes multiple comment prefixes, all lines are uncommented.
-    cx.set_state(indoc! {"
-        fn a() {
-        //    «a();
-        ///    b();
-        //!    c();ˇ»
-        }
-    "});
+    cx.set_state(
+        "fn a() {
+//    «a();
+///    b();
+//!    c();ˇ»
+}
+",
+    );
 
     cx.update_editor(|e, window, cx| e.toggle_comments(toggle_comments, window, cx));
 
-    cx.assert_editor_state(indoc! {"
-        fn a() {
-            «a();
-            b();
-            c();ˇ»
-        }
-    "});
+    cx.assert_editor_state(
+        "fn a() {
+    «a();
+    b();
+    c();ˇ»
+}
+",
+    );
 }
 
 #[gpui::test]
@@ -26319,56 +26666,61 @@ async fn test_toggle_comment_commenting_blank_lines(cx: &mut TestAppContext) {
 
     let toggle_comments = &ToggleComments::default();
 
-    cx.set_state(indoc! {"
-        «fn a() {
-            b();
+    cx.set_state(
+        "«fn a() {
+    b();
 
-            c();
-        }ˇ»
-    "});
+    c();
+}ˇ»
+",
+    );
 
     cx.update_editor(|e, window, cx| e.toggle_comments(toggle_comments, window, cx));
 
-    cx.assert_editor_state(indoc! {"
-        //«fn a() {
-        //    b();
-        //
-        //    c();
-        //}ˇ»
-    "});
+    cx.assert_editor_state(
+        "//«fn a() {
+//    b();
+//
+//    c();
+//}ˇ»
+",
+    );
 
     // Toggling again removes the prefix from every line, blank ones included.
     cx.update_editor(|e, window, cx| e.toggle_comments(toggle_comments, window, cx));
 
-    cx.assert_editor_state(indoc! {"
-        «fn a() {
-            b();
+    cx.assert_editor_state(
+        "«fn a() {
+    b();
 
-            c();
-        }ˇ»
-    "});
+    c();
+}ˇ»
+",
+    );
 
     // All prefixes in a block go at one shared column so they line up: the
     // smallest indent among the rows being commented. A blank line contributes
     // 0 and drags that to 0 - shifting every line in the block left. VS Code
     // does the same.
-    cx.set_state(indoc! {"
-        fn a() {
-            «b();
+    cx.set_state(
+        "fn a() {
+    «b();
 
-            c();ˇ»
-        }
-    "});
+    c();ˇ»
+}
+",
+    );
 
     cx.update_editor(|e, window, cx| e.toggle_comments(toggle_comments, window, cx));
 
-    cx.assert_editor_state(indoc! {"
-        fn a() {
-        //    «b();
-        //
-        //    c();ˇ»
-        }
-    "});
+    cx.assert_editor_state(
+        "fn a() {
+//    «b();
+//
+//    c();ˇ»
+}
+",
+    );
 }
 
 #[gpui::test]
@@ -26390,36 +26742,39 @@ async fn test_toggle_comment_uncomments_after_parameter_change(cx: &mut TestAppC
     };
     let comment_blank_lines = &ToggleComments::default();
 
-    cx.set_state(indoc! {"
-        «fn a() {
-            b();
+    cx.set_state(
+        "«fn a() {
+    b();
 
-            c();
-        }ˇ»
-    "});
+    c();
+}ˇ»
+",
+    );
 
     // Comment with one binding: the blank line gets no marker.
     cx.update_editor(|e, window, cx| e.toggle_comments(skip_blank_lines, window, cx));
 
-    cx.assert_editor_state(indoc! {"
-        //«fn a() {
-        //    b();
+    cx.assert_editor_state(
+        "//«fn a() {
+//    b();
 
-        //    c();
-        //}ˇ»
-    "});
+//    c();
+//}ˇ»
+",
+    );
 
     // Toggle with the other binding. The blank line still has no marker, but it must
     // not make the block look uncommented: the markers are removed, not doubled.
     cx.update_editor(|e, window, cx| e.toggle_comments(comment_blank_lines, window, cx));
 
-    cx.assert_editor_state(indoc! {"
-        «fn a() {
-            b();
+    cx.assert_editor_state(
+        "«fn a() {
+    b();
 
-            c();
-        }ˇ»
-    "});
+    c();
+}ˇ»
+",
+    );
 }
 
 #[gpui::test]
@@ -26438,21 +26793,23 @@ async fn test_toggle_comment_selection_of_only_blank_lines(cx: &mut TestAppConte
     let toggle_comments = &ToggleComments::default();
 
     // No line carries a marker, so there is nothing to remove: comment them.
-    cx.set_state(indoc! {"
-        fn a() {
-        «
+    cx.set_state(
+        "fn a() {
+«
 
-        ˇ»}
-    "});
+ˇ»}
+",
+    );
 
     cx.update_editor(|e, window, cx| e.toggle_comments(toggle_comments, window, cx));
 
-    cx.assert_editor_state(indoc! {"
-        fn a() {
-        //«
-        //
-        ˇ»}
-    "});
+    cx.assert_editor_state(
+        "fn a() {
+//«
+//
+ˇ»}
+",
+    );
 }
 
 #[gpui::test]
@@ -26482,110 +26839,110 @@ async fn test_advance_downward_on_toggle_comment(cx: &mut TestAppContext) {
 
     // Single cursor on one line -> advance
     // Cursor moves horizontally 3 characters as well on non-blank line
-    cx.set_state(indoc!(
+    cx.set_state(
         "fn a() {
-             ˇdog();
-             cat();
-        }"
-    ));
+     ˇdog();
+     cat();
+}",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.toggle_comments(toggle_comments, window, cx);
     });
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         "fn a() {
-             // dog();
-             catˇ();
-        }"
-    ));
+     // dog();
+     catˇ();
+}",
+    );
 
     // Single selection on one line -> don't advance
-    cx.set_state(indoc!(
+    cx.set_state(
         "fn a() {
-             «dog()ˇ»;
-             cat();
-        }"
-    ));
+     «dog()ˇ»;
+     cat();
+}",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.toggle_comments(toggle_comments, window, cx);
     });
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         "fn a() {
-             // «dog()ˇ»;
-             cat();
-        }"
-    ));
+     // «dog()ˇ»;
+     cat();
+}",
+    );
 
     // Multiple cursors on one line -> advance
-    cx.set_state(indoc!(
+    cx.set_state(
         "fn a() {
-             ˇdˇog();
-             cat();
-        }"
-    ));
+     ˇdˇog();
+     cat();
+}",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.toggle_comments(toggle_comments, window, cx);
     });
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         "fn a() {
-             // dog();
-             catˇ(ˇ);
-        }"
-    ));
+     // dog();
+     catˇ(ˇ);
+}",
+    );
 
     // Multiple cursors on one line, with selection -> don't advance
-    cx.set_state(indoc!(
+    cx.set_state(
         "fn a() {
-             ˇdˇog«()ˇ»;
-             cat();
-        }"
-    ));
+     ˇdˇog«()ˇ»;
+     cat();
+}",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.toggle_comments(toggle_comments, window, cx);
     });
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         "fn a() {
-             // ˇdˇog«()ˇ»;
-             cat();
-        }"
-    ));
+     // ˇdˇog«()ˇ»;
+     cat();
+}",
+    );
 
     // Single cursor on one line -> advance
     // Cursor moves to column 0 on blank line
-    cx.set_state(indoc!(
+    cx.set_state(
         "fn a() {
-             ˇdog();
+     ˇdog();
 
-             cat();
-        }"
-    ));
+     cat();
+}",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.toggle_comments(toggle_comments, window, cx);
     });
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         "fn a() {
-             // dog();
-        ˇ
-             cat();
-        }"
-    ));
+     // dog();
+ˇ
+     cat();
+}",
+    );
 
     // Single cursor on one line -> advance
     // Cursor starts and ends at column 0
-    cx.set_state(indoc!(
+    cx.set_state(
         "fn a() {
-         ˇ    dog();
-             cat();
-        }"
-    ));
+ ˇ    dog();
+     cat();
+}",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.toggle_comments(toggle_comments, window, cx);
     });
-    cx.assert_editor_state(indoc!(
+    cx.assert_editor_state(
         "fn a() {
-             // dog();
-         ˇ    cat();
-        }"
-    ));
+     // dog();
+ ˇ    cat();
+}",
+    );
 }
 
 #[gpui::test]
@@ -27059,11 +27416,12 @@ async fn test_copy_highlight_json(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
 
     let mut cx = EditorTestContext::new(cx).await;
-    cx.set_state(indoc! {"
-        fn main() {
-            let x = 1;ˇ
-        }
-    "});
+    cx.set_state(
+        "fn main() {
+    let x = 1;ˇ
+}
+",
+    );
     setup_syntax_highlighting(rust_lang(), &mut cx);
 
     cx.update_editor(|editor, window, cx| {
@@ -27106,12 +27464,13 @@ async fn test_copy_highlight_json_selected_range(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
 
     let mut cx = EditorTestContext::new(cx).await;
-    cx.set_state(indoc! {"
-        fn main() {
-            «let x = 1;
-            let yˇ» = 2;
-        }
-    "});
+    cx.set_state(
+        "fn main() {
+    «let x = 1;
+    let yˇ» = 2;
+}
+",
+    );
     setup_syntax_highlighting(rust_lang(), &mut cx);
 
     cx.update_editor(|editor, window, cx| {
@@ -27149,12 +27508,13 @@ async fn test_copy_highlight_json_selected_line_range(cx: &mut TestAppContext) {
 
     let mut cx = EditorTestContext::new(cx).await;
 
-    cx.set_state(indoc! {"
-        fn main() {
-            «let x = 1;
-            let yˇ» = 2;
-        }
-    "});
+    cx.set_state(
+        "fn main() {
+    «let x = 1;
+    let yˇ» = 2;
+}
+",
+    );
     setup_syntax_highlighting(rust_lang(), &mut cx);
 
     cx.update_editor(|editor, window, cx| {
@@ -27199,12 +27559,13 @@ async fn test_copy_highlight_json_single_line(cx: &mut TestAppContext) {
 
     let mut cx = EditorTestContext::new(cx).await;
 
-    cx.set_state(indoc! {"
-        fn main() {
-            let ˇx = 1;
-            let y = 2;
-        }
-    "});
+    cx.set_state(
+        "fn main() {
+    let ˇx = 1;
+    let y = 2;
+}
+",
+    );
     setup_syntax_highlighting(rust_lang(), &mut cx);
 
     cx.update_editor(|editor, window, cx| {
@@ -27632,10 +27993,11 @@ async fn go_to_prev_overlapping_diagnostic(executor: BackgroundExecutor, cx: &mu
     let lsp_store =
         cx.update_editor(|editor, _, cx| editor.project().unwrap().read(cx).lsp_store());
 
-    cx.set_state(indoc! {"
-        ˇfn func(abc def: i32) -> u32 {
-        }
-    "});
+    cx.set_state(
+        "ˇfn func(abc def: i32) -> u32 {
+}
+",
+    );
 
     cx.update(|_, cx| {
         lsp_store.update(cx, |lsp_store, cx| {
@@ -27687,37 +28049,41 @@ async fn go_to_prev_overlapping_diagnostic(executor: BackgroundExecutor, cx: &mu
         editor.go_to_prev_diagnostic(&GoToPreviousDiagnostic::default(), window, cx);
     });
 
-    cx.assert_editor_state(indoc! {"
-        fn func(abc def: i32) -> ˇu32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "fn func(abc def: i32) -> ˇu32 {
+}
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.go_to_prev_diagnostic(&GoToPreviousDiagnostic::default(), window, cx);
     });
 
-    cx.assert_editor_state(indoc! {"
-        fn func(abc ˇdef: i32) -> u32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "fn func(abc ˇdef: i32) -> u32 {
+}
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.go_to_prev_diagnostic(&GoToPreviousDiagnostic::default(), window, cx);
     });
 
-    cx.assert_editor_state(indoc! {"
-        fn func(abcˇ def: i32) -> u32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "fn func(abcˇ def: i32) -> u32 {
+}
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.go_to_prev_diagnostic(&GoToPreviousDiagnostic::default(), window, cx);
     });
 
-    cx.assert_editor_state(indoc! {"
-        fn func(abc def: i32) -> ˇu32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "fn func(abc def: i32) -> ˇu32 {
+}
+",
+    );
 }
 
 #[gpui::test]
@@ -27732,10 +28098,11 @@ async fn go_to_diagnostic(executor: BackgroundExecutor, cx: &mut TestAppContext)
     // diagnostic is active so we can later confirm that running `editor: go to
     // diagnostic` will activate this diagnostic instead of advancing to the
     // next one.
-    cx.set_state(indoc! {"
-        fn func(abc dˇef: i32) -> u32 {
-        }
-    "});
+    cx.set_state(
+        "fn func(abc dˇef: i32) -> u32 {
+}
+",
+    );
 
     // Set up the diagnostics:
     //
@@ -27793,26 +28160,29 @@ async fn go_to_diagnostic(executor: BackgroundExecutor, cx: &mut TestAppContext)
     cx.update_editor(|editor, window, cx| {
         editor.go_to_diagnostic(&GoToDiagnostic::default(), window, cx);
     });
-    cx.assert_editor_state(indoc! {"
-        fn func(abc ˇdef: i32) -> u32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "fn func(abc ˇdef: i32) -> u32 {
+}
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.go_to_diagnostic(&GoToDiagnostic::default(), window, cx);
     });
-    cx.assert_editor_state(indoc! {"
-        fn func(abc def: i32) -> ˇu32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "fn func(abc def: i32) -> ˇu32 {
+}
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.go_to_diagnostic(&GoToDiagnostic::default(), window, cx);
     });
-    cx.assert_editor_state(indoc! {"
-        fn func(abcˇ def: i32) -> u32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "fn func(abcˇ def: i32) -> u32 {
+}
+",
+    );
 
     // Manually move the cursor to a different, not yet active diagnostic to
     // confirm that using `editor: go to diagnostic` will now activate this one.
@@ -27825,10 +28195,11 @@ async fn go_to_diagnostic(executor: BackgroundExecutor, cx: &mut TestAppContext)
     cx.update_editor(|editor, window, cx| {
         editor.go_to_diagnostic(&GoToDiagnostic::default(), window, cx);
     });
-    cx.assert_editor_state(indoc! {"
-        fn func(abc def: i32) -> ˇu32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "fn func(abc def: i32) -> ˇu32 {
+}
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.change_selections(Default::default(), window, cx, |s| {
@@ -27838,10 +28209,11 @@ async fn go_to_diagnostic(executor: BackgroundExecutor, cx: &mut TestAppContext)
     cx.update_editor(|editor, window, cx| {
         editor.go_to_diagnostic(&GoToDiagnostic::default(), window, cx);
     });
-    cx.assert_editor_state(indoc! {"
-        fn func(abcˇ def: i32) -> u32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "fn func(abcˇ def: i32) -> u32 {
+}
+",
+    );
 }
 
 #[gpui::test]
@@ -28162,144 +28534,132 @@ async fn test_move_to_syntax_node_relative_jumps(tcx: &mut TestAppContext) {
 
     assert(
         ABOVE,
-        indoc! {"
-        # Foo
+        "# Foo
 
-        ˇFoo foo foo
+ˇFoo foo foo
 
-        # Bar
+# Bar
 
-        Bar bar bar
-    "},
-        indoc! {"
-        ˇ# Foo
+Bar bar bar
+",
+        "ˇ# Foo
 
-        Foo foo foo
+Foo foo foo
 
-        # Bar
+# Bar
 
-        Bar bar bar
-    "},
+Bar bar bar
+",
         &mut cx,
     )
     .await;
 
     assert(
         ABOVE,
-        indoc! {"
-        ˇ# Foo
+        "ˇ# Foo
 
-        Foo foo foo
+Foo foo foo
 
-        # Bar
+# Bar
 
-        Bar bar bar
-    "},
-        indoc! {"
-        ˇ# Foo
+Bar bar bar
+",
+        "ˇ# Foo
 
-        Foo foo foo
+Foo foo foo
 
-        # Bar
+# Bar
 
-        Bar bar bar
-    "},
+Bar bar bar
+",
         &mut cx,
     )
     .await;
 
     assert(
         BELOW,
-        indoc! {"
-        ˇ# Foo
+        "ˇ# Foo
 
-        Foo foo foo
+Foo foo foo
 
-        # Bar
+# Bar
 
-        Bar bar bar
-    "},
-        indoc! {"
-        # Foo
+Bar bar bar
+",
+        "# Foo
 
-        Foo foo foo
+Foo foo foo
 
-        ˇ# Bar
+ˇ# Bar
 
-        Bar bar bar
-    "},
+Bar bar bar
+",
         &mut cx,
     )
     .await;
 
     assert(
         BELOW,
-        indoc! {"
-        # Foo
+        "# Foo
 
-        ˇFoo foo foo
+ˇFoo foo foo
 
-        # Bar
+# Bar
 
-        Bar bar bar
-    "},
-        indoc! {"
-        # Foo
+Bar bar bar
+",
+        "# Foo
 
-        Foo foo foo
+Foo foo foo
 
-        ˇ# Bar
+ˇ# Bar
 
-        Bar bar bar
-    "},
+Bar bar bar
+",
         &mut cx,
     )
     .await;
 
     assert(
         BELOW,
-        indoc! {"
-        # Foo
+        "# Foo
 
-        Foo foo foo
+Foo foo foo
 
-        ˇ# Bar
+ˇ# Bar
 
-        Bar bar bar
-    "},
-        indoc! {"
-        # Foo
+Bar bar bar
+",
+        "# Foo
 
-        Foo foo foo
+Foo foo foo
 
-        ˇ# Bar
+ˇ# Bar
 
-        Bar bar bar
-    "},
+Bar bar bar
+",
         &mut cx,
     )
     .await;
 
     assert(
         BELOW,
-        indoc! {"
-        # Foo
+        "# Foo
 
-        Foo foo foo
+Foo foo foo
 
-        # Bar
-        ˇ
-        Bar bar bar
-    "},
-        indoc! {"
-        # Foo
+# Bar
+ˇ
+Bar bar bar
+",
+        "# Foo
 
-        Foo foo foo
+Foo foo foo
 
-        # Bar
-        ˇ
-        Bar bar bar
-    "},
+# Bar
+ˇ
+Bar bar bar
+",
         &mut cx,
     )
     .await;
@@ -28331,60 +28691,56 @@ async fn test_move_to_syntax_node_relative_dead_zone(tcx: &mut TestAppContext) {
 
     assert(
         ABOVE,
-        indoc! {"
-        fn foo() {
-            // foo fn
-        }
+        "fn foo() {
+    // foo fn
+}
 
-        ˇ// this zone is not inside any top level outline node
+ˇ// this zone is not inside any top level outline node
 
-        fn bar() {
-            // bar fn
-            let _ = 2;
-        }
-    "},
-        indoc! {"
-        ˇfn foo() {
-            // foo fn
-        }
+fn bar() {
+    // bar fn
+    let _ = 2;
+}
+",
+        "ˇfn foo() {
+    // foo fn
+}
 
-        // this zone is not inside any top level outline node
+// this zone is not inside any top level outline node
 
-        fn bar() {
-            // bar fn
-            let _ = 2;
-        }
-    "},
+fn bar() {
+    // bar fn
+    let _ = 2;
+}
+",
         &mut cx,
     )
     .await;
 
     assert(
         BELOW,
-        indoc! {"
-        fn foo() {
-            // foo fn
-        }
+        "fn foo() {
+    // foo fn
+}
 
-        ˇ// this zone is not inside any top level outline node
+ˇ// this zone is not inside any top level outline node
 
-        fn bar() {
-            // bar fn
-            let _ = 2;
-        }
-    "},
-        indoc! {"
-        fn foo() {
-            // foo fn
-        }
+fn bar() {
+    // bar fn
+    let _ = 2;
+}
+",
+        "fn foo() {
+    // foo fn
+}
 
-        // this zone is not inside any top level outline node
+// this zone is not inside any top level outline node
 
-        ˇfn bar() {
-            // bar fn
-            let _ = 2;
-        }
-    "},
+ˇfn bar() {
+    // bar fn
+    let _ = 2;
+}
+",
         &mut cx,
     )
     .await;
@@ -28436,14 +28792,12 @@ async fn test_move_to_enclosing_bracket(cx: &mut TestAppContext) {
 
     // If directly adjacent to a smaller pair but inside a larger (not adjacent), pick the smaller
     assert(
-        indoc! {"
-            function test() {
-                console.log('test')ˇ
-            }"},
-        indoc! {"
-            function test() {
-                console.logˇ('test')
-            }"},
+        "function test() {
+    console.log('test')ˇ
+}",
+        "function test() {
+    console.logˇ('test')
+}",
         &mut cx,
     );
 }
@@ -28456,14 +28810,13 @@ async fn test_move_to_enclosing_bracket_in_markdown_code_block(cx: &mut TestAppC
     language_registry.add(rust_lang());
     let buffer = cx.new(|cx| {
         let mut buffer = language::Buffer::local(
-            indoc! {"
-            ```rs
-            impl Worktree {
-                pub async fn open_buffers(&self, path: &Path) -> impl Iterator<&Buffer> {
-                }
-            }
-            ```
-        "},
+            "```rs
+impl Worktree {
+    pub async fn open_buffers(&self, path: &Path) -> impl Iterator<&Buffer> {
+    }
+}
+```
+",
             cx,
         );
         buffer.set_language_registry(language_registry.clone());
@@ -28477,55 +28830,51 @@ async fn test_move_to_enclosing_bracket_in_markdown_code_block(cx: &mut TestAppC
         // Case 1: Test outer enclosing brackets
         select_ranges(
             editor,
-            &indoc! {"
-                ```rs
-                impl Worktree {
-                    pub async fn open_buffers(&self, path: &Path) -> impl Iterator<&Buffer> {
-                    }
-                }ˇ
-                ```
-            "},
+            &"```rs
+impl Worktree {
+    pub async fn open_buffers(&self, path: &Path) -> impl Iterator<&Buffer> {
+    }
+}ˇ
+```
+",
             window,
             cx,
         );
         editor.move_to_enclosing_bracket(&MoveToEnclosingBracket, window, cx);
         assert_text_with_selections(
             editor,
-            &indoc! {"
-                ```rs
-                impl Worktree ˇ{
-                    pub async fn open_buffers(&self, path: &Path) -> impl Iterator<&Buffer> {
-                    }
-                }
-                ```
-            "},
+            &"```rs
+impl Worktree ˇ{
+    pub async fn open_buffers(&self, path: &Path) -> impl Iterator<&Buffer> {
+    }
+}
+```
+",
             cx,
         );
         // Case 2: Test inner enclosing brackets
         select_ranges(
             editor,
-            &indoc! {"
-                ```rs
-                impl Worktree {
-                    pub async fn open_buffers(&self, path: &Path) -> impl Iterator<&Buffer> {
-                    }ˇ
-                }
-                ```
-            "},
+            &"```rs
+impl Worktree {
+    pub async fn open_buffers(&self, path: &Path) -> impl Iterator<&Buffer> {
+    }ˇ
+}
+```
+",
             window,
             cx,
         );
         editor.move_to_enclosing_bracket(&MoveToEnclosingBracket, window, cx);
         assert_text_with_selections(
             editor,
-            &indoc! {"
-                ```rs
-                impl Worktree {
-                    pub async fn open_buffers(&self, path: &Path) -> impl Iterator<&Buffer> ˇ{
-                    }
-                }
-                ```
-            "},
+            &"```rs
+impl Worktree {
+    pub async fn open_buffers(&self, path: &Path) -> impl Iterator<&Buffer> ˇ{
+    }
+}
+```
+",
             cx,
         );
     });
@@ -29550,26 +29899,28 @@ async fn test_context_menus_hide_hover_popover(cx: &mut gpui::TestAppContext) {
         cx,
     )
     .await;
-    cx.set_state(indoc! {"
-        struct TestStruct {
-            field: i32
-        }
+    cx.set_state(
+        "struct TestStruct {
+    field: i32
+}
 
-        fn mainˇ() {
-            let unused_var = 42;
-            let test_struct = TestStruct { field: 42 };
-        }
-    "});
-    let symbol_range = cx.lsp_range(indoc! {"
-        struct TestStruct {
-            field: i32
-        }
+fn mainˇ() {
+    let unused_var = 42;
+    let test_struct = TestStruct { field: 42 };
+}
+",
+    );
+    let symbol_range = cx.lsp_range(
+        "struct TestStruct {
+    field: i32
+}
 
-        «fn main»() {
-            let unused_var = 42;
-            let test_struct = TestStruct { field: 42 };
-        }
-    "});
+«fn main»() {
+    let unused_var = 42;
+    let test_struct = TestStruct { field: 42 };
+}
+",
+    );
     let mut hover_requests =
         cx.set_request_handler::<lsp::request::HoverRequest, _, _>(move |_, _, _| async move {
             Ok(Some(lsp::Hover {
@@ -30471,92 +30822,91 @@ async fn test_range_format_with_prettier_explicit_language(cx: &mut TestAppConte
 async fn test_addition_reverts(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
     let mut cx = EditorLspTestContext::new_rust(lsp::ServerCapabilities::default(), cx).await;
-    let base_text = indoc! {r#"
-        struct Row;
-        struct Row1;
-        struct Row2;
+    let base_text = r#"struct Row;
+struct Row1;
+struct Row2;
 
-        struct Row4;
-        struct Row5;
-        struct Row6;
+struct Row4;
+struct Row5;
+struct Row6;
 
-        struct Row8;
-        struct Row9;
-        struct Row10;"#};
+struct Row8;
+struct Row9;
+struct Row10;"#;
 
     // When addition hunks are not adjacent to carets, no hunk revert is performed
     assert_hunk_revert(
-        indoc! {r#"struct Row;
-                   struct Row1;
-                   struct Row1.1;
-                   struct Row1.2;
-                   struct Row2;ˇ
+        r#"struct Row;
+struct Row1;
+struct Row1.1;
+struct Row1.2;
+struct Row2;ˇ
 
-                   struct Row4;
-                   struct Row5;
-                   struct Row6;
+struct Row4;
+struct Row5;
+struct Row6;
 
-                   struct Row8;
-                   ˇstruct Row9;
-                   struct Row9.1;
-                   struct Row9.2;
-                   struct Row9.3;
-                   struct Row10;"#},
+struct Row8;
+ˇstruct Row9;
+struct Row9.1;
+struct Row9.2;
+struct Row9.3;
+struct Row10;"#,
         vec![DiffHunkStatusKind::Added, DiffHunkStatusKind::Added],
-        indoc! {r#"struct Row;
-                   struct Row1;
-                   struct Row1.1;
-                   struct Row1.2;
-                   struct Row2;ˇ
+        r#"struct Row;
+struct Row1;
+struct Row1.1;
+struct Row1.2;
+struct Row2;ˇ
 
-                   struct Row4;
-                   struct Row5;
-                   struct Row6;
+struct Row4;
+struct Row5;
+struct Row6;
 
-                   struct Row8;
-                   ˇstruct Row9;
-                   struct Row9.1;
-                   struct Row9.2;
-                   struct Row9.3;
-                   struct Row10;"#},
+struct Row8;
+ˇstruct Row9;
+struct Row9.1;
+struct Row9.2;
+struct Row9.3;
+struct Row10;"#,
         base_text,
         &mut cx,
     );
     // Same for selections
     assert_hunk_revert(
-        indoc! {r#"struct Row;
-                   struct Row1;
-                   struct Row2;
-                   struct Row2.1;
-                   struct Row2.2;
-                   «ˇ
-                   struct Row4;
-                   struct» Row5;
-                   «struct Row6;
-                   ˇ»
-                   struct Row9.1;
-                   struct Row9.2;
-                   struct Row9.3;
-                   struct Row8;
-                   struct Row9;
-                   struct Row10;"#},
+        r#"struct Row;
+struct Row1;
+struct Row2;
+struct Row2.1;
+struct Row2.2;
+«ˇ
+struct Row4;
+struct» Row5;
+«struct Row6;
+ˇ»
+struct Row9.1;
+struct Row9.2;
+struct Row9.3;
+struct Row8;
+struct Row9;
+struct Row10;"#,
         vec![DiffHunkStatusKind::Added, DiffHunkStatusKind::Added],
-        indoc! {r#"struct Row;
-                   struct Row1;
-                   struct Row2;
-                   struct Row2.1;
-                   struct Row2.2;
-                   «ˇ
-                   struct Row4;
-                   struct» Row5;
-                   «struct Row6;
-                   ˇ»
-                   struct Row9.1;
-                   struct Row9.2;
-                   struct Row9.3;
-                   struct Row8;
-                   struct Row9;
-                   struct Row10;"#},
+        r#"struct Row;
+struct Row1;
+struct Row2;
+struct Row2.1;
+struct Row2.2;
+«ˇ
+struct Row4;
+struct» Row5;
+«struct Row6;
+ˇ»
+struct Row9.1;
+struct Row9.2;
+struct Row9.3;
+struct Row8;
+struct Row9;
+struct Row10;"#,
         base_text,
         &mut cx,
     );
@@ -30564,28 +30914,28 @@ async fn test_addition_reverts(cx: &mut TestAppContext) {
     // When carets and selections intersect the addition hunks, those are reverted.
     // Adjacent carets got merged.
     assert_hunk_revert(
-        indoc! {r#"struct Row;
-                   ˇ// something on the top
-                   struct Row1;
-                   struct Row2;
-                   struct Roˇw3.1;
-                   struct Row2.2;
-                   struct Row2.3;ˇ
+        r#"struct Row;
+ˇ// something on the top
+struct Row1;
+struct Row2;
+struct Roˇw3.1;
+struct Row2.2;
+struct Row2.3;ˇ
 
-                   struct Row4;
-                   struct ˇRow5.1;
-                   struct Row5.2;
-                   struct «Rowˇ»5.3;
-                   struct Row5;
-                   struct Row6;
-                   ˇ
-                   struct Row9.1;
-                   struct «Rowˇ»9.2;
-                   struct «ˇRow»9.3;
-                   struct Row8;
-                   struct Row9;
-                   «ˇ// something on bottom»
-                   struct Row10;"#},
+struct Row4;
+struct ˇRow5.1;
+struct Row5.2;
+struct «Rowˇ»5.3;
+struct Row5;
+struct Row6;
+ˇ
+struct Row9.1;
+struct «Rowˇ»9.2;
+struct «ˇRow»9.3;
+struct Row8;
+struct Row9;
+«ˇ// something on bottom»
+struct Row10;"#,
         vec![
             DiffHunkStatusKind::Added,
             DiffHunkStatusKind::Added,
@@ -30593,17 +30943,17 @@ async fn test_addition_reverts(cx: &mut TestAppContext) {
             DiffHunkStatusKind::Added,
             DiffHunkStatusKind::Added,
         ],
-        indoc! {r#"struct Row;
-                   ˇstruct Row1;
-                   struct Row2;
-                   ˇ
-                   struct Row4;
-                   ˇstruct Row5;
-                   struct Row6;
-                   ˇ
-                   ˇstruct Row8;
-                   struct Row9;
-                   ˇstruct Row10;"#},
+        r#"struct Row;
+ˇstruct Row1;
+struct Row2;
+ˇ
+struct Row4;
+ˇstruct Row5;
+struct Row6;
+ˇ
+ˇstruct Row8;
+struct Row9;
+ˇstruct Row10;"#,
         base_text,
         &mut cx,
     );
@@ -30613,87 +30963,86 @@ async fn test_addition_reverts(cx: &mut TestAppContext) {
 async fn test_modification_reverts(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
     let mut cx = EditorLspTestContext::new_rust(lsp::ServerCapabilities::default(), cx).await;
-    let base_text = indoc! {r#"
-        struct Row;
-        struct Row1;
-        struct Row2;
+    let base_text = r#"struct Row;
+struct Row1;
+struct Row2;
 
-        struct Row4;
-        struct Row5;
-        struct Row6;
+struct Row4;
+struct Row5;
+struct Row6;
 
-        struct Row8;
-        struct Row9;
-        struct Row10;"#};
+struct Row8;
+struct Row9;
+struct Row10;"#;
 
     // Modification hunks behave the same as the addition ones.
     assert_hunk_revert(
-        indoc! {r#"struct Row;
-                   struct Row1;
-                   struct Row33;
-                   ˇ
-                   struct Row4;
-                   struct Row5;
-                   struct Row6;
-                   ˇ
-                   struct Row99;
-                   struct Row9;
-                   struct Row10;"#},
+        r#"struct Row;
+struct Row1;
+struct Row33;
+ˇ
+struct Row4;
+struct Row5;
+struct Row6;
+ˇ
+struct Row99;
+struct Row9;
+struct Row10;"#,
         vec![DiffHunkStatusKind::Modified, DiffHunkStatusKind::Modified],
-        indoc! {r#"struct Row;
-                   struct Row1;
-                   struct Row33;
-                   ˇ
-                   struct Row4;
-                   struct Row5;
-                   struct Row6;
-                   ˇ
-                   struct Row99;
-                   struct Row9;
-                   struct Row10;"#},
+        r#"struct Row;
+struct Row1;
+struct Row33;
+ˇ
+struct Row4;
+struct Row5;
+struct Row6;
+ˇ
+struct Row99;
+struct Row9;
+struct Row10;"#,
         base_text,
         &mut cx,
     );
     assert_hunk_revert(
-        indoc! {r#"struct Row;
-                   struct Row1;
-                   struct Row33;
-                   «ˇ
-                   struct Row4;
-                   struct» Row5;
-                   «struct Row6;
-                   ˇ»
-                   struct Row99;
-                   struct Row9;
-                   struct Row10;"#},
+        r#"struct Row;
+struct Row1;
+struct Row33;
+«ˇ
+struct Row4;
+struct» Row5;
+«struct Row6;
+ˇ»
+struct Row99;
+struct Row9;
+struct Row10;"#,
         vec![DiffHunkStatusKind::Modified, DiffHunkStatusKind::Modified],
-        indoc! {r#"struct Row;
-                   struct Row1;
-                   struct Row33;
-                   «ˇ
-                   struct Row4;
-                   struct» Row5;
-                   «struct Row6;
-                   ˇ»
-                   struct Row99;
-                   struct Row9;
-                   struct Row10;"#},
+        r#"struct Row;
+struct Row1;
+struct Row33;
+«ˇ
+struct Row4;
+struct» Row5;
+«struct Row6;
+ˇ»
+struct Row99;
+struct Row9;
+struct Row10;"#,
         base_text,
         &mut cx,
     );
 
     assert_hunk_revert(
-        indoc! {r#"ˇstruct Row1.1;
-                   struct Row1;
-                   «ˇstr»uct Row22;
+        r#"ˇstruct Row1.1;
+struct Row1;
+«ˇstr»uct Row22;
 
-                   struct ˇRow44;
-                   struct Row5;
-                   struct «Rˇ»ow66;ˇ
+struct ˇRow44;
+struct Row5;
+struct «Rˇ»ow66;ˇ
 
-                   «struˇ»ct Row88;
-                   struct Row9;
-                   struct Row1011;ˇ"#},
+«struˇ»ct Row88;
+struct Row9;
+struct Row1011;ˇ"#,
         vec![
             DiffHunkStatusKind::Modified,
             DiffHunkStatusKind::Modified,
@@ -30702,17 +31051,17 @@ async fn test_modification_reverts(cx: &mut TestAppContext) {
             DiffHunkStatusKind::Modified,
             DiffHunkStatusKind::Modified,
         ],
-        indoc! {r#"struct Row;
-                   ˇstruct Row1;
-                   struct Row2;
-                   ˇ
-                   struct Row4;
-                   ˇstruct Row5;
-                   struct Row6;
-                   ˇ
-                   struct Row8;
-                   ˇstruct Row9;
-                   struct Row10;ˇ"#},
+        r#"struct Row;
+ˇstruct Row1;
+struct Row2;
+ˇ
+struct Row4;
+ˇstruct Row5;
+struct Row6;
+ˇ
+struct Row8;
+ˇstruct Row9;
+struct Row10;ˇ"#,
         base_text,
         &mut cx,
     );
@@ -30722,12 +31071,11 @@ async fn test_modification_reverts(cx: &mut TestAppContext) {
 async fn test_deleting_over_diff_hunk(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
     let mut cx = EditorLspTestContext::new_rust(lsp::ServerCapabilities::default(), cx).await;
-    let base_text = indoc! {r#"
-        one
+    let base_text = r#"one
 
-        two
-        three
-        "#};
+two
+three
+"#;
 
     cx.set_head_text(base_text);
     cx.set_state("\nˇ\n");
@@ -30741,12 +31089,11 @@ async fn test_deleting_over_diff_hunk(cx: &mut TestAppContext) {
     });
     cx.run_until_parked();
     cx.assert_state_with_diff(
-        indoc! {r#"
-
-        - two
-        - threeˇ
-        +
-        "#}
+        r#"
+- two
+- threeˇ
++
+"#
         .to_string(),
     );
 }
@@ -30755,7 +31102,7 @@ async fn test_deleting_over_diff_hunk(cx: &mut TestAppContext) {
 async fn test_deletion_reverts(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
     let mut cx = EditorLspTestContext::new_rust(lsp::ServerCapabilities::default(), cx).await;
-    let base_text = indoc! {r#"struct Row;
+    let base_text = r#"struct Row;
 struct Row1;
 struct Row2;
 
@@ -30765,107 +31112,107 @@ struct Row6;
 
 struct Row8;
 struct Row9;
-struct Row10;"#};
+struct Row10;"#;
 
     // Deletion hunks trigger with carets on adjacent rows, so carets and selections have to stay farther to avoid the revert
     assert_hunk_revert(
-        indoc! {r#"struct Row;
-                   struct Row2;
+        r#"struct Row;
+struct Row2;
 
-                   ˇstruct Row4;
-                   struct Row5;
-                   struct Row6;
-                   ˇ
-                   struct Row8;
-                   struct Row10;"#},
+ˇstruct Row4;
+struct Row5;
+struct Row6;
+ˇ
+struct Row8;
+struct Row10;"#,
         vec![DiffHunkStatusKind::Deleted, DiffHunkStatusKind::Deleted],
-        indoc! {r#"struct Row;
-                   struct Row2;
+        r#"struct Row;
+struct Row2;
 
-                   ˇstruct Row4;
-                   struct Row5;
-                   struct Row6;
-                   ˇ
-                   struct Row8;
-                   struct Row10;"#},
+ˇstruct Row4;
+struct Row5;
+struct Row6;
+ˇ
+struct Row8;
+struct Row10;"#,
         base_text,
         &mut cx,
     );
     assert_hunk_revert(
-        indoc! {r#"struct Row;
-                   struct Row2;
+        r#"struct Row;
+struct Row2;
 
-                   «ˇstruct Row4;
-                   struct» Row5;
-                   «struct Row6;
-                   ˇ»
-                   struct Row8;
-                   struct Row10;"#},
+«ˇstruct Row4;
+struct» Row5;
+«struct Row6;
+ˇ»
+struct Row8;
+struct Row10;"#,
         vec![DiffHunkStatusKind::Deleted, DiffHunkStatusKind::Deleted],
-        indoc! {r#"struct Row;
-                   struct Row2;
+        r#"struct Row;
+struct Row2;
 
-                   «ˇstruct Row4;
-                   struct» Row5;
-                   «struct Row6;
-                   ˇ»
-                   struct Row8;
-                   struct Row10;"#},
+«ˇstruct Row4;
+struct» Row5;
+«struct Row6;
+ˇ»
+struct Row8;
+struct Row10;"#,
         base_text,
         &mut cx,
     );
 
     // Deletion hunks are ephemeral, so it's impossible to place the caret into them — Zed triggers reverts for lines, adjacent to carets and selections.
     assert_hunk_revert(
-        indoc! {r#"struct Row;
-                   ˇstruct Row2;
+        r#"struct Row;
+ˇstruct Row2;
 
-                   struct Row4;
-                   struct Row5;
-                   struct Row6;
+struct Row4;
+struct Row5;
+struct Row6;
 
-                   struct Row8;ˇ
-                   struct Row10;"#},
+struct Row8;ˇ
+struct Row10;"#,
         vec![DiffHunkStatusKind::Deleted, DiffHunkStatusKind::Deleted],
-        indoc! {r#"struct Row;
-                   struct Row1;
-                   ˇstruct Row2;
+        r#"struct Row;
+struct Row1;
+ˇstruct Row2;
 
-                   struct Row4;
-                   struct Row5;
-                   struct Row6;
+struct Row4;
+struct Row5;
+struct Row6;
 
-                   struct Row8;ˇ
-                   struct Row9;
-                   struct Row10;"#},
+struct Row8;ˇ
+struct Row9;
+struct Row10;"#,
         base_text,
         &mut cx,
     );
     assert_hunk_revert(
-        indoc! {r#"struct Row;
-                   struct Row2«ˇ;
-                   struct Row4;
-                   struct» Row5;
-                   «struct Row6;
+        r#"struct Row;
+struct Row2«ˇ;
+struct Row4;
+struct» Row5;
+«struct Row6;
 
-                   struct Row8;ˇ»
-                   struct Row10;"#},
+struct Row8;ˇ»
+struct Row10;"#,
         vec![
             DiffHunkStatusKind::Deleted,
             DiffHunkStatusKind::Deleted,
             DiffHunkStatusKind::Deleted,
         ],
-        indoc! {r#"struct Row;
-                   struct Row1;
-                   struct Row2«ˇ;
+        r#"struct Row;
+struct Row1;
+struct Row2«ˇ;
 
-                   struct Row4;
-                   struct» Row5;
-                   «struct Row6;
+struct Row4;
+struct» Row5;
+«struct Row6;
 
-                   struct Row8;ˇ»
-                   struct Row9;
-                   struct Row10;"#},
+struct Row8;ˇ»
+struct Row9;
+struct Row10;"#,
         base_text,
         &mut cx,
     );
@@ -32128,31 +32475,31 @@ async fn test_toggling_adjacent_diff_hunks(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
 
     let mut cx = EditorTestContext::new(cx).await;
-    cx.set_head_text(indoc! { "
-        one
-        two
-        three
-        four
-        five
-        "
-    });
-    cx.set_state(indoc! { "
-        one
-        ˇthree
-        five
-    "});
+    cx.set_head_text(
+        "one
+two
+three
+four
+five
+",
+    );
+    cx.set_state(
+        "one
+ˇthree
+five
+",
+    );
     cx.run_until_parked();
     cx.update_editor(|editor, window, cx| {
         editor.toggle_selected_diff_hunks(&Default::default(), window, cx);
     });
     cx.assert_state_with_diff(
-        indoc! { "
-        one
-      - two
-        ˇthree
-      - four
-        five
-    "}
+        "  one
+- two
+  ˇthree
+- four
+  five
+"
         .to_string(),
     );
     cx.update_editor(|editor, window, cx| {
@@ -32160,11 +32507,10 @@ async fn test_toggling_adjacent_diff_hunks(cx: &mut TestAppContext) {
     });
 
     cx.assert_state_with_diff(
-        indoc! { "
-        one
-        ˇthree
-        five
-    "}
+        "one
+ˇthree
+five
+"
         .to_string(),
     );
 
@@ -32173,12 +32519,11 @@ async fn test_toggling_adjacent_diff_hunks(cx: &mut TestAppContext) {
         editor.toggle_selected_diff_hunks(&Default::default(), window, cx);
     });
     cx.assert_state_with_diff(
-        indoc! { "
-        ˇone
-      - two
-        three
-        five
-    "}
+        "  ˇone
+- two
+  three
+  five
+"
         .to_string(),
     );
 
@@ -32188,37 +32533,36 @@ async fn test_toggling_adjacent_diff_hunks(cx: &mut TestAppContext) {
         editor.toggle_selected_diff_hunks(&Default::default(), window, cx);
     });
     cx.assert_state_with_diff(
-        indoc! { "
-        one
-      - two
-        ˇthree
-      - four
-        five
-    "}
+        "  one
+- two
+  ˇthree
+- four
+  five
+"
         .to_string(),
     );
 
-    cx.set_state(indoc! { "
-        one
-        ˇTWO
-        three
-        four
-        five
-    "});
+    cx.set_state(
+        "one
+ˇTWO
+three
+four
+five
+",
+    );
     cx.run_until_parked();
     cx.update_editor(|editor, window, cx| {
         editor.toggle_selected_diff_hunks(&Default::default(), window, cx);
     });
 
     cx.assert_state_with_diff(
-        indoc! { "
-            one
-          - two
-          + ˇTWO
-            three
-            four
-            five
-        "}
+        "  one
+- two
++ ˇTWO
+  three
+  four
+  five
+"
         .to_string(),
     );
     cx.update_editor(|editor, window, cx| {
@@ -32226,13 +32570,12 @@ async fn test_toggling_adjacent_diff_hunks(cx: &mut TestAppContext) {
         editor.toggle_selected_diff_hunks(&Default::default(), window, cx);
     });
     cx.assert_state_with_diff(
-        indoc! { "
-            one
-            ˇTWO
-            three
-            four
-            five
-        "}
+        "one
+ˇTWO
+three
+four
+five
+"
         .to_string(),
     );
 }
@@ -33305,37 +33648,31 @@ async fn test_active_indent_guide_non_matching_indent(cx: &mut TestAppContext) {
 async fn test_indent_guide_with_expanded_diff_hunks(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
     let mut cx = EditorTestContext::new(cx).await;
-    let text = indoc! {
-        "
-        impl A {
-            fn b() {
-                0;
-                3;
-                5;
-                6;
-                7;
-            }
-        }
-        "
-    };
-    let base_text = indoc! {
-        "
-        impl A {
-            fn b() {
-                0;
-                1;
-                2;
-                3;
-                4;
-            }
-            fn c() {
-                5;
-                6;
-                7;
-            }
-        }
-        "
-    };
+    let text = "impl A {
+    fn b() {
+        0;
+        3;
+        5;
+        6;
+        7;
+    }
+}
+";
+    let base_text = "impl A {
+    fn b() {
+        0;
+        1;
+        2;
+        3;
+        4;
+    }
+    fn c() {
+        5;
+        6;
+        7;
+    }
+}
+";
 
     cx.update_editor(|editor, window, cx| {
         editor.set_text(text, window, cx);
@@ -33355,23 +33692,21 @@ async fn test_indent_guide_with_expanded_diff_hunks(cx: &mut TestAppContext) {
     cx.run_until_parked();
 
     cx.assert_state_with_diff(
-        indoc! { "
-          impl A {
-              fn b() {
-                  0;
-        -         1;
-        -         2;
-                  3;
-        -         4;
-        -     }
-        -     fn c() {
-                  5;
-                  6;
-                  7;
-              }
-          }
-          ˇ"
-        }
+        "  impl A {
+      fn b() {
+          0;
+-         1;
+-         2;
+          3;
+-         4;
+-     }
+-     fn c() {
+          5;
+          6;
+          7;
+      }
+  }
+  ˇ"
         .to_string(),
     );
 
@@ -33822,48 +34157,51 @@ async fn test_partially_staged_hunk(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
 
     let mut cx = EditorTestContext::new(cx).await;
-    cx.set_head_text(indoc! { "
-        one
-        two
-        three
-        four
-        five
-        "
-    });
-    cx.set_index_text(indoc! { "
-        one
-        two
-        three
-        four
-        five
-        "
-    });
-    cx.set_state(indoc! {"
-        one
-        TWO
-        ˇTHREE
-        FOUR
-        five
-    "});
+    cx.set_head_text(
+        "one
+two
+three
+four
+five
+",
+    );
+    cx.set_index_text(
+        "one
+two
+three
+four
+five
+",
+    );
+    cx.set_state(
+        "one
+TWO
+ˇTHREE
+FOUR
+five
+",
+    );
     cx.run_until_parked();
     cx.update_editor(|editor, window, cx| {
         editor.toggle_staged_selected_diff_hunks(&Default::default(), window, cx);
     });
     cx.run_until_parked();
-    cx.assert_index_text(Some(indoc! {"
-        one
-        TWO
-        THREE
-        FOUR
-        five
-    "}));
-    cx.set_state(indoc! { "
-        one
-        TWO
-        ˇTHREE-HUNDRED
-        FOUR
-        five
-    "});
+    cx.assert_index_text(Some(
+        "one
+TWO
+THREE
+FOUR
+five
+",
+    ));
+    cx.set_state(
+        "one
+TWO
+ˇTHREE-HUNDRED
+FOUR
+five
+",
+    );
     cx.run_until_parked();
     cx.update_editor(|editor, window, cx| {
         let snapshot = editor.snapshot(window, cx);
@@ -33882,13 +34220,14 @@ async fn test_partially_staged_hunk(cx: &mut TestAppContext) {
         editor.toggle_staged_selected_diff_hunks(&Default::default(), window, cx);
     });
     cx.run_until_parked();
-    cx.assert_index_text(Some(indoc! {"
-        one
-        TWO
-        THREE-HUNDRED
-        FOUR
-        five
-    "}));
+    cx.assert_index_text(Some(
+        "one
+TWO
+THREE-HUNDRED
+FOUR
+five
+",
+    ));
 }
 
 #[gpui::test]
@@ -34806,39 +35145,38 @@ async fn test_goto_definition_preserve_scroll_strategy(cx: &mut TestAppContext) 
 
     // Build a buffer where `target` is defined on row 10 and called from
     // row 20, with the cursor placed on the call site.
-    let buffer = indoc! { "
-            // 0
-            // 1
-            // 2
-            // 3
-            // 4
-            // 5
-            // 6
-            // 7
-            // 8
-            // 9
-            fn target() // 10
-            // 11
-            // 12
-            // 13
-            // 14
-            // 15
-            // 16
-            // 17
-            // 18
-            // 19
-            fn caller() { ˇtarget(); } // 20
-            // 21
-            // 22
-            // 23
-            // 24
-            // 25
-            // 26
-            // 27
-            // 28
-            // 29
-            // 30
-        "};
+    let buffer = "// 0
+// 1
+// 2
+// 3
+// 4
+// 5
+// 6
+// 7
+// 8
+// 9
+fn target() // 10
+// 11
+// 12
+// 13
+// 14
+// 15
+// 16
+// 17
+// 18
+// 19
+fn caller() { ˇtarget(); } // 20
+// 21
+// 22
+// 23
+// 24
+// 25
+// 26
+// 27
+// 28
+// 29
+// 30
+";
 
     // Mock the response from the LSP server when requesting to go to a
     // definition so as to always jump to the `target` function.
@@ -35845,152 +36183,152 @@ async fn test_multi_buffer_navigation_with_folded_buffers(cx: &mut TestAppContex
     cx.simulate_resize(size(px(1000.), px(1000.)));
 
     let mut cx = EditorTestContext::for_editor_in(editor.clone(), cx).await;
-    cx.assert_excerpts_with_selections(indoc! {"
-        [EXCERPT]
-        ˇ[FOLDED]
-        [EXCERPT]
-        a1
-        b1
-        [EXCERPT]
-        [FOLDED]
-        [EXCERPT]
-        [FOLDED]
-        "
-    });
+    cx.assert_excerpts_with_selections(
+        "[EXCERPT]
+ˇ[FOLDED]
+[EXCERPT]
+a1
+b1
+[EXCERPT]
+[FOLDED]
+[EXCERPT]
+[FOLDED]
+",
+    );
     cx.simulate_keystroke("down");
-    cx.assert_excerpts_with_selections(indoc! {"
-        [EXCERPT]
-        [FOLDED]
-        [EXCERPT]
-        ˇa1
-        b1
-        [EXCERPT]
-        [FOLDED]
-        [EXCERPT]
-        [FOLDED]
-        "
-    });
+    cx.assert_excerpts_with_selections(
+        "[EXCERPT]
+[FOLDED]
+[EXCERPT]
+ˇa1
+b1
+[EXCERPT]
+[FOLDED]
+[EXCERPT]
+[FOLDED]
+",
+    );
     cx.simulate_keystroke("down");
-    cx.assert_excerpts_with_selections(indoc! {"
-        [EXCERPT]
-        [FOLDED]
-        [EXCERPT]
-        a1
-        ˇb1
-        [EXCERPT]
-        [FOLDED]
-        [EXCERPT]
-        [FOLDED]
-        "
-    });
+    cx.assert_excerpts_with_selections(
+        "[EXCERPT]
+[FOLDED]
+[EXCERPT]
+a1
+ˇb1
+[EXCERPT]
+[FOLDED]
+[EXCERPT]
+[FOLDED]
+",
+    );
     cx.simulate_keystroke("down");
-    cx.assert_excerpts_with_selections(indoc! {"
-        [EXCERPT]
-        [FOLDED]
-        [EXCERPT]
-        a1
-        b1
-        ˇ[EXCERPT]
-        [FOLDED]
-        [EXCERPT]
-        [FOLDED]
-        "
-    });
+    cx.assert_excerpts_with_selections(
+        "[EXCERPT]
+[FOLDED]
+[EXCERPT]
+a1
+b1
+ˇ[EXCERPT]
+[FOLDED]
+[EXCERPT]
+[FOLDED]
+",
+    );
     cx.simulate_keystroke("down");
-    cx.assert_excerpts_with_selections(indoc! {"
-        [EXCERPT]
-        [FOLDED]
-        [EXCERPT]
-        a1
-        b1
-        [EXCERPT]
-        ˇ[FOLDED]
-        [EXCERPT]
-        [FOLDED]
-        "
-    });
+    cx.assert_excerpts_with_selections(
+        "[EXCERPT]
+[FOLDED]
+[EXCERPT]
+a1
+b1
+[EXCERPT]
+ˇ[FOLDED]
+[EXCERPT]
+[FOLDED]
+",
+    );
     for _ in 0..5 {
         cx.simulate_keystroke("down");
-        cx.assert_excerpts_with_selections(indoc! {"
-            [EXCERPT]
-            [FOLDED]
-            [EXCERPT]
-            a1
-            b1
-            [EXCERPT]
-            [FOLDED]
-            [EXCERPT]
-            ˇ[FOLDED]
-            "
-        });
+        cx.assert_excerpts_with_selections(
+            "[EXCERPT]
+[FOLDED]
+[EXCERPT]
+a1
+b1
+[EXCERPT]
+[FOLDED]
+[EXCERPT]
+ˇ[FOLDED]
+",
+        );
     }
 
     cx.simulate_keystroke("up");
-    cx.assert_excerpts_with_selections(indoc! {"
-        [EXCERPT]
-        [FOLDED]
-        [EXCERPT]
-        a1
-        b1
-        [EXCERPT]
-        ˇ[FOLDED]
-        [EXCERPT]
-        [FOLDED]
-        "
-    });
+    cx.assert_excerpts_with_selections(
+        "[EXCERPT]
+[FOLDED]
+[EXCERPT]
+a1
+b1
+[EXCERPT]
+ˇ[FOLDED]
+[EXCERPT]
+[FOLDED]
+",
+    );
     cx.simulate_keystroke("up");
-    cx.assert_excerpts_with_selections(indoc! {"
-        [EXCERPT]
-        [FOLDED]
-        [EXCERPT]
-        a1
-        b1
-        ˇ[EXCERPT]
-        [FOLDED]
-        [EXCERPT]
-        [FOLDED]
-        "
-    });
+    cx.assert_excerpts_with_selections(
+        "[EXCERPT]
+[FOLDED]
+[EXCERPT]
+a1
+b1
+ˇ[EXCERPT]
+[FOLDED]
+[EXCERPT]
+[FOLDED]
+",
+    );
     cx.simulate_keystroke("up");
-    cx.assert_excerpts_with_selections(indoc! {"
-        [EXCERPT]
-        [FOLDED]
-        [EXCERPT]
-        a1
-        ˇb1
-        [EXCERPT]
-        [FOLDED]
-        [EXCERPT]
-        [FOLDED]
-        "
-    });
+    cx.assert_excerpts_with_selections(
+        "[EXCERPT]
+[FOLDED]
+[EXCERPT]
+a1
+ˇb1
+[EXCERPT]
+[FOLDED]
+[EXCERPT]
+[FOLDED]
+",
+    );
     cx.simulate_keystroke("up");
-    cx.assert_excerpts_with_selections(indoc! {"
-        [EXCERPT]
-        [FOLDED]
-        [EXCERPT]
-        ˇa1
-        b1
-        [EXCERPT]
-        [FOLDED]
-        [EXCERPT]
-        [FOLDED]
-        "
-    });
+    cx.assert_excerpts_with_selections(
+        "[EXCERPT]
+[FOLDED]
+[EXCERPT]
+ˇa1
+b1
+[EXCERPT]
+[FOLDED]
+[EXCERPT]
+[FOLDED]
+",
+    );
     for _ in 0..5 {
         cx.simulate_keystroke("up");
-        cx.assert_excerpts_with_selections(indoc! {"
-            [EXCERPT]
-            ˇ[FOLDED]
-            [EXCERPT]
-            a1
-            b1
-            [EXCERPT]
-            [FOLDED]
-            [EXCERPT]
-            [FOLDED]
-            "
-        });
+        cx.assert_excerpts_with_selections(
+            "[EXCERPT]
+ˇ[FOLDED]
+[EXCERPT]
+a1
+b1
+[EXCERPT]
+[FOLDED]
+[EXCERPT]
+[FOLDED]
+",
+        );
     }
 }
 
@@ -38659,12 +38997,13 @@ async fn test_dynamic_document_highlight_registration_refreshes_editor(cx: &mut 
     );
     let project = cx.update_workspace(|workspace, _, _| workspace.project().clone());
     let server_id = cx.lsp.server.server_id();
-    cx.set_state(indoc! {"
-        fn main() {
-            let foo = 1;
-            fˇoo;
-        }
-    "});
+    cx.set_state(
+        "fn main() {
+    let foo = 1;
+    fˇoo;
+}
+",
+    );
     cx.executor().advance_clock(debounce);
     cx.run_until_parked();
 
@@ -38805,9 +39144,10 @@ async fn test_rename_with_duplicate_edits(cx: &mut TestAppContext) {
     };
     let mut cx = EditorLspTestContext::new_rust(capabilities, cx).await;
 
-    cx.set_state(indoc! {"
-        struct Fˇoo {}
-    "});
+    cx.set_state(
+        "struct Fˇoo {}
+",
+    );
 
     cx.update_editor(|editor, _, cx| {
         let highlight_range = Point::new(0, 7)..Point::new(0, 10);
@@ -38869,9 +39209,10 @@ async fn test_rename_with_duplicate_edits(cx: &mut TestAppContext) {
     cx.run_until_parked();
 
     // Despite two edits, only one is actually applied as those are identical
-    cx.assert_editor_state(indoc! {"
-        struct FooRenamedˇ {}
-    "});
+    cx.assert_editor_state(
+        "struct FooRenamedˇ {}
+",
+    );
 }
 
 #[gpui::test]
@@ -38886,13 +39227,14 @@ async fn test_rename_with_out_of_order_document_highlights(cx: &mut TestAppConte
     };
     let mut cx = EditorLspTestContext::new_rust(capabilities, cx).await;
 
-    cx.set_state(indoc! {"
-        struct Foo {}
-        fn main() {
-            let first = Foo {};
-            let second = Fˇoo {};
-        }
-    "});
+    cx.set_state(
+        "struct Foo {}
+fn main() {
+    let first = Foo {};
+    let second = Fˇoo {};
+}
+",
+    );
 
     cx.update_editor(|editor, _window, cx| {
         let snapshot = editor.buffer().read(cx).snapshot(cx);
@@ -38950,9 +39292,10 @@ async fn test_rename_without_prepare(cx: &mut TestAppContext) {
     };
     let mut cx = EditorLspTestContext::new_rust(capabilities, cx).await;
 
-    cx.set_state(indoc! {"
-        struct Fˇoo {}
-    "});
+    cx.set_state(
+        "struct Fˇoo {}
+",
+    );
 
     cx.update_editor(|editor, _window, cx| {
         let highlight_range = Point::new(0, 7)..Point::new(0, 10);
@@ -38997,9 +39340,10 @@ async fn test_rename_without_prepare(cx: &mut TestAppContext) {
     cx.run_until_parked();
 
     // Correct range is renamed, as `surrounding_word` is used to find it.
-    cx.assert_editor_state(indoc! {"
-        struct FooRenamedˇ {}
-    "});
+    cx.assert_editor_state(
+        "struct FooRenamedˇ {}
+",
+    );
 }
 
 #[gpui::test]
@@ -39025,35 +39369,41 @@ async fn test_tree_sitter_brackets_newline_insertion(cx: &mut TestAppContext) {
     );
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
 
-    cx.set_state(indoc! {"
-        <span>ˇ</span>
-    "});
+    cx.set_state(
+        "<span>ˇ</span>
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.assert_editor_state(indoc! {"
-        <span>
-        ˇ
-        </span>
-    "});
+    cx.assert_editor_state(
+        "<span>
+ˇ
+</span>
+",
+    );
 
-    cx.set_state(indoc! {"
-        <span><span></span>ˇ</span>
-    "});
+    cx.set_state(
+        "<span><span></span>ˇ</span>
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.assert_editor_state(indoc! {"
-        <span><span></span>
-        ˇ</span>
-    "});
+    cx.assert_editor_state(
+        "<span><span></span>
+ˇ</span>
+",
+    );
 
-    cx.set_state(indoc! {"
-        <span>ˇ
-        </span>
-    "});
+    cx.set_state(
+        "<span>ˇ
+</span>
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.assert_editor_state(indoc! {"
-        <span>
-        ˇ
-        </span>
-    "});
+    cx.assert_editor_state(
+        "<span>
+ˇ
+</span>
+",
+    );
 }
 
 #[gpui::test(iterations = 10)]
@@ -40372,108 +40722,114 @@ async fn test_tab_in_leading_whitespace_auto_indents_for_python(cx: &mut TestApp
 
     // test cursor move to start of each line on tab
     // for `if`, `elif`, `else`, `while`, `with` and `for`
-    cx.set_state(indoc! {"
-        def main():
-        ˇ    for item in items:
-        ˇ        while item.active:
-        ˇ            if item.value > 10:
-        ˇ                continue
-        ˇ            elif item.value < 0:
-        ˇ                break
-        ˇ            else:
-        ˇ                with item.context() as ctx:
-        ˇ                    yield count
-        ˇ        else:
-        ˇ            log('while else')
-        ˇ    else:
-        ˇ        log('for else')
-    "});
+    cx.set_state(
+        "def main():
+ˇ    for item in items:
+ˇ        while item.active:
+ˇ            if item.value > 10:
+ˇ                continue
+ˇ            elif item.value < 0:
+ˇ                break
+ˇ            else:
+ˇ                with item.context() as ctx:
+ˇ                    yield count
+ˇ        else:
+ˇ            log('while else')
+ˇ    else:
+ˇ        log('for else')
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        def main():
-            ˇfor item in items:
-                ˇwhile item.active:
-                    ˇif item.value > 10:
-                        ˇcontinue
-                    ˇelif item.value < 0:
-                        ˇbreak
-                    ˇelse:
-                        ˇwith item.context() as ctx:
-                            ˇyield count
-                ˇelse:
-                    ˇlog('while else')
+    cx.assert_editor_state(
+        "def main():
+    ˇfor item in items:
+        ˇwhile item.active:
+            ˇif item.value > 10:
+                ˇcontinue
+            ˇelif item.value < 0:
+                ˇbreak
             ˇelse:
-                ˇlog('for else')
-    "});
+                ˇwith item.context() as ctx:
+                    ˇyield count
+        ˇelse:
+            ˇlog('while else')
+    ˇelse:
+        ˇlog('for else')
+",
+    );
     // test relative indent is preserved when tab
     // for `if`, `elif`, `else`, `while`, `with` and `for`
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        def main():
-                ˇfor item in items:
-                    ˇwhile item.active:
-                        ˇif item.value > 10:
-                            ˇcontinue
-                        ˇelif item.value < 0:
-                            ˇbreak
-                        ˇelse:
-                            ˇwith item.context() as ctx:
-                                ˇyield count
-                    ˇelse:
-                        ˇlog('while else')
+    cx.assert_editor_state(
+        "def main():
+        ˇfor item in items:
+            ˇwhile item.active:
+                ˇif item.value > 10:
+                    ˇcontinue
+                ˇelif item.value < 0:
+                    ˇbreak
                 ˇelse:
-                    ˇlog('for else')
-    "});
+                    ˇwith item.context() as ctx:
+                        ˇyield count
+            ˇelse:
+                ˇlog('while else')
+        ˇelse:
+            ˇlog('for else')
+",
+    );
 
     // test cursor move to start of each line on tab
     // for `try`, `except`, `else`, `finally`, `match` and `def`
-    cx.set_state(indoc! {"
-        def main():
-        ˇ    try:
-        ˇ        fetch()
-        ˇ    except ValueError:
-        ˇ        handle_error()
-        ˇ    else:
-        ˇ        match value:
-        ˇ            case _:
-        ˇ    finally:
-        ˇ        def status():
-        ˇ            return 0
-    "});
+    cx.set_state(
+        "def main():
+ˇ    try:
+ˇ        fetch()
+ˇ    except ValueError:
+ˇ        handle_error()
+ˇ    else:
+ˇ        match value:
+ˇ            case _:
+ˇ    finally:
+ˇ        def status():
+ˇ            return 0
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        def main():
-            ˇtry:
-                ˇfetch()
-            ˇexcept ValueError:
-                ˇhandle_error()
-            ˇelse:
-                ˇmatch value:
-                    ˇcase _:
-            ˇfinally:
-                ˇdef status():
-                    ˇreturn 0
-    "});
+    cx.assert_editor_state(
+        "def main():
+    ˇtry:
+        ˇfetch()
+    ˇexcept ValueError:
+        ˇhandle_error()
+    ˇelse:
+        ˇmatch value:
+            ˇcase _:
+    ˇfinally:
+        ˇdef status():
+            ˇreturn 0
+",
+    );
     // test relative indent is preserved when tab
     // for `try`, `except`, `else`, `finally`, `match` and `def`
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        def main():
-                ˇtry:
-                    ˇfetch()
-                ˇexcept ValueError:
-                    ˇhandle_error()
-                ˇelse:
-                    ˇmatch value:
-                        ˇcase _:
-                ˇfinally:
-                    ˇdef status():
-                        ˇreturn 0
-    "});
+    cx.assert_editor_state(
+        "def main():
+        ˇtry:
+            ˇfetch()
+        ˇexcept ValueError:
+            ˇhandle_error()
+        ˇelse:
+            ˇmatch value:
+                ˇcase _:
+        ˇfinally:
+            ˇdef status():
+                ˇreturn 0
+",
+    );
 }
 
 #[gpui::test]
@@ -40485,264 +40841,288 @@ async fn test_outdent_after_input_for_python(cx: &mut TestAppContext) {
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
 
     // test `else` auto outdents when typed inside `if` block
-    cx.set_state(indoc! {"
-        def main():
-            if i == 2:
-                return
-                ˇ
-    "});
+    cx.set_state(
+        "def main():
+    if i == 2:
+        return
+        ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("else:", window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        def main():
-            if i == 2:
-                return
-            else:ˇ
-    "});
+    cx.assert_editor_state(
+        "def main():
+    if i == 2:
+        return
+    else:ˇ
+",
+    );
 
     // Completing `else:` at multiple cursors must still trigger syntax outdents.
-    cx.set_state(indoc! {"
-        def f():
-            if True:
-                pass
-                elseˇ
-                pass
-        def g():
-            if True:
-                pass
-                elseˇ
-                pass
-    "});
+    cx.set_state(
+        "def f():
+    if True:
+        pass
+        elseˇ
+        pass
+def g():
+    if True:
+        pass
+        elseˇ
+        pass
+",
+    );
     cx.update_editor(|editor, window, cx| editor.handle_input(":", window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        def f():
-            if True:
-                pass
-            else:ˇ
-                pass
-        def g():
-            if True:
-                pass
-            else:ˇ
-                pass
-    "});
+    cx.assert_editor_state(
+        "def f():
+    if True:
+        pass
+    else:ˇ
+        pass
+def g():
+    if True:
+        pass
+    else:ˇ
+        pass
+",
+    );
 
     // test `except` auto outdents when typed inside `try` block
-    cx.set_state(indoc! {"
-        def main():
-            try:
-                i = 2
-                ˇ
-    "});
+    cx.set_state(
+        "def main():
+    try:
+        i = 2
+        ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("except:", window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        def main():
-            try:
-                i = 2
-            except:ˇ
-    "});
+    cx.assert_editor_state(
+        "def main():
+    try:
+        i = 2
+    except:ˇ
+",
+    );
 
     // test `else` auto outdents when typed inside `except` block
-    cx.set_state(indoc! {"
-        def main():
-            try:
-                i = 2
-            except:
-                j = 2
-                ˇ
-    "});
+    cx.set_state(
+        "def main():
+    try:
+        i = 2
+    except:
+        j = 2
+        ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("else:", window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        def main():
-            try:
-                i = 2
-            except:
-                j = 2
-            else:ˇ
-    "});
+    cx.assert_editor_state(
+        "def main():
+    try:
+        i = 2
+    except:
+        j = 2
+    else:ˇ
+",
+    );
 
     // test `finally` auto outdents when typed inside `else` block
-    cx.set_state(indoc! {"
-        def main():
-            try:
-                i = 2
-            except:
-                j = 2
-            else:
-                k = 2
-                ˇ
-    "});
+    cx.set_state(
+        "def main():
+    try:
+        i = 2
+    except:
+        j = 2
+    else:
+        k = 2
+        ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("finally:", window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        def main():
-            try:
-                i = 2
-            except:
-                j = 2
-            else:
-                k = 2
-            finally:ˇ
-    "});
+    cx.assert_editor_state(
+        "def main():
+    try:
+        i = 2
+    except:
+        j = 2
+    else:
+        k = 2
+    finally:ˇ
+",
+    );
 
     // test `else` does not outdents when typed inside `except` block right after for block
-    cx.set_state(indoc! {"
-        def main():
-            try:
-                i = 2
-            except:
-                for i in range(n):
-                    pass
-                ˇ
-    "});
+    cx.set_state(
+        "def main():
+    try:
+        i = 2
+    except:
+        for i in range(n):
+            pass
+        ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("else:", window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        def main():
-            try:
-                i = 2
-            except:
-                for i in range(n):
-                    pass
-                else:ˇ
-    "});
+    cx.assert_editor_state(
+        "def main():
+    try:
+        i = 2
+    except:
+        for i in range(n):
+            pass
+        else:ˇ
+",
+    );
 
     // test `finally` auto outdents when typed inside `else` block right after for block
-    cx.set_state(indoc! {"
-        def main():
-            try:
-                i = 2
-            except:
-                j = 2
-            else:
-                for i in range(n):
-                    pass
-                ˇ
-    "});
+    cx.set_state(
+        "def main():
+    try:
+        i = 2
+    except:
+        j = 2
+    else:
+        for i in range(n):
+            pass
+        ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("finally:", window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        def main():
-            try:
-                i = 2
-            except:
-                j = 2
-            else:
-                for i in range(n):
-                    pass
-            finally:ˇ
-    "});
+    cx.assert_editor_state(
+        "def main():
+    try:
+        i = 2
+    except:
+        j = 2
+    else:
+        for i in range(n):
+            pass
+    finally:ˇ
+",
+    );
 
     // test `except` outdents to inner "try" block
-    cx.set_state(indoc! {"
-        def main():
+    cx.set_state(
+        "def main():
+    try:
+        i = 2
+        if i == 2:
             try:
-                i = 2
-                if i == 2:
-                    try:
-                        i = 3
-                        ˇ
-    "});
+                i = 3
+                ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("except:", window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        def main():
+    cx.assert_editor_state(
+        "def main():
+    try:
+        i = 2
+        if i == 2:
             try:
-                i = 2
-                if i == 2:
-                    try:
-                        i = 3
-                    except:ˇ
-    "});
+                i = 3
+            except:ˇ
+",
+    );
 
     // test `except` outdents to outer "try" block
-    cx.set_state(indoc! {"
-        def main():
+    cx.set_state(
+        "def main():
+    try:
+        i = 2
+        if i == 2:
             try:
-                i = 2
-                if i == 2:
-                    try:
-                        i = 3
-                ˇ
-    "});
+                i = 3
+        ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("except:", window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        def main():
+    cx.assert_editor_state(
+        "def main():
+    try:
+        i = 2
+        if i == 2:
             try:
-                i = 2
-                if i == 2:
-                    try:
-                        i = 3
-            except:ˇ
-    "});
+                i = 3
+    except:ˇ
+",
+    );
 
     // test `else` stays at correct indent when typed after `for` block
-    cx.set_state(indoc! {"
-        def main():
-            for i in range(10):
-                if i == 3:
-                    break
-            ˇ
-    "});
+    cx.set_state(
+        "def main():
+    for i in range(10):
+        if i == 3:
+            break
+    ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("else:", window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        def main():
-            for i in range(10):
-                if i == 3:
-                    break
-            else:ˇ
-    "});
+    cx.assert_editor_state(
+        "def main():
+    for i in range(10):
+        if i == 3:
+            break
+    else:ˇ
+",
+    );
 
     // test does not outdent on typing after line with square brackets
-    cx.set_state(indoc! {"
-        def f() -> list[str]:
-            ˇ
-    "});
+    cx.set_state(
+        "def f() -> list[str]:
+    ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("a", window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        def f() -> list[str]:
-            aˇ
-    "});
+    cx.assert_editor_state(
+        "def f() -> list[str]:
+    aˇ
+",
+    );
 
     // test does not outdent on typing : after case keyword
-    cx.set_state(indoc! {"
-        match 1:
-            caseˇ
-    "});
+    cx.set_state(
+        "match 1:
+    caseˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input(":", window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        match 1:
-            case:ˇ
-    "});
+    cx.assert_editor_state(
+        "match 1:
+    case:ˇ
+",
+    );
 }
 
 #[gpui::test]
@@ -40756,57 +41136,65 @@ async fn test_indent_on_newline_for_python(cx: &mut TestAppContext) {
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
 
     // test correct indent after newline on comment
-    cx.set_state(indoc! {"
-        # COMMENT:ˇ
-    "});
+    cx.set_state(
+        "# COMMENT:ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.newline(&Newline, window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        # COMMENT:
-        ˇ
-    "});
+    cx.assert_editor_state(
+        "# COMMENT:
+ˇ
+",
+    );
 
     // test correct indent after newline in brackets
-    cx.set_state(indoc! {"
-        {ˇ}
-    "});
+    cx.set_state(
+        "{ˇ}
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.newline(&Newline, window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        {
-            ˇ
-        }
-    "});
+    cx.assert_editor_state(
+        "{
+    ˇ
+}
+",
+    );
 
-    cx.set_state(indoc! {"
-        (ˇ)
-    "});
+    cx.set_state(
+        "(ˇ)
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.newline(&Newline, window, cx);
     });
     cx.run_until_parked();
-    cx.assert_editor_state(indoc! {"
-        (
-            ˇ
-        )
-    "});
+    cx.assert_editor_state(
+        "(
+    ˇ
+)
+",
+    );
 
     // do not indent after empty lists or dictionaries
-    cx.set_state(indoc! {"
-        a = []ˇ
-    "});
+    cx.set_state(
+        "a = []ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.newline(&Newline, window, cx);
     });
     cx.run_until_parked();
-    cx.assert_editor_state(indoc! {"
-        a = []
-        ˇ
-    "});
+    cx.assert_editor_state(
+        "a = []
+ˇ
+",
+    );
 }
 
 #[gpui::test]
@@ -40825,30 +41213,32 @@ async fn test_python_indent_in_markdown(cx: &mut TestAppContext) {
     });
 
     // Test that `else:` correctly outdents to match `if:` inside the Python code block
-    cx.set_state(indoc! {"
-        # Heading
+    cx.set_state(
+        "# Heading
 
-        ```python
-        def main():
-            if condition:
-                pass
-                ˇ
-        ```
-    "});
+```python
+def main():
+    if condition:
+        pass
+        ˇ
+```
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("else:", window, cx);
     });
     cx.run_until_parked();
-    cx.assert_editor_state(indoc! {"
-        # Heading
+    cx.assert_editor_state(
+        "# Heading
 
-        ```python
-        def main():
-            if condition:
-                pass
-            else:ˇ
-        ```
-    "});
+```python
+def main():
+    if condition:
+        pass
+    else:ˇ
+```
+",
+    );
 }
 
 #[gpui::test]
@@ -40861,91 +41251,96 @@ async fn test_tab_in_leading_whitespace_auto_indents_for_bash(cx: &mut TestAppCo
 
     // test cursor move to start of each line on tab
     // for `if`, `elif`, `else`, `while`, `for`, `case` and `function`
-    cx.set_state(indoc! {"
-        function main() {
-        ˇ    for item in $items; do
-        ˇ        while [ -n \"$item\" ]; do
-        ˇ            if [ \"$value\" -gt 10 ]; then
-        ˇ                continue
-        ˇ            elif [ \"$value\" -lt 0 ]; then
-        ˇ                break
-        ˇ            else
-        ˇ                echo \"$item\"
-        ˇ            fi
-        ˇ        done
-        ˇ    done
-        ˇ}
-    "});
+    cx.set_state(
+        "function main() {
+ˇ    for item in $items; do
+ˇ        while [ -n \"$item\" ]; do
+ˇ            if [ \"$value\" -gt 10 ]; then
+ˇ                continue
+ˇ            elif [ \"$value\" -lt 0 ]; then
+ˇ                break
+ˇ            else
+ˇ                echo \"$item\"
+ˇ            fi
+ˇ        done
+ˇ    done
+ˇ}
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        function main() {
-            ˇfor item in $items; do
-                ˇwhile [ -n \"$item\" ]; do
-                    ˇif [ \"$value\" -gt 10 ]; then
-                        ˇcontinue
-                    ˇelif [ \"$value\" -lt 0 ]; then
-                        ˇbreak
-                    ˇelse
-                        ˇecho \"$item\"
-                    ˇfi
-                ˇdone
-            ˇdone
-        ˇ}
-    "});
+    cx.assert_editor_state(
+        "function main() {
+    ˇfor item in $items; do
+        ˇwhile [ -n \"$item\" ]; do
+            ˇif [ \"$value\" -gt 10 ]; then
+                ˇcontinue
+            ˇelif [ \"$value\" -lt 0 ]; then
+                ˇbreak
+            ˇelse
+                ˇecho \"$item\"
+            ˇfi
+        ˇdone
+    ˇdone
+ˇ}
+",
+    );
     // test relative indent is preserved when tab
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        function main() {
-                ˇfor item in $items; do
-                    ˇwhile [ -n \"$item\" ]; do
-                        ˇif [ \"$value\" -gt 10 ]; then
-                            ˇcontinue
-                        ˇelif [ \"$value\" -lt 0 ]; then
-                            ˇbreak
-                        ˇelse
-                            ˇecho \"$item\"
-                        ˇfi
-                    ˇdone
-                ˇdone
-            ˇ}
-    "});
+    cx.assert_editor_state(
+        "function main() {
+        ˇfor item in $items; do
+            ˇwhile [ -n \"$item\" ]; do
+                ˇif [ \"$value\" -gt 10 ]; then
+                    ˇcontinue
+                ˇelif [ \"$value\" -lt 0 ]; then
+                    ˇbreak
+                ˇelse
+                    ˇecho \"$item\"
+                ˇfi
+            ˇdone
+        ˇdone
+    ˇ}
+",
+    );
 
     // test cursor move to start of each line on tab
     // for `case` statement with patterns
-    cx.set_state(indoc! {"
-        function handle() {
-        ˇ    case \"$1\" in
-        ˇ        start)
-        ˇ            echo \"a\"
-        ˇ            ;;
-        ˇ        stop)
-        ˇ            echo \"b\"
-        ˇ            ;;
-        ˇ        *)
-        ˇ            echo \"c\"
-        ˇ            ;;
-        ˇ    esac
-        ˇ}
-    "});
+    cx.set_state(
+        "function handle() {
+ˇ    case \"$1\" in
+ˇ        start)
+ˇ            echo \"a\"
+ˇ            ;;
+ˇ        stop)
+ˇ            echo \"b\"
+ˇ            ;;
+ˇ        *)
+ˇ            echo \"c\"
+ˇ            ;;
+ˇ    esac
+ˇ}
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        function handle() {
-            ˇcase \"$1\" in
-                ˇstart)
-                    ˇecho \"a\"
-                    ˇ;;
-                ˇstop)
-                    ˇecho \"b\"
-                    ˇ;;
-                ˇ*)
-                    ˇecho \"c\"
-                    ˇ;;
-            ˇesac
-        ˇ}
-    "});
+    cx.assert_editor_state(
+        "function handle() {
+    ˇcase \"$1\" in
+        ˇstart)
+            ˇecho \"a\"
+            ˇ;;
+        ˇstop)
+            ˇecho \"b\"
+            ˇ;;
+        ˇ*)
+            ˇecho \"c\"
+            ˇ;;
+    ˇesac
+ˇ}
+",
+    );
 }
 
 #[gpui::test]
@@ -40960,38 +41355,40 @@ async fn test_indent_after_input_for_bash(cx: &mut TestAppContext) {
     });
 
     // test indents on comment insert
-    cx.set_state(indoc! {"
-        function main() {
-        ˇ    for item in $items; do
-        ˇ        while [ -n \"$item\" ]; do
-        ˇ            if [ \"$value\" -gt 10 ]; then
-        ˇ                continue
-        ˇ            elif [ \"$value\" -lt 0 ]; then
-        ˇ                break
-        ˇ            else
-        ˇ                echo \"$item\"
-        ˇ            fi
-        ˇ        done
-        ˇ    done
-        ˇ}
-    "});
+    cx.set_state(
+        "function main() {
+ˇ    for item in $items; do
+ˇ        while [ -n \"$item\" ]; do
+ˇ            if [ \"$value\" -gt 10 ]; then
+ˇ                continue
+ˇ            elif [ \"$value\" -lt 0 ]; then
+ˇ                break
+ˇ            else
+ˇ                echo \"$item\"
+ˇ            fi
+ˇ        done
+ˇ    done
+ˇ}
+",
+    );
     cx.update_editor(|e, window, cx| e.handle_input("#", window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        function main() {
-        #ˇ    for item in $items; do
-        #ˇ        while [ -n \"$item\" ]; do
-        #ˇ            if [ \"$value\" -gt 10 ]; then
-        #ˇ                continue
-        #ˇ            elif [ \"$value\" -lt 0 ]; then
-        #ˇ                break
-        #ˇ            else
-        #ˇ                echo \"$item\"
-        #ˇ            fi
-        #ˇ        done
-        #ˇ    done
-        #ˇ}
-    "});
+    cx.assert_editor_state(
+        "function main() {
+#ˇ    for item in $items; do
+#ˇ        while [ -n \"$item\" ]; do
+#ˇ            if [ \"$value\" -gt 10 ]; then
+#ˇ                continue
+#ˇ            elif [ \"$value\" -lt 0 ]; then
+#ˇ                break
+#ˇ            else
+#ˇ                echo \"$item\"
+#ˇ            fi
+#ˇ        done
+#ˇ    done
+#ˇ}
+",
+    );
 }
 
 #[gpui::test]
@@ -41003,154 +41400,170 @@ async fn test_outdent_after_input_for_bash(cx: &mut TestAppContext) {
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
 
     // test `else` auto outdents when typed inside `if` block
-    cx.set_state(indoc! {"
-        if [ \"$1\" = \"test\" ]; then
-            echo \"foo bar\"
-            ˇ
-    "});
+    cx.set_state(
+        "if [ \"$1\" = \"test\" ]; then
+    echo \"foo bar\"
+    ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("else", window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        if [ \"$1\" = \"test\" ]; then
-            echo \"foo bar\"
-        elseˇ
-    "});
+    cx.assert_editor_state(
+        "if [ \"$1\" = \"test\" ]; then
+    echo \"foo bar\"
+elseˇ
+",
+    );
 
     // test `elif` auto outdents when typed inside `if` block
-    cx.set_state(indoc! {"
-        if [ \"$1\" = \"test\" ]; then
-            echo \"foo bar\"
-            ˇ
-    "});
+    cx.set_state(
+        "if [ \"$1\" = \"test\" ]; then
+    echo \"foo bar\"
+    ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("elif", window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        if [ \"$1\" = \"test\" ]; then
-            echo \"foo bar\"
-        elifˇ
-    "});
+    cx.assert_editor_state(
+        "if [ \"$1\" = \"test\" ]; then
+    echo \"foo bar\"
+elifˇ
+",
+    );
 
     // test `fi` auto outdents when typed inside `else` block
-    cx.set_state(indoc! {"
-        if [ \"$1\" = \"test\" ]; then
-            echo \"foo bar\"
-        else
-            echo \"bar baz\"
-            ˇ
-    "});
+    cx.set_state(
+        "if [ \"$1\" = \"test\" ]; then
+    echo \"foo bar\"
+else
+    echo \"bar baz\"
+    ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("fi", window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        if [ \"$1\" = \"test\" ]; then
-            echo \"foo bar\"
-        else
-            echo \"bar baz\"
-        fiˇ
-    "});
+    cx.assert_editor_state(
+        "if [ \"$1\" = \"test\" ]; then
+    echo \"foo bar\"
+else
+    echo \"bar baz\"
+fiˇ
+",
+    );
 
     // test `done` auto outdents when typed inside `while` block
-    cx.set_state(indoc! {"
-        while read line; do
-            echo \"$line\"
-            ˇ
-    "});
+    cx.set_state(
+        "while read line; do
+    echo \"$line\"
+    ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("done", window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        while read line; do
-            echo \"$line\"
-        doneˇ
-    "});
+    cx.assert_editor_state(
+        "while read line; do
+    echo \"$line\"
+doneˇ
+",
+    );
 
     // test `done` auto outdents when typed inside `for` block
-    cx.set_state(indoc! {"
-        for file in *.txt; do
-            cat \"$file\"
-            ˇ
-    "});
+    cx.set_state(
+        "for file in *.txt; do
+    cat \"$file\"
+    ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("done", window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        for file in *.txt; do
-            cat \"$file\"
-        doneˇ
-    "});
+    cx.assert_editor_state(
+        "for file in *.txt; do
+    cat \"$file\"
+doneˇ
+",
+    );
 
     // test `esac` auto outdents when typed inside `case` block
-    cx.set_state(indoc! {"
-        case \"$1\" in
-            start)
-                echo \"foo bar\"
-                ;;
-            stop)
-                echo \"bar baz\"
-                ;;
-            ˇ
-    "});
+    cx.set_state(
+        "case \"$1\" in
+    start)
+        echo \"foo bar\"
+        ;;
+    stop)
+        echo \"bar baz\"
+        ;;
+    ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("esac", window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        case \"$1\" in
-            start)
-                echo \"foo bar\"
-                ;;
-            stop)
-                echo \"bar baz\"
-                ;;
-        esacˇ
-    "});
+    cx.assert_editor_state(
+        "case \"$1\" in
+    start)
+        echo \"foo bar\"
+        ;;
+    stop)
+        echo \"bar baz\"
+        ;;
+esacˇ
+",
+    );
 
     // test `*)` auto outdents when typed inside `case` block
-    cx.set_state(indoc! {"
-        case \"$1\" in
-            start)
-                echo \"foo bar\"
-                ;;
-                ˇ
-    "});
+    cx.set_state(
+        "case \"$1\" in
+    start)
+        echo \"foo bar\"
+        ;;
+        ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("*)", window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        case \"$1\" in
-            start)
-                echo \"foo bar\"
-                ;;
-            *)ˇ
-    "});
+    cx.assert_editor_state(
+        "case \"$1\" in
+    start)
+        echo \"foo bar\"
+        ;;
+    *)ˇ
+",
+    );
 
     // test `fi` outdents to correct level with nested if blocks
-    cx.set_state(indoc! {"
-        if [ \"$1\" = \"test\" ]; then
-            echo \"outer if\"
-            if [ \"$2\" = \"debug\" ]; then
-                echo \"inner if\"
-                ˇ
-    "});
+    cx.set_state(
+        "if [ \"$1\" = \"test\" ]; then
+    echo \"outer if\"
+    if [ \"$2\" = \"debug\" ]; then
+        echo \"inner if\"
+        ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("fi", window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        if [ \"$1\" = \"test\" ]; then
-            echo \"outer if\"
-            if [ \"$2\" = \"debug\" ]; then
-                echo \"inner if\"
-            fiˇ
-    "});
+    cx.assert_editor_state(
+        "if [ \"$1\" = \"test\" ]; then
+    echo \"outer if\"
+    if [ \"$2\" = \"debug\" ]; then
+        echo \"inner if\"
+    fiˇ
+",
+    );
 }
 
 #[gpui::test]
@@ -41164,136 +41577,154 @@ async fn test_indent_on_newline_for_bash(cx: &mut TestAppContext) {
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(language), cx));
 
     // test correct indent after newline on comment
-    cx.set_state(indoc! {"
-        # COMMENT:ˇ
-    "});
+    cx.set_state(
+        "# COMMENT:ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.newline(&Newline, window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        # COMMENT:
-        ˇ
-    "});
+    cx.assert_editor_state(
+        "# COMMENT:
+ˇ
+",
+    );
 
     // test correct indent after newline after `then`
-    cx.set_state(indoc! {"
-
-        if [ \"$1\" = \"test\" ]; thenˇ
-    "});
+    cx.set_state(
+        "
+if [ \"$1\" = \"test\" ]; thenˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.newline(&Newline, window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-
-        if [ \"$1\" = \"test\" ]; then
-            ˇ
-    "});
+    cx.assert_editor_state(
+        "
+if [ \"$1\" = \"test\" ]; then
+    ˇ
+",
+    );
 
     // test correct indent after newline after `else`
-    cx.set_state(indoc! {"
-        if [ \"$1\" = \"test\" ]; then
-        elseˇ
-    "});
+    cx.set_state(
+        "if [ \"$1\" = \"test\" ]; then
+elseˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.newline(&Newline, window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        if [ \"$1\" = \"test\" ]; then
-        else
-            ˇ
-    "});
+    cx.assert_editor_state(
+        "if [ \"$1\" = \"test\" ]; then
+else
+    ˇ
+",
+    );
 
     // test correct indent after newline after `elif`
-    cx.set_state(indoc! {"
-        if [ \"$1\" = \"test\" ]; then
-        elifˇ
-    "});
+    cx.set_state(
+        "if [ \"$1\" = \"test\" ]; then
+elifˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.newline(&Newline, window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        if [ \"$1\" = \"test\" ]; then
-        elif
-            ˇ
-    "});
+    cx.assert_editor_state(
+        "if [ \"$1\" = \"test\" ]; then
+elif
+    ˇ
+",
+    );
 
     // test correct indent after newline after `do`
-    cx.set_state(indoc! {"
-        for file in *.txt; doˇ
-    "});
+    cx.set_state(
+        "for file in *.txt; doˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.newline(&Newline, window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        for file in *.txt; do
-            ˇ
-    "});
+    cx.assert_editor_state(
+        "for file in *.txt; do
+    ˇ
+",
+    );
 
     // test correct indent after newline after case pattern
-    cx.set_state(indoc! {"
-        case \"$1\" in
-            start)ˇ
-    "});
+    cx.set_state(
+        "case \"$1\" in
+    start)ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.newline(&Newline, window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        case \"$1\" in
-            start)
-                ˇ
-    "});
+    cx.assert_editor_state(
+        "case \"$1\" in
+    start)
+        ˇ
+",
+    );
 
     // test correct indent after newline after case pattern
-    cx.set_state(indoc! {"
-        case \"$1\" in
-            start)
-                ;;
-            *)ˇ
-    "});
+    cx.set_state(
+        "case \"$1\" in
+    start)
+        ;;
+    *)ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.newline(&Newline, window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        case \"$1\" in
-            start)
-                ;;
-            *)
-                ˇ
-    "});
+    cx.assert_editor_state(
+        "case \"$1\" in
+    start)
+        ;;
+    *)
+        ˇ
+",
+    );
 
     // test correct indent after newline after function opening brace
-    cx.set_state(indoc! {"
-        function test() {ˇ}
-    "});
+    cx.set_state(
+        "function test() {ˇ}
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.newline(&Newline, window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        function test() {
-            ˇ
-        }
-    "});
+    cx.assert_editor_state(
+        "function test() {
+    ˇ
+}
+",
+    );
 
     // test no extra indent after semicolon on same line
-    cx.set_state(indoc! {"
-        echo \"test\";ˇ
-    "});
+    cx.set_state(
+        "echo \"test\";ˇ
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.newline(&Newline, window, cx);
     });
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        echo \"test\";
-        ˇ
-    "});
+    cx.assert_editor_state(
+        "echo \"test\";
+ˇ
+",
+    );
 }
 
 fn empty_range(row: usize, column: usize) -> Range<DisplayPoint> {
@@ -41427,7 +41858,7 @@ async fn test_mixed_completions_with_multi_word_snippet(cx: &mut TestAppContext)
                 entries
                     .iter()
                     .filter_map(|entry| entry.as_match().map(|m| m.string.clone()))
-                    .collect_vec()
+                    .collect::<Vec<_>>()
             }
             _ => vec![],
         })
@@ -41528,7 +41959,7 @@ async fn test_mixed_completions_with_multi_word_snippet(cx: &mut TestAppContext)
         let expected_completions = expected_completions
             .iter()
             .map(|s| s.to_string())
-            .collect_vec();
+            .collect::<Vec<_>>();
         assert_eq!(
             get_completions(&mut cx),
             expected_completions,
@@ -41950,15 +42381,16 @@ async fn test_add_selection_after_moving_with_multiple_cursors(cx: &mut TestAppC
     let mut cx = EditorTestContext::new(cx).await;
 
     // Create a simple buffer with cursor at start
-    cx.set_state(indoc! {"
-        ˇaaaa
-        bbbb
-        cccc
-        dddd
-        eeee
-        ffff
-        gggg
-        hhhh"});
+    cx.set_state(
+        "ˇaaaa
+bbbb
+cccc
+dddd
+eeee
+ffff
+gggg
+hhhh",
+    );
 
     // Add 2 cursors below (so we have 3 total)
     cx.update_editor(|editor, window, cx| {
@@ -41997,10 +42429,10 @@ async fn test_add_selection_skip_soft_wrap_option(cx: &mut TestAppContext) {
 
     let mut cx = EditorTestContext::new(cx).await;
 
-    cx.set_state(indoc!(
+    cx.set_state(
         r#"ˇThis is a very long line that will be wrapped when soft wrapping is enabled
-           Second line here"#
-    ));
+Second line here"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         // Enable soft wrapping with a narrow width to force soft wrapping and
@@ -42071,10 +42503,10 @@ async fn test_add_selection_skip_soft_wrap_option(cx: &mut TestAppContext) {
     // When adding selection below with `skip_soft_wrap` set to `true`, the new
     // selection should be at the same buffer column, not the same pixel
     // position.
-    cx.set_state(indoc!(
+    cx.set_state(
         r#"1. Very long line to show «howˇ» a wrapped line would look
-           2. Very long line to show how a wrapped line would look"#
-    ));
+2. Very long line to show how a wrapped line would look"#,
+    );
 
     cx.update_editor(|editor, window, cx| {
         // Enable soft wrapping with a narrow width to force soft wrapping and
@@ -42135,7 +42567,7 @@ async fn test_insert_snippet(cx: &mut TestAppContext) {
         })
     });
 
-    cx.set_state(indoc!(r#"First cursor at ˇ and second cursor at ˇ"#));
+    cx.set_state(r#"First cursor at ˇ and second cursor at ˇ"#);
 
     cx.update_editor(|editor, window, cx| {
         editor.insert_snippet_at_selections(
@@ -42714,122 +43146,122 @@ async fn test_markdown_indents(cx: &mut gpui::TestAppContext) {
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(markdown_language), cx));
 
     // Case 1: Test if adding a character with multi cursors preserves nested list indents
-    cx.set_state(&indoc! {"
-        - [ ] Item 1
-            - [ ] Item 1.a
-        - [ˇ] Item 2
-            - [ˇ] Item 2.a
-            - [ˇ] Item 2.b
-        "
-    });
+    cx.set_state(
+        &"- [ ] Item 1
+    - [ ] Item 1.a
+- [ˇ] Item 2
+    - [ˇ] Item 2.a
+    - [ˇ] Item 2.b
+",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("x", window, cx);
     });
     cx.run_until_parked();
-    cx.assert_editor_state(indoc! {"
-        - [ ] Item 1
-            - [ ] Item 1.a
-        - [xˇ] Item 2
-            - [xˇ] Item 2.a
-            - [xˇ] Item 2.b
-        "
-    });
+    cx.assert_editor_state(
+        "- [ ] Item 1
+    - [ ] Item 1.a
+- [xˇ] Item 2
+    - [xˇ] Item 2.a
+    - [xˇ] Item 2.b
+",
+    );
 
     // Case 2: Test adding new line after nested list continues the list with unchecked task
-    cx.set_state(&indoc! {"
-        - [ ] Item 1
-            - [ ] Item 1.a
-        - [x] Item 2
-            - [x] Item 2.a
-            - [x] Item 2.bˇ"
-    });
+    cx.set_state(
+        &"- [ ] Item 1
+    - [ ] Item 1.a
+- [x] Item 2
+    - [x] Item 2.a
+    - [x] Item 2.bˇ",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.newline(&Newline, window, cx);
     });
-    cx.assert_editor_state(indoc! {"
-        - [ ] Item 1
-            - [ ] Item 1.a
-        - [x] Item 2
-            - [x] Item 2.a
-            - [x] Item 2.b
-            - [ ] ˇ"
-    });
+    cx.assert_editor_state(
+        "- [ ] Item 1
+    - [ ] Item 1.a
+- [x] Item 2
+    - [x] Item 2.a
+    - [x] Item 2.b
+    - [ ] ˇ",
+    );
 
     // Case 3: Test adding content to continued list item
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("Item 2.c", window, cx);
     });
     cx.run_until_parked();
-    cx.assert_editor_state(indoc! {"
-        - [ ] Item 1
-            - [ ] Item 1.a
-        - [x] Item 2
-            - [x] Item 2.a
-            - [x] Item 2.b
-            - [ ] Item 2.cˇ"
-    });
+    cx.assert_editor_state(
+        "- [ ] Item 1
+    - [ ] Item 1.a
+- [x] Item 2
+    - [x] Item 2.a
+    - [x] Item 2.b
+    - [ ] Item 2.cˇ",
+    );
 
     // Case 4: Test adding new line after nested ordered list continues with next number
-    cx.set_state(indoc! {"
-        1. Item 1
-            1. Item 1.a
-        2. Item 2
-            1. Item 2.a
-            2. Item 2.bˇ"
-    });
+    cx.set_state(
+        "1. Item 1
+    1. Item 1.a
+2. Item 2
+    1. Item 2.a
+    2. Item 2.bˇ",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.newline(&Newline, window, cx);
     });
-    cx.assert_editor_state(indoc! {"
-        1. Item 1
-            1. Item 1.a
-        2. Item 2
-            1. Item 2.a
-            2. Item 2.b
-            3. ˇ"
-    });
+    cx.assert_editor_state(
+        "1. Item 1
+    1. Item 1.a
+2. Item 2
+    1. Item 2.a
+    2. Item 2.b
+    3. ˇ",
+    );
 
     // Case 5: Adding content to continued ordered list item
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("Item 2.c", window, cx);
     });
     cx.run_until_parked();
-    cx.assert_editor_state(indoc! {"
-        1. Item 1
-            1. Item 1.a
-        2. Item 2
-            1. Item 2.a
-            2. Item 2.b
-            3. Item 2.cˇ"
-    });
+    cx.assert_editor_state(
+        "1. Item 1
+    1. Item 1.a
+2. Item 2
+    1. Item 2.a
+    2. Item 2.b
+    3. Item 2.cˇ",
+    );
 
     // Case 6: Test adding new line after nested ordered list preserves indent of previous line
-    cx.set_state(indoc! {"
-        - Item 1
-            - Item 1.a
-            - Item 1.a
-        ˇ"});
+    cx.set_state(
+        "- Item 1
+    - Item 1.a
+    - Item 1.a
+ˇ",
+    );
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("-", window, cx);
     });
     cx.run_until_parked();
-    cx.assert_editor_state(indoc! {"
-        - Item 1
-            - Item 1.a
-            - Item 1.a
-        -ˇ"});
+    cx.assert_editor_state(
+        "- Item 1
+    - Item 1.a
+    - Item 1.a
+-ˇ",
+    );
 
     // Case 7: Test blockquote newline preserves something
-    cx.set_state(indoc! {"
-        > Item 1ˇ"
-    });
+    cx.set_state("> Item 1ˇ");
     cx.update_editor(|editor, window, cx| {
         editor.newline(&Newline, window, cx);
     });
-    cx.assert_editor_state(indoc! {"
-        > Item 1
-        ˇ"
-    });
+    cx.assert_editor_state(
+        "> Item 1
+ˇ",
+    );
 }
 
 #[gpui::test]
@@ -43705,19 +44137,18 @@ async fn test_sticky_scroll(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
     let mut cx = EditorTestContext::new(cx).await;
 
-    let buffer = indoc! {"
-            ˇfn foo() {
-                let abc = 123;
-            }
-            struct Bar;
-            impl Bar {
-                fn new() -> Self {
-                    Self
-                }
-            }
-            fn baz() {
-            }
-        "};
+    let buffer = "ˇfn foo() {
+    let abc = 123;
+}
+struct Bar;
+impl Bar {
+    fn new() -> Self {
+        Self
+    }
+}
+fn baz() {
+}
+";
     cx.set_state(&buffer);
 
     cx.update_editor(|e, _, cx| {
@@ -43799,15 +44230,14 @@ async fn test_sticky_scroll_with_decoration_prefix_in_item(cx: &mut TestAppConte
         .expect("TypeScript outline query"),
     );
 
-    let buffer = indoc! {"
-        ˇ@Decorator
-        class Foo {
-            x = 1;
-            y = 2;
-            z = 3;
-            w = 4;
-        }
-    "};
+    let buffer = "ˇ@Decorator
+class Foo {
+    x = 1;
+    y = 2;
+    z = 3;
+    w = 4;
+}
+";
     cx.set_state(buffer);
     cx.update_editor(|e, _, cx| {
         e.buffer()
@@ -43853,19 +44283,18 @@ async fn test_sticky_scroll_anchors_multiline_c_signature_on_name_row(cx: &mut T
     init_test(cx, |_| {});
     let mut cx = EditorTestContext::new(cx).await;
 
-    let buffer = indoc! {"
-        ˇvoid
-        evdev_post_scroll(struct evdev_device *device,
-                  usec_t time,
-                  enum libinput_pointer_axis_source source,
-                  const struct normalized_coords *delta)
-        {
-            const struct normalized_coords tilt_rot = {
-                cos(SCROLL_DELTA_TILT_ANGLE),
-                sin(SCROLL_DELTA_TILT_ANGLE),
-            };
-        }
-    "};
+    let buffer = "ˇvoid
+evdev_post_scroll(struct evdev_device *device,
+          usec_t time,
+          enum libinput_pointer_axis_source source,
+          const struct normalized_coords *delta)
+{
+    const struct normalized_coords tilt_rot = {
+        cos(SCROLL_DELTA_TILT_ANGLE),
+        sin(SCROLL_DELTA_TILT_ANGLE),
+    };
+}
+";
     cx.set_state(buffer);
 
     cx.update_editor(|editor, _, cx| {
@@ -43916,20 +44345,18 @@ async fn test_sticky_scroll_with_expanded_deleted_diff_hunks(
     init_test(cx, |_| {});
     let mut cx = EditorTestContext::new(cx).await;
 
-    let diff_base = indoc! {"
-        fn foo() {
-            let a = 1;
-            let b = 2;
-            let c = 3;
-            let d = 4;
-            let e = 5;
-        }
-    "};
+    let diff_base = "fn foo() {
+    let a = 1;
+    let b = 2;
+    let c = 3;
+    let d = 4;
+    let e = 5;
+}
+";
 
-    let buffer = indoc! {"
-        ˇfn foo() {
-        }
-    "};
+    let buffer = "ˇfn foo() {
+}
+";
 
     cx.set_state(&buffer);
 
@@ -44002,14 +44429,15 @@ async fn test_no_duplicated_sticky_headers(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
     let mut cx = EditorTestContext::new(cx).await;
 
-    cx.set_state(indoc! {"
-        ˇimpl Foo { fn bar() {
-            let x = 1;
-            fn baz() {
-                let y = 2;
-            }
-        } }
-    "});
+    cx.set_state(
+        "ˇimpl Foo { fn bar() {
+    let x = 1;
+    fn baz() {
+        let y = 2;
+    }
+} }
+",
+    );
 
     cx.update_editor(|e, _, cx| {
         e.buffer()
@@ -44067,23 +44495,24 @@ async fn test_autoscroll_margin_reserves_sticky_header_space(cx: &mut TestAppCon
     });
 
     let mut cx = EditorTestContext::new(cx).await;
-    cx.set_state(indoc! {"
-        fn demo() {
-            let value_01 = 1;
-            let value_02 = 2;
-            let value_03 = 3;
-            let value_04 = 4;
-            let value_05 = 5;
-            let value_06 = 6;
-            let value_07 = 7;
-            let value_08 = 8;
-            let value_09 = 9;
-            let value_10 = 10;
-            ˇlet value_11 = 11;
-            let value_12 = 12;
-            let value_13 = 13;
-        }
-    "});
+    cx.set_state(
+        "fn demo() {
+    let value_01 = 1;
+    let value_02 = 2;
+    let value_03 = 3;
+    let value_04 = 4;
+    let value_05 = 5;
+    let value_06 = 6;
+    let value_07 = 7;
+    let value_08 = 8;
+    let value_09 = 9;
+    let value_10 = 10;
+    ˇlet value_11 = 11;
+    let value_12 = 12;
+    let value_13 = 13;
+}
+",
+    );
 
     // Use a parsed scope so the test also exercises sticky-header discovery.
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(rust_lang()), cx));
@@ -44157,15 +44586,16 @@ async fn test_autoscroll_keeps_cursor_visible_below_sticky_headers(cx: &mut Test
     });
     let mut cx = EditorTestContext::new(cx).await;
 
-    cx.set_state(indoc! {"
-        impl Foo { fn bar() {
-            let x = 1;
-            fn baz() {
-                let y = 2;
-            }
-        } }
-        ˇ
-    "});
+    cx.set_state(
+        "impl Foo { fn bar() {
+    let x = 1;
+    fn baz() {
+        let y = 2;
+    }
+} }
+ˇ
+",
+    );
 
     let mut previous_cursor_row = cx.update_editor(|editor, window, cx| {
         editor
@@ -44301,7 +44731,7 @@ fn test_relative_line_numbers(cx: &mut TestAppContext) {
             .enumerate()
             .map(|(i, row)| (DisplayRow(row), i.abs_diff(base_row) as u32))
             .filter(|(_, relative_line_number)| *relative_line_number != 0)
-            .collect_vec();
+            .collect::<Vec<_>>();
         let actual_relative_numbers = snapshot
             .calculate_relative_line_numbers(
                 &(DisplayRow(0)..DisplayRow(24)),
@@ -44310,7 +44740,7 @@ fn test_relative_line_numbers(cx: &mut TestAppContext) {
             )
             .into_iter()
             .sorted()
-            .collect_vec();
+            .collect::<Vec<_>>();
         assert_eq!(expected_relative_numbers, actual_relative_numbers);
         // check `calculate_relative_line_numbers()` against `relative_line_delta()` for each line
         for (display_row, relative_number) in expected_relative_numbers {
@@ -44328,7 +44758,7 @@ fn test_relative_line_numbers(cx: &mut TestAppContext) {
             .enumerate()
             .map(|(i, row)| (DisplayRow(row), i.abs_diff(wrapped_base_row) as u32))
             .filter(|(row, _)| *row != base_display_row)
-            .collect_vec();
+            .collect::<Vec<_>>();
         let actual_relative_numbers = snapshot
             .calculate_relative_line_numbers(
                 &(DisplayRow(0)..DisplayRow(24)),
@@ -44337,7 +44767,7 @@ fn test_relative_line_numbers(cx: &mut TestAppContext) {
             )
             .into_iter()
             .sorted()
-            .collect_vec();
+            .collect::<Vec<_>>();
         assert_eq!(expected_wrapped_relative_numbers, actual_relative_numbers);
         // check `calculate_relative_line_numbers()` against `relative_wrapped_line_delta()` for each line
         for (display_row, relative_number) in expected_wrapped_relative_numbers {
@@ -44372,19 +44802,18 @@ async fn test_scroll_by_clicking_sticky_header(cx: &mut TestAppContext) {
             .line_height_in_pixels(window.rem_size())
     });
 
-    let buffer = indoc! {"
-            ˇfn foo() {
-                let abc = 123;
-            }
-            struct Bar;
-            impl Bar {
-                fn new() -> Self {
-                    Self
-                }
-            }
-            fn baz() {
-            }
-        "};
+    let buffer = "ˇfn foo() {
+    let abc = 123;
+}
+struct Bar;
+impl Bar {
+    fn new() -> Self {
+        Self
+    }
+}
+fn baz() {
+}
+";
     cx.set_state(&buffer);
 
     cx.update_editor(|e, _, cx| {
@@ -44537,12 +44966,11 @@ async fn test_clicking_sticky_header_sets_character_select_mode(cx: &mut TestApp
             .line_height_in_pixels(window.rem_size())
     });
 
-    let buffer = indoc! {"
-            fn foo() {
-                let abc = 123;
-            }
-            ˇstruct Bar;
-        "};
+    let buffer = "fn foo() {
+    let abc = 123;
+}
+ˇstruct Bar;
+";
     cx.set_state(&buffer);
 
     cx.update_editor(|editor, _, cx| {
@@ -44604,38 +45032,34 @@ async fn test_clicking_sticky_header_sets_character_select_mode(cx: &mut TestApp
 #[gpui::test]
 async fn test_next_prev_reference(cx: &mut TestAppContext) {
     const CYCLE_POSITIONS: &[&'static str] = &[
-        indoc! {"
-            fn foo() {
-                let ˇabc = 123;
-                let x = abc + 1;
-                let y = abc + 2;
-                let z = abc + 2;
-            }
-        "},
-        indoc! {"
-            fn foo() {
-                let abc = 123;
-                let x = ˇabc + 1;
-                let y = abc + 2;
-                let z = abc + 2;
-            }
-        "},
-        indoc! {"
-            fn foo() {
-                let abc = 123;
-                let x = abc + 1;
-                let y = ˇabc + 2;
-                let z = abc + 2;
-            }
-        "},
-        indoc! {"
-            fn foo() {
-                let abc = 123;
-                let x = abc + 1;
-                let y = abc + 2;
-                let z = ˇabc + 2;
-            }
-        "},
+        "fn foo() {
+    let ˇabc = 123;
+    let x = abc + 1;
+    let y = abc + 2;
+    let z = abc + 2;
+}
+",
+        "fn foo() {
+    let abc = 123;
+    let x = ˇabc + 1;
+    let y = abc + 2;
+    let z = abc + 2;
+}
+",
+        "fn foo() {
+    let abc = 123;
+    let x = abc + 1;
+    let y = ˇabc + 2;
+    let z = abc + 2;
+}
+",
+        "fn foo() {
+    let abc = 123;
+    let x = abc + 1;
+    let y = abc + 2;
+    let z = ˇabc + 2;
+}
+",
     ];
 
     init_test(cx, |_| {});
@@ -44650,14 +45074,15 @@ async fn test_next_prev_reference(cx: &mut TestAppContext) {
     .await;
 
     // importantly, the cursor is in the middle
-    cx.set_state(indoc! {"
-        fn foo() {
-            let aˇbc = 123;
-            let x = abc + 1;
-            let y = abc + 2;
-            let z = abc + 2;
-        }
-    "});
+    cx.set_state(
+        "fn foo() {
+    let aˇbc = 123;
+    let x = abc + 1;
+    let y = abc + 2;
+    let z = abc + 2;
+}
+",
+    );
 
     let reference_ranges = [
         lsp::Position::new(1, 8),
@@ -44744,16 +45169,17 @@ async fn test_multibuffer_selections_with_folding(cx: &mut TestAppContext) {
             .collect::<Vec<_>>()
     });
 
-    cx.assert_excerpts_with_selections(indoc! {"
-        [EXCERPT]
-        ˇ1
-        2
-        3
-        [EXCERPT]
-        1
-        2
-        3
-        "});
+    cx.assert_excerpts_with_selections(
+        "[EXCERPT]
+ˇ1
+2
+3
+[EXCERPT]
+1
+2
+3
+",
+    );
 
     // Scenario 1: Unfolded buffers, position cursor on "2", select all matches, then insert
     cx.update_editor(|editor, window, cx| {
@@ -44761,46 +45187,49 @@ async fn test_multibuffer_selections_with_folding(cx: &mut TestAppContext) {
             s.select_ranges([MultiBufferOffset(2)..MultiBufferOffset(3)]);
         });
     });
-    cx.assert_excerpts_with_selections(indoc! {"
-        [EXCERPT]
-        1
-        2ˇ
-        3
-        [EXCERPT]
-        1
-        2
-        3
-        "});
+    cx.assert_excerpts_with_selections(
+        "[EXCERPT]
+1
+2ˇ
+3
+[EXCERPT]
+1
+2
+3
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor
             .select_all_matches(&SelectAllMatches, window, cx)
             .unwrap();
     });
-    cx.assert_excerpts_with_selections(indoc! {"
-        [EXCERPT]
-        1
-        2ˇ
-        3
-        [EXCERPT]
-        1
-        2ˇ
-        3
-        "});
+    cx.assert_excerpts_with_selections(
+        "[EXCERPT]
+1
+2ˇ
+3
+[EXCERPT]
+1
+2ˇ
+3
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.handle_input("X", window, cx);
     });
-    cx.assert_excerpts_with_selections(indoc! {"
-        [EXCERPT]
-        1
-        Xˇ
-        3
-        [EXCERPT]
-        1
-        Xˇ
-        3
-        "});
+    cx.assert_excerpts_with_selections(
+        "[EXCERPT]
+1
+Xˇ
+3
+[EXCERPT]
+1
+Xˇ
+3
+",
+    );
 
     // Scenario 2: Select "2", then fold second buffer before insertion
     cx.update_multibuffer(|mb, cx| {
@@ -44826,14 +45255,15 @@ async fn test_multibuffer_selections_with_folding(cx: &mut TestAppContext) {
     cx.update_editor(|editor, _, cx| {
         editor.fold_buffer(buffer_ids[1], cx);
     });
-    cx.assert_excerpts_with_selections(indoc! {"
-        [EXCERPT]
-        1
-        2ˇ
-        3
-        [EXCERPT]
-        [FOLDED]
-        "});
+    cx.assert_excerpts_with_selections(
+        "[EXCERPT]
+1
+2ˇ
+3
+[EXCERPT]
+[FOLDED]
+",
+    );
 
     // Insert text - should only affect first buffer
     cx.update_editor(|editor, window, cx| {
@@ -44842,16 +45272,17 @@ async fn test_multibuffer_selections_with_folding(cx: &mut TestAppContext) {
     cx.update_editor(|editor, _, cx| {
         editor.unfold_buffer(buffer_ids[1], cx);
     });
-    cx.assert_excerpts_with_selections(indoc! {"
-        [EXCERPT]
-        1
-        Yˇ
-        3
-        [EXCERPT]
-        1
-        2
-        3
-        "});
+    cx.assert_excerpts_with_selections(
+        "[EXCERPT]
+1
+Yˇ
+3
+[EXCERPT]
+1
+2
+3
+",
+    );
 
     // Scenario 3: Select "2", then fold first buffer before insertion
     cx.update_multibuffer(|mb, cx| {
@@ -44877,14 +45308,15 @@ async fn test_multibuffer_selections_with_folding(cx: &mut TestAppContext) {
     cx.update_editor(|editor, _, cx| {
         editor.fold_buffer(buffer_ids[0], cx);
     });
-    cx.assert_excerpts_with_selections(indoc! {"
-        [EXCERPT]
-        [FOLDED]
-        [EXCERPT]
-        1
-        2ˇ
-        3
-        "});
+    cx.assert_excerpts_with_selections(
+        "[EXCERPT]
+[FOLDED]
+[EXCERPT]
+1
+2ˇ
+3
+",
+    );
 
     // Insert text - should only affect second buffer
     cx.update_editor(|editor, window, cx| {
@@ -44893,28 +45325,30 @@ async fn test_multibuffer_selections_with_folding(cx: &mut TestAppContext) {
     cx.update_editor(|editor, _, cx| {
         editor.unfold_buffer(buffer_ids[0], cx);
     });
-    cx.assert_excerpts_with_selections(indoc! {"
-        [EXCERPT]
-        1
-        2
-        3
-        [EXCERPT]
-        1
-        Zˇ
-        3
-        "});
+    cx.assert_excerpts_with_selections(
+        "[EXCERPT]
+1
+2
+3
+[EXCERPT]
+1
+Zˇ
+3
+",
+    );
 
     // Test correct folded header is selected upon fold
     cx.update_editor(|editor, _, cx| {
         editor.fold_buffer(buffer_ids[0], cx);
         editor.fold_buffer(buffer_ids[1], cx);
     });
-    cx.assert_excerpts_with_selections(indoc! {"
-        [EXCERPT]
-        [FOLDED]
-        [EXCERPT]
-        ˇ[FOLDED]
-        "});
+    cx.assert_excerpts_with_selections(
+        "[EXCERPT]
+[FOLDED]
+[EXCERPT]
+ˇ[FOLDED]
+",
+    );
 
     // Test selection inside folded buffer unfolds it on type
     cx.update_editor(|editor, window, cx| {
@@ -44923,16 +45357,17 @@ async fn test_multibuffer_selections_with_folding(cx: &mut TestAppContext) {
     cx.update_editor(|editor, _, cx| {
         editor.unfold_buffer(buffer_ids[0], cx);
     });
-    cx.assert_excerpts_with_selections(indoc! {"
-        [EXCERPT]
-        1
-        2
-        3
-        [EXCERPT]
-        Wˇ1
-        Z
-        3
-        "});
+    cx.assert_excerpts_with_selections(
+        "[EXCERPT]
+1
+2
+3
+[EXCERPT]
+Wˇ1
+Z
+3
+",
+    );
 }
 
 #[gpui::test]
@@ -44952,22 +45387,23 @@ async fn test_multibuffer_scroll_cursor_top_margin(cx: &mut TestAppContext) {
 
     let mut cx = EditorTestContext::for_editor_in(editor.clone(), cx).await;
 
-    cx.assert_excerpts_with_selections(indoc! {"
-        [EXCERPT]
-        ˇ1
-        2
-        3
-        [EXCERPT]
-        1
-        2
-        3
-        4
-        5
-        6
-        7
-        8
-        9
-        "});
+    cx.assert_excerpts_with_selections(
+        "[EXCERPT]
+ˇ1
+2
+3
+[EXCERPT]
+1
+2
+3
+4
+5
+6
+7
+8
+9
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.change_selections(None.into(), window, cx, |s| {
@@ -44975,22 +45411,23 @@ async fn test_multibuffer_scroll_cursor_top_margin(cx: &mut TestAppContext) {
         });
     });
 
-    cx.assert_excerpts_with_selections(indoc! {"
-        [EXCERPT]
-        1
-        2
-        3
-        [EXCERPT]
-        1
-        2
-        3
-        4
-        5
-        6
-        ˇ7
-        8
-        9
-        "});
+    cx.assert_excerpts_with_selections(
+        "[EXCERPT]
+1
+2
+3
+[EXCERPT]
+1
+2
+3
+4
+5
+6
+ˇ7
+8
+9
+",
+    );
 
     cx.update_editor(|editor, _window, cx| {
         editor.set_vertical_scroll_margin(0, cx);
@@ -45031,22 +45468,16 @@ async fn test_find_references_single_case(cx: &mut TestAppContext) {
     )
     .await;
 
-    let before = indoc!(
-        r#"
-        fn main() {
-            let aˇbc = 123;
-            let xyz = abc;
-        }
-        "#
-    );
-    let after = indoc!(
-        r#"
-        fn main() {
-            let abc = 123;
-            let xyz = ˇabc;
-        }
-        "#
-    );
+    let before = r#"fn main() {
+    let aˇbc = 123;
+    let xyz = abc;
+}
+"#;
+    let after = r#"fn main() {
+    let abc = 123;
+    let xyz = ˇabc;
+}
+"#;
 
     cx.lsp
         .set_request_handler::<lsp::request::References, _, _>(async move |params, _| {
@@ -45117,14 +45548,13 @@ async fn test_definition_locations_of_kind_excludes_self_link(cx: &mut TestAppCo
     .await;
 
     // Cursor sits inside the `abc` use on row 2 (columns 14..17).
-    cx.set_state(indoc!(
-        r#"
-        fn main() {
-            let abc = 123;
-            let xyz = aˇbc;
-        }
-        "#
-    ));
+    cx.set_state(
+        r#"fn main() {
+    let abc = 123;
+    let xyz = aˇbc;
+}
+"#,
+    );
 
     // The server returns two targets: the location covering the cursor (which
     // must be filtered out as a self-link) and the real definition on row 1.
@@ -45203,128 +45633,146 @@ async fn test_newline_task_list_continuation(cx: &mut TestAppContext) {
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(markdown_language), cx));
 
     // Case 1: Adding newline after (whitespace + prefix + any non-whitespace) adds marker
-    cx.set_state(indoc! {"
-        - [ ] taskˇ
-    "});
-    cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        - [ ] task
-        - [ ] ˇ
-    "});
-
-    // Case 2: Works with checked task items too
-    cx.set_state(indoc! {"
-        - [x] completed taskˇ
-    "});
-    cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        - [x] completed task
-        - [ ] ˇ
-    "});
-
-    // Case 2.1: Works with uppercase checked marker too
-    cx.set_state(indoc! {"
-        - [X] completed taskˇ
-    "});
-    cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        - [X] completed task
-        - [ ] ˇ
-    "});
-
-    // Case 3: Cursor position doesn't matter - content after marker is what counts
-    cx.set_state(indoc! {"
-        - [ ] taˇsk
-    "});
-    cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        - [ ] ta
-        - [ ] ˇsk
-    "});
-
-    // Case 4: Adding newline after (whitespace + prefix + some whitespace) does NOT add marker
-    cx.set_state(indoc! {"
-        - [ ]  ˇ
-    "});
+    cx.set_state(
+        "- [ ] taskˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
     cx.assert_editor_state(
-        indoc! {"
-        - [ ]$$
-        ˇ
-    "}
+        "- [ ] task
+- [ ] ˇ
+",
+    );
+
+    // Case 2: Works with checked task items too
+    cx.set_state(
+        "- [x] completed taskˇ
+",
+    );
+    cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
+    cx.wait_for_autoindent_applied().await;
+    cx.assert_editor_state(
+        "- [x] completed task
+- [ ] ˇ
+",
+    );
+
+    // Case 2.1: Works with uppercase checked marker too
+    cx.set_state(
+        "- [X] completed taskˇ
+",
+    );
+    cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
+    cx.wait_for_autoindent_applied().await;
+    cx.assert_editor_state(
+        "- [X] completed task
+- [ ] ˇ
+",
+    );
+
+    // Case 3: Cursor position doesn't matter - content after marker is what counts
+    cx.set_state(
+        "- [ ] taˇsk
+",
+    );
+    cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
+    cx.wait_for_autoindent_applied().await;
+    cx.assert_editor_state(
+        "- [ ] ta
+- [ ] ˇsk
+",
+    );
+
+    // Case 4: Adding newline after (whitespace + prefix + some whitespace) does NOT add marker
+    cx.set_state(
+        "- [ ]  ˇ
+",
+    );
+    cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
+    cx.wait_for_autoindent_applied().await;
+    cx.assert_editor_state(
+        "- [ ]$$
+ˇ
+"
         .replace("$", " ")
         .as_str(),
     );
 
     // Case 5: Adding newline with content adds marker preserving indentation
-    cx.set_state(indoc! {"
-        - [ ] task
-          - [ ] indentedˇ
-    "});
+    cx.set_state(
+        "- [ ] task
+  - [ ] indentedˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        - [ ] task
-          - [ ] indented
-          - [ ] ˇ
-    "});
+    cx.assert_editor_state(
+        "- [ ] task
+  - [ ] indented
+  - [ ] ˇ
+",
+    );
 
     // Case 6: Adding newline with cursor right after prefix, unindents
-    cx.set_state(indoc! {"
-        - [ ] task
-          - [ ] sub task
-            - [ ] ˇ
-    "});
+    cx.set_state(
+        "- [ ] task
+  - [ ] sub task
+    - [ ] ˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        - [ ] task
-          - [ ] sub task
-          - [ ] ˇ
-    "});
+    cx.assert_editor_state(
+        "- [ ] task
+  - [ ] sub task
+  - [ ] ˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
 
     // Case 7: Adding newline with cursor right after prefix, removes marker
-    cx.assert_editor_state(indoc! {"
-        - [ ] task
-          - [ ] sub task
-        - [ ] ˇ
-    "});
+    cx.assert_editor_state(
+        "- [ ] task
+  - [ ] sub task
+- [ ] ˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        - [ ] task
-          - [ ] sub task
-        ˇ
-    "});
+    cx.assert_editor_state(
+        "- [ ] task
+  - [ ] sub task
+ˇ
+",
+    );
 
     // Case 8: Cursor before or inside prefix does not add marker
-    cx.set_state(indoc! {"
-        ˇ- [ ] task
-    "});
+    cx.set_state(
+        "ˇ- [ ] task
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
+    cx.assert_editor_state(
+        "
+ˇ- [ ] task
+",
+    );
 
-        ˇ- [ ] task
-    "});
-
-    cx.set_state(indoc! {"
-        - [ˇ ] task
-    "});
+    cx.set_state(
+        "- [ˇ ] task
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        - [
-        ˇ
-        ] task
-    "});
+    cx.assert_editor_state(
+        "- [
+ˇ
+] task
+",
+    );
 }
 
 #[gpui::test]
@@ -45338,159 +45786,177 @@ async fn test_newline_unordered_list_continuation(cx: &mut TestAppContext) {
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(markdown_language), cx));
 
     // Case 1: Adding newline after (whitespace + marker + any non-whitespace) adds marker
-    cx.set_state(indoc! {"
-        - itemˇ
-    "});
-    cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        - item
-        - ˇ
-    "});
-
-    // Case 2: Works with different markers
-    cx.set_state(indoc! {"
-        * starred itemˇ
-    "});
-    cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        * starred item
-        * ˇ
-    "});
-
-    cx.set_state(indoc! {"
-        + plus itemˇ
-    "});
-    cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        + plus item
-        + ˇ
-    "});
-
-    // Case 3: Cursor position doesn't matter - content after marker is what counts
-    cx.set_state(indoc! {"
-        - itˇem
-    "});
-    cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        - it
-        - ˇem
-    "});
-
-    // Case 4: Adding newline after (whitespace + marker + some whitespace) does NOT add marker
-    cx.set_state(indoc! {"
-        -  ˇ
-    "});
+    cx.set_state(
+        "- itemˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
     cx.assert_editor_state(
-        indoc! {"
-        - $
-        ˇ
-    "}
+        "- item
+- ˇ
+",
+    );
+
+    // Case 2: Works with different markers
+    cx.set_state(
+        "* starred itemˇ
+",
+    );
+    cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
+    cx.wait_for_autoindent_applied().await;
+    cx.assert_editor_state(
+        "* starred item
+* ˇ
+",
+    );
+
+    cx.set_state(
+        "+ plus itemˇ
+",
+    );
+    cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
+    cx.wait_for_autoindent_applied().await;
+    cx.assert_editor_state(
+        "+ plus item
++ ˇ
+",
+    );
+
+    // Case 3: Cursor position doesn't matter - content after marker is what counts
+    cx.set_state(
+        "- itˇem
+",
+    );
+    cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
+    cx.wait_for_autoindent_applied().await;
+    cx.assert_editor_state(
+        "- it
+- ˇem
+",
+    );
+
+    // Case 4: Adding newline after (whitespace + marker + some whitespace) does NOT add marker
+    cx.set_state(
+        "-  ˇ
+",
+    );
+    cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
+    cx.wait_for_autoindent_applied().await;
+    cx.assert_editor_state(
+        "- $
+ˇ
+"
         .replace("$", " ")
         .as_str(),
     );
 
     // Case 5: Adding newline with content adds marker preserving indentation
-    cx.set_state(indoc! {"
-        - item
-          - indentedˇ
-    "});
+    cx.set_state(
+        "- item
+  - indentedˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        - item
-          - indented
-          - ˇ
-    "});
+    cx.assert_editor_state(
+        "- item
+  - indented
+  - ˇ
+",
+    );
 
     // Case 6: Adding newline with cursor right after marker, unindents
-    cx.set_state(indoc! {"
-        - item
-          - sub item
-            - ˇ
-    "});
+    cx.set_state(
+        "- item
+  - sub item
+    - ˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        - item
-          - sub item
-          - ˇ
-    "});
+    cx.assert_editor_state(
+        "- item
+  - sub item
+  - ˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
 
     // Case 7: Adding newline with cursor right after marker, removes marker
-    cx.assert_editor_state(indoc! {"
-        - item
-          - sub item
-        - ˇ
-    "});
+    cx.assert_editor_state(
+        "- item
+  - sub item
+- ˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        - item
-          - sub item
-        ˇ
-    "});
+    cx.assert_editor_state(
+        "- item
+  - sub item
+ˇ
+",
+    );
 
     // Case 8: Cursor before or inside prefix does not add marker
-    cx.set_state(indoc! {"
-        ˇ- item
-    "});
+    cx.set_state(
+        "ˇ- item
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
+    cx.assert_editor_state(
+        "
+ˇ- item
+",
+    );
 
-        ˇ- item
-    "});
-
-    cx.set_state(indoc! {"
-        -ˇ item
-    "});
+    cx.set_state(
+        "-ˇ item
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        -
-        ˇitem
-    "});
+    cx.assert_editor_state(
+        "-
+ˇitem
+",
+    );
 
     update_test_language_settings(&mut cx, &|settings| {
         settings.defaults.tab_size = Some(4.try_into().unwrap());
     });
 
     // Case 9: Empty list item unindent works when tab size is larger than list indentation
-    cx.set_state(indoc! {"
-        - item
-          - sub item
-          - ˇ
-    "});
+    cx.set_state(
+        "- item
+  - sub item
+  - ˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        - item
-          - sub item
-        - ˇ
-    "});
+    cx.assert_editor_state(
+        "- item
+  - sub item
+- ˇ
+",
+    );
 
     // Case 10: Empty list item unindent moves to the previous tab stop
     cx.set_state(
-        indoc! {"
-        $$$$$$- ˇ
-    "}
+        "$$$$$$- ˇ
+"
         .replace("$", " ")
         .as_str(),
     );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
     cx.assert_editor_state(
-        indoc! {"
-        $$$$- ˇ
-    "}
+        "$$$$- ˇ
+"
         .replace("$", " ")
         .as_str(),
     );
@@ -45507,116 +45973,132 @@ async fn test_newline_ordered_list_continuation(cx: &mut TestAppContext) {
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(markdown_language), cx));
 
     // Case 1: Adding newline after (whitespace + marker + any non-whitespace) increments number
-    cx.set_state(indoc! {"
-        1. first itemˇ
-    "});
-    cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        1. first item
-        2. ˇ
-    "});
-
-    // Case 2: Works with larger numbers
-    cx.set_state(indoc! {"
-        10. tenth itemˇ
-    "});
-    cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        10. tenth item
-        11. ˇ
-    "});
-
-    // Case 3: Cursor position doesn't matter - content after marker is what counts
-    cx.set_state(indoc! {"
-        1. itˇem
-    "});
-    cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
-    cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        1. it
-        2. ˇem
-    "});
-
-    // Case 4: Adding newline after (whitespace + marker + some whitespace) does NOT add marker
-    cx.set_state(indoc! {"
-        1.  ˇ
-    "});
+    cx.set_state(
+        "1. first itemˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
     cx.assert_editor_state(
-        indoc! {"
-        1. $
-        ˇ
-    "}
+        "1. first item
+2. ˇ
+",
+    );
+
+    // Case 2: Works with larger numbers
+    cx.set_state(
+        "10. tenth itemˇ
+",
+    );
+    cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
+    cx.wait_for_autoindent_applied().await;
+    cx.assert_editor_state(
+        "10. tenth item
+11. ˇ
+",
+    );
+
+    // Case 3: Cursor position doesn't matter - content after marker is what counts
+    cx.set_state(
+        "1. itˇem
+",
+    );
+    cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
+    cx.wait_for_autoindent_applied().await;
+    cx.assert_editor_state(
+        "1. it
+2. ˇem
+",
+    );
+
+    // Case 4: Adding newline after (whitespace + marker + some whitespace) does NOT add marker
+    cx.set_state(
+        "1.  ˇ
+",
+    );
+    cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
+    cx.wait_for_autoindent_applied().await;
+    cx.assert_editor_state(
+        "1. $
+ˇ
+"
         .replace("$", " ")
         .as_str(),
     );
 
     // Case 5: Adding newline with content adds marker preserving indentation
-    cx.set_state(indoc! {"
-        1. item
-          2. indentedˇ
-    "});
+    cx.set_state(
+        "1. item
+  2. indentedˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        1. item
-          2. indented
-          3. ˇ
-    "});
+    cx.assert_editor_state(
+        "1. item
+  2. indented
+  3. ˇ
+",
+    );
 
     // Case 6: Adding newline with cursor right after marker, unindents
-    cx.set_state(indoc! {"
-        1. item
-          2. sub item
-            3. ˇ
-    "});
+    cx.set_state(
+        "1. item
+  2. sub item
+    3. ˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        1. item
-          2. sub item
-          1. ˇ
-    "});
+    cx.assert_editor_state(
+        "1. item
+  2. sub item
+  1. ˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
 
     // Case 7: Adding newline with cursor right after marker, removes marker
-    cx.assert_editor_state(indoc! {"
-        1. item
-          2. sub item
-        1. ˇ
-    "});
+    cx.assert_editor_state(
+        "1. item
+  2. sub item
+1. ˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        1. item
-          2. sub item
-        ˇ
-    "});
+    cx.assert_editor_state(
+        "1. item
+  2. sub item
+ˇ
+",
+    );
 
     // Case 8: Cursor before or inside prefix does not add marker
-    cx.set_state(indoc! {"
-        ˇ1. item
-    "});
+    cx.set_state(
+        "ˇ1. item
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
+    cx.assert_editor_state(
+        "
+ˇ1. item
+",
+    );
 
-        ˇ1. item
-    "});
-
-    cx.set_state(indoc! {"
-        1ˇ. item
-    "});
+    cx.set_state(
+        "1ˇ. item
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        1
-        ˇ. item
-    "});
+    cx.assert_editor_state(
+        "1
+ˇ. item
+",
+    );
 }
 
 #[gpui::test]
@@ -45630,20 +46112,22 @@ async fn test_newline_should_not_autoindent_ordered_list(cx: &mut TestAppContext
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(markdown_language), cx));
 
     // Case 1: Adding newline after (whitespace + marker + any non-whitespace) increments number
-    cx.set_state(indoc! {"
-        1. first item
-          1. sub first item
-          2. sub second item
-          3. ˇ
-    "});
+    cx.set_state(
+        "1. first item
+  1. sub first item
+  2. sub second item
+  3. ˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.newline(&Newline, window, cx));
     cx.wait_for_autoindent_applied().await;
-    cx.assert_editor_state(indoc! {"
-        1. first item
-          1. sub first item
-          2. sub second item
-        1. ˇ
-    "});
+    cx.assert_editor_state(
+        "1. first item
+  1. sub first item
+  2. sub second item
+1. ˇ
+",
+    );
 }
 
 #[gpui::test]
@@ -45657,83 +46141,81 @@ async fn test_tab_list_indent(cx: &mut TestAppContext) {
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(markdown_language), cx));
 
     // Case 1: Unordered list - cursor after prefix, adds indent before prefix
-    cx.set_state(indoc! {"
-        - ˇitem
-    "});
+    cx.set_state(
+        "- ˇitem
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
     cx.wait_for_autoindent_applied().await;
-    let expected = indoc! {"
-        $$- ˇitem
-    "};
+    let expected = "$$- ˇitem
+";
     cx.assert_editor_state(expected.replace("$", " ").as_str());
 
     // Case 2: Task list - cursor after prefix
-    cx.set_state(indoc! {"
-        - [ ] ˇtask
-    "});
+    cx.set_state(
+        "- [ ] ˇtask
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
     cx.wait_for_autoindent_applied().await;
-    let expected = indoc! {"
-        $$- [ ] ˇtask
-    "};
+    let expected = "$$- [ ] ˇtask
+";
     cx.assert_editor_state(expected.replace("$", " ").as_str());
 
     // Case 3: Ordered list - cursor after prefix
-    cx.set_state(indoc! {"
-        1. ˇfirst
-    "});
+    cx.set_state(
+        "1. ˇfirst
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
     cx.wait_for_autoindent_applied().await;
-    let expected = indoc! {"
-        $$1. ˇfirst
-    "};
+    let expected = "$$1. ˇfirst
+";
     cx.assert_editor_state(expected.replace("$", " ").as_str());
 
     // Case 4: With existing indentation - adds more indent
-    let initial = indoc! {"
-        $$- ˇitem
-    "};
+    let initial = "$$- ˇitem
+";
     cx.set_state(initial.replace("$", " ").as_str());
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
     cx.wait_for_autoindent_applied().await;
-    let expected = indoc! {"
-        $$$$- ˇitem
-    "};
+    let expected = "$$$$- ˇitem
+";
     cx.assert_editor_state(expected.replace("$", " ").as_str());
 
     // Case 5: Empty list item
-    cx.set_state(indoc! {"
-        - ˇ
-    "});
+    cx.set_state(
+        "- ˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
     cx.wait_for_autoindent_applied().await;
-    let expected = indoc! {"
-        $$- ˇ
-    "};
+    let expected = "$$- ˇ
+";
     cx.assert_editor_state(expected.replace("$", " ").as_str());
 
     // Case 6: Cursor at end of line with content
-    cx.set_state(indoc! {"
-        - itemˇ
-    "});
+    cx.set_state(
+        "- itemˇ
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
     cx.wait_for_autoindent_applied().await;
-    let expected = indoc! {"
-        $$- itemˇ
-    "};
+    let expected = "$$- itemˇ
+";
     cx.assert_editor_state(expected.replace("$", " ").as_str());
 
     // Case 7: Cursor at start of list item, indents it
-    cx.set_state(indoc! {"
-        - item
-        ˇ  - sub item
-    "});
+    cx.set_state(
+        "- item
+ˇ  - sub item
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
     cx.wait_for_autoindent_applied().await;
-    let expected = indoc! {"
-        - item
-          ˇ  - sub item
-    "};
+    let expected = "- item
+  ˇ  - sub item
+";
     cx.assert_editor_state(expected);
 
     // Case 8: Cursor at start of list item, moves the cursor when "indent_list_on_tab" is false
@@ -45744,16 +46226,16 @@ async fn test_tab_list_indent(cx: &mut TestAppContext) {
             });
         });
     });
-    cx.set_state(indoc! {"
-        - item
-        ˇ  - sub item
-    "});
+    cx.set_state(
+        "- item
+ˇ  - sub item
+",
+    );
     cx.update_editor(|e, window, cx| e.tab(&Tab, window, cx));
     cx.wait_for_autoindent_applied().await;
-    let expected = indoc! {"
-        - item
-          ˇ- sub item
-    "};
+    let expected = "- item
+  ˇ- sub item
+";
     cx.assert_editor_state(expected);
 }
 
@@ -47022,11 +47504,10 @@ async fn test_move_to_start_end_of_larger_syntax_node_single_cursor(cx: &mut Tes
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    let x = foo(ˇ1, 2);
-                }
-            "#},
+            r#"fn main() {
+    let x = foo(ˇ1, 2);
+}
+"#,
             cx,
         );
     });
@@ -47036,11 +47517,10 @@ async fn test_move_to_start_end_of_larger_syntax_node_single_cursor(cx: &mut Tes
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    let x = foo(1ˇ, 2);
-                }
-            "#},
+            r#"fn main() {
+    let x = foo(1ˇ, 2);
+}
+"#,
             cx,
         );
     });
@@ -47050,11 +47530,10 @@ async fn test_move_to_start_end_of_larger_syntax_node_single_cursor(cx: &mut Tes
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    let x = foo(1, 2)ˇ;
-                }
-            "#},
+            r#"fn main() {
+    let x = foo(1, 2)ˇ;
+}
+"#,
             cx,
         );
     });
@@ -47064,11 +47543,10 @@ async fn test_move_to_start_end_of_larger_syntax_node_single_cursor(cx: &mut Tes
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    let x = foo(1, 2);ˇ
-                }
-            "#},
+            r#"fn main() {
+    let x = foo(1, 2);ˇ
+}
+"#,
             cx,
         );
     });
@@ -47078,11 +47556,10 @@ async fn test_move_to_start_end_of_larger_syntax_node_single_cursor(cx: &mut Tes
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    let x = foo(1, 2);
-                }ˇ
-            "#},
+            r#"fn main() {
+    let x = foo(1, 2);
+}ˇ
+"#,
             cx,
         );
     });
@@ -47098,11 +47575,10 @@ async fn test_move_to_start_end_of_larger_syntax_node_single_cursor(cx: &mut Tes
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    let x = foo(1, 2ˇ);
-                }
-            "#},
+            r#"fn main() {
+    let x = foo(1, 2ˇ);
+}
+"#,
             cx,
         );
     });
@@ -47112,11 +47588,10 @@ async fn test_move_to_start_end_of_larger_syntax_node_single_cursor(cx: &mut Tes
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    let x = fooˇ(1, 2);
-                }
-            "#},
+            r#"fn main() {
+    let x = fooˇ(1, 2);
+}
+"#,
             cx,
         );
     });
@@ -47126,11 +47601,10 @@ async fn test_move_to_start_end_of_larger_syntax_node_single_cursor(cx: &mut Tes
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    let x = ˇfoo(1, 2);
-                }
-            "#},
+            r#"fn main() {
+    let x = ˇfoo(1, 2);
+}
+"#,
             cx,
         );
     });
@@ -47140,11 +47614,10 @@ async fn test_move_to_start_end_of_larger_syntax_node_single_cursor(cx: &mut Tes
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    ˇlet x = foo(1, 2);
-                }
-            "#},
+            r#"fn main() {
+    ˇlet x = foo(1, 2);
+}
+"#,
             cx,
         );
     });
@@ -47154,11 +47627,10 @@ async fn test_move_to_start_end_of_larger_syntax_node_single_cursor(cx: &mut Tes
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() ˇ{
-                    let x = foo(1, 2);
-                }
-            "#},
+            r#"fn main() ˇ{
+    let x = foo(1, 2);
+}
+"#,
             cx,
         );
     });
@@ -47168,11 +47640,10 @@ async fn test_move_to_start_end_of_larger_syntax_node_single_cursor(cx: &mut Tes
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                ˇfn main() {
-                    let x = foo(1, 2);
-                }
-            "#},
+            r#"ˇfn main() {
+    let x = foo(1, 2);
+}
+"#,
             cx,
         );
     });
@@ -47215,12 +47686,11 @@ async fn test_move_to_start_end_of_larger_syntax_node_two_cursors(cx: &mut TestA
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    let x = foo(1, 2ˇ);
-                    let y = bar(3, 4ˇ);
-                }
-            "#},
+            r#"fn main() {
+    let x = foo(1, 2ˇ);
+    let y = bar(3, 4ˇ);
+}
+"#,
             cx,
         );
     });
@@ -47230,12 +47700,11 @@ async fn test_move_to_start_end_of_larger_syntax_node_two_cursors(cx: &mut TestA
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    let x = foo(1, 2)ˇ;
-                    let y = bar(3, 4)ˇ;
-                }
-            "#},
+            r#"fn main() {
+    let x = foo(1, 2)ˇ;
+    let y = bar(3, 4)ˇ;
+}
+"#,
             cx,
         );
     });
@@ -47245,12 +47714,11 @@ async fn test_move_to_start_end_of_larger_syntax_node_two_cursors(cx: &mut TestA
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    let x = foo(1, 2);ˇ
-                    let y = bar(3, 4);ˇ
-                }
-            "#},
+            r#"fn main() {
+    let x = foo(1, 2);ˇ
+    let y = bar(3, 4);ˇ
+}
+"#,
             cx,
         );
     });
@@ -47267,12 +47735,11 @@ async fn test_move_to_start_end_of_larger_syntax_node_two_cursors(cx: &mut TestA
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    let x = foo(1, ˇ2);
-                    let y = bar(3, ˇ4);
-                }
-            "#},
+            r#"fn main() {
+    let x = foo(1, ˇ2);
+    let y = bar(3, ˇ4);
+}
+"#,
             cx,
         );
     });
@@ -47282,12 +47749,11 @@ async fn test_move_to_start_end_of_larger_syntax_node_two_cursors(cx: &mut TestA
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    let x = fooˇ(1, 2);
-                    let y = barˇ(3, 4);
-                }
-            "#},
+            r#"fn main() {
+    let x = fooˇ(1, 2);
+    let y = barˇ(3, 4);
+}
+"#,
             cx,
         );
     });
@@ -47297,12 +47763,11 @@ async fn test_move_to_start_end_of_larger_syntax_node_two_cursors(cx: &mut TestA
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    let x = ˇfoo(1, 2);
-                    let y = ˇbar(3, 4);
-                }
-            "#},
+            r#"fn main() {
+    let x = ˇfoo(1, 2);
+    let y = ˇbar(3, 4);
+}
+"#,
             cx,
         );
     });
@@ -47312,12 +47777,11 @@ async fn test_move_to_start_end_of_larger_syntax_node_two_cursors(cx: &mut TestA
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    ˇlet x = foo(1, 2);
-                    ˇlet y = bar(3, 4);
-                }
-            "#},
+            r#"fn main() {
+    ˇlet x = foo(1, 2);
+    ˇlet y = bar(3, 4);
+}
+"#,
             cx,
         );
     });
@@ -47361,12 +47825,11 @@ async fn test_move_to_start_end_of_larger_syntax_node_with_selections_and_string
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    let x = «foo(1, 2)ˇ»;
-                    let msg = "hello world";
-                }
-            "#},
+            r#"fn main() {
+    let x = «foo(1, 2)ˇ»;
+    let msg = "hello world";
+}
+"#,
             cx,
         );
     });
@@ -47376,12 +47839,11 @@ async fn test_move_to_start_end_of_larger_syntax_node_with_selections_and_string
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    let x = «foo(1, 2)ˇ»;
-                    let msg = "hello world";
-                }
-            "#},
+            r#"fn main() {
+    let x = «foo(1, 2)ˇ»;
+    let msg = "hello world";
+}
+"#,
             cx,
         );
     });
@@ -47397,12 +47859,11 @@ async fn test_move_to_start_end_of_larger_syntax_node_with_selections_and_string
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    let x = foo(1, 2);
-                    let msg = "ˇhello world";
-                }
-            "#},
+            r#"fn main() {
+    let x = foo(1, 2);
+    let msg = "ˇhello world";
+}
+"#,
             cx,
         );
     });
@@ -47412,12 +47873,11 @@ async fn test_move_to_start_end_of_larger_syntax_node_with_selections_and_string
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    let x = foo(1, 2);
-                    let msg = "hello worldˇ";
-                }
-            "#},
+            r#"fn main() {
+    let x = foo(1, 2);
+    let msg = "hello worldˇ";
+}
+"#,
             cx,
         );
     });
@@ -47433,12 +47893,11 @@ async fn test_move_to_start_end_of_larger_syntax_node_with_selections_and_string
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    let x = foo(1, 2);
-                    let msg = "hello ˇworld";
-                }
-            "#},
+            r#"fn main() {
+    let x = foo(1, 2);
+    let msg = "hello ˇworld";
+}
+"#,
             cx,
         );
     });
@@ -47448,12 +47907,11 @@ async fn test_move_to_start_end_of_larger_syntax_node_with_selections_and_string
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    let x = foo(1, 2);
-                    let msg = "ˇhello world";
-                }
-            "#},
+            r#"fn main() {
+    let x = foo(1, 2);
+    let msg = "ˇhello world";
+}
+"#,
             cx,
         );
     });
@@ -47487,13 +47945,13 @@ async fn test_select_to_start_end_of_larger_syntax_node(cx: &mut TestAppContext)
         });
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let msg = "fooˇ bar baz";"#}, cx);
+        assert_text_with_selections(editor, r#"let msg = "fooˇ bar baz";"#, cx);
     });
     editor.update_in(cx, |editor, window, cx| {
         editor.select_to_end_of_larger_syntax_node(&SelectToEndOfLargerSyntaxNode, window, cx);
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let msg = "foo« bar bazˇ»";"#}, cx);
+        assert_text_with_selections(editor, r#"let msg = "foo« bar bazˇ»";"#, cx);
     });
 
     // Test Group 1.2: Cursor in String - Second Jump (Select to End)
@@ -47501,7 +47959,7 @@ async fn test_select_to_start_end_of_larger_syntax_node(cx: &mut TestAppContext)
         editor.select_to_end_of_larger_syntax_node(&SelectToEndOfLargerSyntaxNode, window, cx);
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let msg = "foo« bar baz"ˇ»;"#}, cx);
+        assert_text_with_selections(editor, r#"let msg = "foo« bar baz"ˇ»;"#, cx);
     });
 
     // Test Group 1.3: Cursor in String - Third Jump (Select to End)
@@ -47509,7 +47967,7 @@ async fn test_select_to_start_end_of_larger_syntax_node(cx: &mut TestAppContext)
         editor.select_to_end_of_larger_syntax_node(&SelectToEndOfLargerSyntaxNode, window, cx);
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let msg = "foo« bar baz";ˇ»"#}, cx);
+        assert_text_with_selections(editor, r#"let msg = "foo« bar baz";ˇ»"#, cx);
     });
 
     // Test Group 1.4: Cursor in String - First Jump (Select to Start)
@@ -47521,13 +47979,13 @@ async fn test_select_to_start_end_of_larger_syntax_node(cx: &mut TestAppContext)
         });
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let msg = "foo barˇ baz";"#}, cx);
+        assert_text_with_selections(editor, r#"let msg = "foo barˇ baz";"#, cx);
     });
     editor.update_in(cx, |editor, window, cx| {
         editor.select_to_start_of_larger_syntax_node(&SelectToStartOfLargerSyntaxNode, window, cx);
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let msg = "«ˇfoo bar» baz";"#}, cx);
+        assert_text_with_selections(editor, r#"let msg = "«ˇfoo bar» baz";"#, cx);
     });
 
     // Test Group 1.5: Cursor in String - Second Jump (Select to Start)
@@ -47535,7 +47993,7 @@ async fn test_select_to_start_end_of_larger_syntax_node(cx: &mut TestAppContext)
         editor.select_to_start_of_larger_syntax_node(&SelectToStartOfLargerSyntaxNode, window, cx);
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let msg = «ˇ"foo bar» baz";"#}, cx);
+        assert_text_with_selections(editor, r#"let msg = «ˇ"foo bar» baz";"#, cx);
     });
 
     // Test Group 1.6: Cursor in String - Third Jump (Select to Start)
@@ -47543,7 +48001,7 @@ async fn test_select_to_start_end_of_larger_syntax_node(cx: &mut TestAppContext)
         editor.select_to_start_of_larger_syntax_node(&SelectToStartOfLargerSyntaxNode, window, cx);
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"«ˇlet msg = "foo bar» baz";"#}, cx);
+        assert_text_with_selections(editor, r#"«ˇlet msg = "foo bar» baz";"#, cx);
     });
 
     // Test Group 2.1: Let Statement Progression (Select to End)
@@ -47572,11 +48030,10 @@ fn main() {
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    let xˇ = "hello";
-                }
-            "#},
+            r#"fn main() {
+    let xˇ = "hello";
+}
+"#,
             cx,
         );
     });
@@ -47586,11 +48043,10 @@ fn main() {
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r##"
-                fn main() {
-                    let x« = "hello";ˇ»
-                }
-            "##},
+            r##"fn main() {
+    let x« = "hello";ˇ»
+}
+"##,
             cx,
         );
     });
@@ -47600,11 +48056,10 @@ fn main() {
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                fn main() {
-                    let x« = "hello";
-                }ˇ»
-            "#},
+            r#"fn main() {
+    let x« = "hello";
+}ˇ»
+"#,
             cx,
         );
     });
@@ -47628,13 +48083,13 @@ fn main() {
         });
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let x = "helˇlo";"#}, cx);
+        assert_text_with_selections(editor, r#"let x = "helˇlo";"#, cx);
     });
     editor.update_in(cx, |editor, window, cx| {
         editor.select_to_start_of_larger_syntax_node(&SelectToStartOfLargerSyntaxNode, window, cx);
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let x = "«ˇhel»lo";"#}, cx);
+        assert_text_with_selections(editor, r#"let x = "«ˇhel»lo";"#, cx);
     });
 
     // Test Group 2.2b: From Edge of String Content Node To String Literal Boundary
@@ -47646,13 +48101,13 @@ fn main() {
         });
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let x = "ˇhello";"#}, cx);
+        assert_text_with_selections(editor, r#"let x = "ˇhello";"#, cx);
     });
     editor.update_in(cx, |editor, window, cx| {
         editor.select_to_start_of_larger_syntax_node(&SelectToStartOfLargerSyntaxNode, window, cx);
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let x = «ˇ"»hello";"#}, cx);
+        assert_text_with_selections(editor, r#"let x = «ˇ"»hello";"#, cx);
     });
 
     // Test Group 3.1: Create Selection from Cursor (Select to End)
@@ -47674,13 +48129,13 @@ fn main() {
         });
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let x = "helloˇ world";"#}, cx);
+        assert_text_with_selections(editor, r#"let x = "helloˇ world";"#, cx);
     });
     editor.update_in(cx, |editor, window, cx| {
         editor.select_to_end_of_larger_syntax_node(&SelectToEndOfLargerSyntaxNode, window, cx);
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let x = "hello« worldˇ»";"#}, cx);
+        assert_text_with_selections(editor, r#"let x = "hello« worldˇ»";"#, cx);
     });
 
     // Test Group 3.2: Extend Existing Selection (Select to End)
@@ -47692,13 +48147,13 @@ fn main() {
         });
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let x = "he«llo woˇ»rld";"#}, cx);
+        assert_text_with_selections(editor, r#"let x = "he«llo woˇ»rld";"#, cx);
     });
     editor.update_in(cx, |editor, window, cx| {
         editor.select_to_end_of_larger_syntax_node(&SelectToEndOfLargerSyntaxNode, window, cx);
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let x = "he«llo worldˇ»";"#}, cx);
+        assert_text_with_selections(editor, r#"let x = "he«llo worldˇ»";"#, cx);
     });
 
     // Test Group 4.1: Multiple Cursors - All Expand to Different Syntax Nodes
@@ -47725,13 +48180,13 @@ fn main() {
         });
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let x = "helˇlo"; lˇet y = 4ˇ2;"#}, cx);
+        assert_text_with_selections(editor, r#"let x = "helˇlo"; lˇet y = 4ˇ2;"#, cx);
     });
     editor.update_in(cx, |editor, window, cx| {
         editor.select_to_end_of_larger_syntax_node(&SelectToEndOfLargerSyntaxNode, window, cx);
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let x = "hel«loˇ»"; l«et y = 42;ˇ»"#}, cx);
+        assert_text_with_selections(editor, r#"let x = "hel«loˇ»"; l«et y = 42;ˇ»"#, cx);
     });
 
     // Test Group 4.2: Multiple Cursors on Separate Lines
@@ -47761,10 +48216,9 @@ let y = 42;
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                let x = "helˇlo";
-                let y = 4ˇ2;
-            "#},
+            r#"let x = "helˇlo";
+let y = 4ˇ2;
+"#,
             cx,
         );
     });
@@ -47774,10 +48228,9 @@ let y = 42;
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-                let x = "hel«loˇ»";
-                let y = 4«2ˇ»;
-            "#},
+            r#"let x = "hel«loˇ»";
+let y = 4«2ˇ»;
+"#,
             cx,
         );
     });
@@ -47801,25 +48254,25 @@ let y = 42;
         });
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let result = foo(bar("ˇarg"));"#}, cx);
+        assert_text_with_selections(editor, r#"let result = foo(bar("ˇarg"));"#, cx);
     });
     editor.update_in(cx, |editor, window, cx| {
         editor.select_to_end_of_larger_syntax_node(&SelectToEndOfLargerSyntaxNode, window, cx);
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let result = foo(bar("«argˇ»"));"#}, cx);
+        assert_text_with_selections(editor, r#"let result = foo(bar("«argˇ»"));"#, cx);
     });
     editor.update_in(cx, |editor, window, cx| {
         editor.select_to_end_of_larger_syntax_node(&SelectToEndOfLargerSyntaxNode, window, cx);
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let result = foo(bar("«arg"ˇ»));"#}, cx);
+        assert_text_with_selections(editor, r#"let result = foo(bar("«arg"ˇ»));"#, cx);
     });
     editor.update_in(cx, |editor, window, cx| {
         editor.select_to_end_of_larger_syntax_node(&SelectToEndOfLargerSyntaxNode, window, cx);
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let result = foo(bar("«arg")ˇ»);"#}, cx);
+        assert_text_with_selections(editor, r#"let result = foo(bar("«arg")ˇ»);"#, cx);
     });
 
     // Test Group 6.1: Block Comments
@@ -47846,10 +48299,9 @@ let y = 42;
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-let x = /* multiˇ
+            r#"let x = /* multiˇ
 line
-comment */;"#},
+comment */;"#,
             cx,
         );
     });
@@ -47859,10 +48311,9 @@ comment */;"#},
     editor.update(cx, |editor, cx| {
         assert_text_with_selections(
             editor,
-            indoc! {r#"
-let x = /* multi«
+            r#"let x = /* multi«
 line
-comment */ˇ»;"#},
+comment */ˇ»;"#,
             cx,
         );
     });
@@ -47886,19 +48337,19 @@ comment */ˇ»;"#},
         });
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let arr = [ˇ1, 2, 3];"#}, cx);
+        assert_text_with_selections(editor, r#"let arr = [ˇ1, 2, 3];"#, cx);
     });
     editor.update_in(cx, |editor, window, cx| {
         editor.select_to_end_of_larger_syntax_node(&SelectToEndOfLargerSyntaxNode, window, cx);
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let arr = [«1ˇ», 2, 3];"#}, cx);
+        assert_text_with_selections(editor, r#"let arr = [«1ˇ», 2, 3];"#, cx);
     });
     editor.update_in(cx, |editor, window, cx| {
         editor.select_to_end_of_larger_syntax_node(&SelectToEndOfLargerSyntaxNode, window, cx);
     });
     editor.update(cx, |editor, cx| {
-        assert_text_with_selections(editor, indoc! {r#"let arr = [«1, 2, 3]ˇ»;"#}, cx);
+        assert_text_with_selections(editor, r#"let arr = [«1, 2, 3]ˇ»;"#, cx);
     });
 }
 
@@ -47977,66 +48428,48 @@ async fn test_align_selections(cx: &mut TestAppContext) {
     cx.assert_editor_state(before);
 
     // 2) multiple cursors at different rows
-    let before = indoc!(
-        r#"
-            let aˇbc = 123;
-            let  xˇyz = 456;
-            let   fˇoo = 789;
-            let    bˇar = 0;
-        "#
-    );
-    let after = indoc!(
-        r#"
-            let a   ˇbc = 123;
-            let  x  ˇyz = 456;
-            let   f ˇoo = 789;
-            let    bˇar = 0;
-        "#
-    );
+    let before = r#"let aˇbc = 123;
+let  xˇyz = 456;
+let   fˇoo = 789;
+let    bˇar = 0;
+"#;
+    let after = r#"let a   ˇbc = 123;
+let  x  ˇyz = 456;
+let   f ˇoo = 789;
+let    bˇar = 0;
+"#;
     cx.set_state(before);
     cx.update_editor(|e, window, cx| e.align_selections(&AlignSelections, window, cx));
     cx.assert_editor_state(after);
 
     // 3) multiple selections at different rows
-    let before = indoc!(
-        r#"
-            let «ˇabc» = 123;
-            let  «ˇxyz» = 456;
-            let   «ˇfoo» = 789;
-            let    «ˇbar» = 0;
-        "#
-    );
-    let after = indoc!(
-        r#"
-            let    «ˇabc» = 123;
-            let    «ˇxyz» = 456;
-            let    «ˇfoo» = 789;
-            let    «ˇbar» = 0;
-        "#
-    );
+    let before = r#"let «ˇabc» = 123;
+let  «ˇxyz» = 456;
+let   «ˇfoo» = 789;
+let    «ˇbar» = 0;
+"#;
+    let after = r#"let    «ˇabc» = 123;
+let    «ˇxyz» = 456;
+let    «ˇfoo» = 789;
+let    «ˇbar» = 0;
+"#;
     cx.set_state(before);
     cx.update_editor(|e, window, cx| e.align_selections(&AlignSelections, window, cx));
     cx.assert_editor_state(after);
 
     // 4) multiple selections at different rows, inverted head
-    let before = indoc!(
-        r#"
-            let    «abcˇ» = 123;
-            // comment
-            let  «xyzˇ» = 456;
-            let «fooˇ» = 789;
-            let    «barˇ» = 0;
-        "#
-    );
-    let after = indoc!(
-        r#"
-            let    «abcˇ» = 123;
-            // comment
-            let    «xyzˇ» = 456;
-            let    «fooˇ» = 789;
-            let    «barˇ» = 0;
-        "#
-    );
+    let before = r#"let    «abcˇ» = 123;
+// comment
+let  «xyzˇ» = 456;
+let «fooˇ» = 789;
+let    «barˇ» = 0;
+"#;
+    let after = r#"let    «abcˇ» = 123;
+// comment
+let    «xyzˇ» = 456;
+let    «fooˇ» = 789;
+let    «barˇ» = 0;
+"#;
     cx.set_state(before);
     cx.update_editor(|e, window, cx| e.align_selections(&AlignSelections, window, cx));
     cx.assert_editor_state(after);
@@ -48048,66 +48481,48 @@ async fn test_align_selections_multicolumn(cx: &mut TestAppContext) {
     let mut cx = EditorTestContext::new(cx).await;
 
     // 1) Multicolumn, one non affected editor row
-    let before = indoc!(
-        r#"
-            name «|ˇ» age «|ˇ» height «|ˇ» note
-            Matthew «|ˇ» 7 «|ˇ» 2333 «|ˇ» smart
-            Mike «|ˇ» 1234 «|ˇ» 567 «|ˇ» lazy
-            Anything that is not selected
-            Miles «|ˇ» 88 «|ˇ» 99 «|ˇ» funny
-        "#
-    );
-    let after = indoc!(
-        r#"
-            name    «|ˇ» age  «|ˇ» height «|ˇ» note
-            Matthew «|ˇ» 7    «|ˇ» 2333   «|ˇ» smart
-            Mike    «|ˇ» 1234 «|ˇ» 567    «|ˇ» lazy
-            Anything that is not selected
-            Miles   «|ˇ» 88   «|ˇ» 99     «|ˇ» funny
-        "#
-    );
+    let before = r#"name «|ˇ» age «|ˇ» height «|ˇ» note
+Matthew «|ˇ» 7 «|ˇ» 2333 «|ˇ» smart
+Mike «|ˇ» 1234 «|ˇ» 567 «|ˇ» lazy
+Anything that is not selected
+Miles «|ˇ» 88 «|ˇ» 99 «|ˇ» funny
+"#;
+    let after = r#"name    «|ˇ» age  «|ˇ» height «|ˇ» note
+Matthew «|ˇ» 7    «|ˇ» 2333   «|ˇ» smart
+Mike    «|ˇ» 1234 «|ˇ» 567    «|ˇ» lazy
+Anything that is not selected
+Miles   «|ˇ» 88   «|ˇ» 99     «|ˇ» funny
+"#;
     cx.set_state(before);
     cx.update_editor(|e, window, cx| e.align_selections(&AlignSelections, window, cx));
     cx.assert_editor_state(after);
 
     // 2) not all alignment rows has the number of alignment columns
-    let before = indoc!(
-        r#"
-            name «|ˇ» age «|ˇ» height
-            Matthew «|ˇ» 7 «|ˇ» 2333
-            Mike «|ˇ» 1234
-            Miles «|ˇ» 88 «|ˇ» 99
-        "#
-    );
-    let after = indoc!(
-        r#"
-            name    «|ˇ» age «|ˇ» height
-            Matthew «|ˇ» 7   «|ˇ» 2333
-            Mike    «|ˇ» 1234
-            Miles   «|ˇ» 88  «|ˇ» 99
-        "#
-    );
+    let before = r#"name «|ˇ» age «|ˇ» height
+Matthew «|ˇ» 7 «|ˇ» 2333
+Mike «|ˇ» 1234
+Miles «|ˇ» 88 «|ˇ» 99
+"#;
+    let after = r#"name    «|ˇ» age «|ˇ» height
+Matthew «|ˇ» 7   «|ˇ» 2333
+Mike    «|ˇ» 1234
+Miles   «|ˇ» 88  «|ˇ» 99
+"#;
     cx.set_state(before);
     cx.update_editor(|e, window, cx| e.align_selections(&AlignSelections, window, cx));
     cx.assert_editor_state(after);
 
     // 3) A aligned column shall stay aligned
-    let before = indoc!(
-        r#"
-            $ ˇa    ˇa
-            $  ˇa   ˇa
-            $   ˇa  ˇa
-            $    ˇa ˇa
-        "#
-    );
-    let after = indoc!(
-        r#"
-            $    ˇa    ˇa
-            $    ˇa    ˇa
-            $    ˇa    ˇa
-            $    ˇa    ˇa
-        "#
-    );
+    let before = r#"$ ˇa    ˇa
+$  ˇa   ˇa
+$   ˇa  ˇa
+$    ˇa ˇa
+"#;
+    let after = r#"$    ˇa    ˇa
+$    ˇa    ˇa
+$    ˇa    ˇa
+$    ˇa    ˇa
+"#;
     cx.set_state(before);
     cx.update_editor(|e, window, cx| e.align_selections(&AlignSelections, window, cx));
     cx.assert_editor_state(after);
@@ -48178,7 +48593,7 @@ async fn test_custom_fallback_highlights(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
 
     let mut cx = EditorTestContext::new(cx).await;
-    cx.set_state(indoc! {"fn main(self, variable: TType) {ˇ}"});
+    cx.set_state("fn main(self, variable: TType) {ˇ}");
 
     let variable_color = Hsla::green();
     let function_color = Hsla::blue();
@@ -48357,13 +48772,14 @@ async fn test_columnar_selection_with_multibyte_chars(cx: &mut TestAppContext) {
     // column selection that uses byte columns directly puts the ã row's
     // selection at a different visual position than the ASCII rows; anchoring
     // in x pixels keeps all rows at the same character offset.
-    cx.set_state(indoc! {"
-        ˇabcde
-        abcde
-        aãcde
-        abcde
-        abcde
-    "});
+    cx.set_state(
+        "ˇabcde
+abcde
+aãcde
+abcde
+abcde
+",
+    );
 
     // Drag column-wise from (row 0, col 0) past the ã column on every row.
     cx.update_editor(|editor, window, cx| {
@@ -48388,13 +48804,14 @@ async fn test_columnar_selection_with_multibyte_chars(cx: &mut TestAppContext) {
         );
     });
 
-    cx.assert_editor_state(indoc! {"
-        «abcdˇ»e
-        «abcdˇ»e
-        «aãcdˇ»e
-        «abcdˇ»e
-        «abcdˇ»e
-    "});
+    cx.assert_editor_state(
+        "«abcdˇ»e
+«abcdˇ»e
+«aãcdˇ»e
+«abcdˇ»e
+«abcdˇ»e
+",
+    );
 
     // Control: drag stops before the ã column, where byte columns and x
     // positions agree.
@@ -48420,13 +48837,14 @@ async fn test_columnar_selection_with_multibyte_chars(cx: &mut TestAppContext) {
         );
     });
 
-    cx.assert_editor_state(indoc! {"
-        «aˇ»bcde
-        «aˇ»bcde
-        «aˇ»ãcde
-        «aˇ»bcde
-        «aˇ»bcde
-    "});
+    cx.assert_editor_state(
+        "«aˇ»bcde
+«aˇ»bcde
+«aˇ»ãcde
+«aˇ»bcde
+«aˇ»bcde
+",
+    );
 }
 
 #[gpui::test]
@@ -48435,11 +48853,12 @@ async fn test_columnar_selection_past_end_of_line(cx: &mut TestAppContext) {
 
     let mut cx = EditorTestContext::new(cx).await;
 
-    cx.set_state(indoc! {"
-        ˇaaaaaaaaaa
-        bb
-        cccccccccc
-    "});
+    cx.set_state(
+        "ˇaaaaaaaaaa
+bb
+cccccccccc
+",
+    );
 
     // Drag from the start of the long first row to a point past the EOL of
     // the short second row: the mouse handlers encode that as the nearest
@@ -48468,11 +48887,12 @@ async fn test_columnar_selection_past_end_of_line(cx: &mut TestAppContext) {
         );
     });
 
-    cx.assert_editor_state(indoc! {"
-        «aaaaaaaaˇ»aa
-        «bbˇ»
-        cccccccccc
-    "});
+    cx.assert_editor_state(
+        "«aaaaaaaaˇ»aa
+«bbˇ»
+cccccccccc
+",
+    );
 
     // Starting the drag past the EOL of the short row must anchor that edge
     // of the rectangle at the click position, not at the short row's EOL.
@@ -48498,11 +48918,12 @@ async fn test_columnar_selection_past_end_of_line(cx: &mut TestAppContext) {
         );
     });
 
-    cx.assert_editor_state(indoc! {"
-        aaaaaaaaaa
-        bb
-        cccc«ˇcccc»cc
-    "});
+    cx.assert_editor_state(
+        "aaaaaaaaaa
+bb
+cccc«ˇcccc»cc
+",
+    );
 }
 
 #[gpui::test]
@@ -48511,10 +48932,11 @@ async fn test_columnar_selection_with_soft_wrap(cx: &mut TestAppContext) {
 
     let mut cx = EditorTestContext::new(cx).await;
 
-    cx.set_state(indoc! {"
-        ˇ1. Very long line to show how a wrapped line would look
-        2. Very long line to show how a wrapped line would look
-    "});
+    cx.set_state(
+        "ˇ1. Very long line to show how a wrapped line would look
+2. Very long line to show how a wrapped line would look
+",
+    );
 
     let soft_wrap_second_line_row = |editor: &mut Editor, cx: &mut Context<Editor>| {
         editor.set_wrap_width(Some(100.0.into()), cx);
@@ -48552,10 +48974,11 @@ async fn test_columnar_selection_with_soft_wrap(cx: &mut TestAppContext) {
         );
     });
 
-    cx.assert_editor_state(indoc! {"
-        «1ˇ». Very long line to show how a wrapped line would look
-        «2ˇ». Very long line to show how a wrapped line would look
-    "});
+    cx.assert_editor_state(
+        "«1ˇ». Very long line to show how a wrapped line would look
+«2ˇ». Very long line to show how a wrapped line would look
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         let second_line_row = soft_wrap_second_line_row(editor, cx);
@@ -48580,10 +49003,11 @@ async fn test_columnar_selection_with_soft_wrap(cx: &mut TestAppContext) {
         );
     });
 
-    cx.assert_editor_state(indoc! {"
-        ˇ1. Very long line to show how a wrapped line would look
-        ˇ2. Very long line to show how a wrapped line would look
-    "});
+    cx.assert_editor_state(
+        "ˇ1. Very long line to show how a wrapped line would look
+ˇ2. Very long line to show how a wrapped line would look
+",
+    );
 }
 
 #[gpui::test]
@@ -48593,93 +49017,106 @@ async fn test_toggle_markdown_block_quote(cx: &mut TestAppContext) {
     let mut cx = EditorTestContext::new(cx).await;
 
     // No-op with no language
-    cx.set_state(indoc! {"
-        «helloˇ» world
-    "});
+    cx.set_state(
+        "«helloˇ» world
+",
+    );
     cx.update_editor(|e, window, cx| e.toggle_markdown_block_quote(&ToggleBlockQuote, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «helloˇ» world
-    "});
+    cx.assert_editor_state(
+        "«helloˇ» world
+",
+    );
 
     // No-op in non-Markdown language (Rust)
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(rust_lang()), cx));
-    cx.set_state(indoc! {"
-        «helloˇ» world
-    "});
+    cx.set_state(
+        "«helloˇ» world
+",
+    );
     cx.update_editor(|e, window, cx| e.toggle_markdown_block_quote(&ToggleBlockQuote, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «helloˇ» world
-    "});
+    cx.assert_editor_state(
+        "«helloˇ» world
+",
+    );
 
     cx.update_buffer(|buffer, cx| buffer.set_language(Some(markdown_lang()), cx));
 
     // Line is quoted with an empty selection
-    cx.set_state(indoc! {"
-        helˇlo world
-    "});
+    cx.set_state(
+        "helˇlo world
+",
+    );
     cx.update_editor(|e, window, cx| e.toggle_markdown_block_quote(&ToggleBlockQuote, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «> hello worldˇ»
-    "});
+    cx.assert_editor_state(
+        "«> hello worldˇ»
+",
+    );
 
     // Line is unquoted with an empty selection
     cx.update_editor(|e, window, cx| e.toggle_markdown_block_quote(&ToggleBlockQuote, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «hello worldˇ»
-    "});
+    cx.assert_editor_state(
+        "«hello worldˇ»
+",
+    );
 
     // Multi-line selection is quoted, including blank lines
-    cx.set_state(indoc! {"
-        «first
+    cx.set_state(
+        "«first
 
-        thirdˇ»
-    "});
+thirdˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.toggle_markdown_block_quote(&ToggleBlockQuote, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «> first
-        >
-        > thirdˇ»
-    "});
+    cx.assert_editor_state(
+        "«> first
+>
+> thirdˇ»
+",
+    );
 
     // Multi-line selection is unquoted, including blank lines
     cx.update_editor(|e, window, cx| e.toggle_markdown_block_quote(&ToggleBlockQuote, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «first
+    cx.assert_editor_state(
+        "«first
 
-        thirdˇ»
-    "});
+thirdˇ»
+",
+    );
 
     // A multi-line selection, including a mixture of quoted and unquoted lines
     // and a mixture of empty and non-empty lines, normalizes each line to a
     // single quote.
-    cx.set_state(indoc! {"
-        «> first
-        second
-        >
+    cx.set_state(
+        "«> first
+second
+>
 
-        > third
-        >fourthˇ»
-    "});
+> third
+>fourthˇ»
+",
+    );
     cx.update_editor(|e, window, cx| e.toggle_markdown_block_quote(&ToggleBlockQuote, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «> first
-        > second
-        >
-        >
-        > third
-        > fourthˇ»
-    "});
+    cx.assert_editor_state(
+        "«> first
+> second
+>
+>
+> third
+> fourthˇ»
+",
+    );
 
     // A multi-line selection is unquoted.
     cx.update_editor(|e, window, cx| e.toggle_markdown_block_quote(&ToggleBlockQuote, window, cx));
-    cx.assert_editor_state(indoc! {"
-        «first
-        second
+    cx.assert_editor_state(
+        "«first
+second
 
 
-        third
-        fourthˇ»
-    "});
+third
+fourthˇ»
+",
+    );
 }
 
 #[track_caller]

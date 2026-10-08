@@ -869,7 +869,7 @@ mod tests {
     use settings::SettingsStore;
     use std::{cmp, env, ops::Range, path::Path, sync::Mutex};
     use text::BufferId;
-    use unindent::Unindent as _;
+    use util::Unindent as _;
     use util::{RandomCharIter, path};
 
     // macro_rules! assert_blame_rows {
@@ -891,7 +891,7 @@ mod tests {
         expected: Vec<Option<BlameEntry>>,
         cx: &mut Context<GitBlame>,
     ) {
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             blame
                 .blame_for_rows(
                     &rows
@@ -1106,7 +1106,7 @@ mod tests {
 
         git_blame.update(cx, |blame, cx| {
             // All lines
-            pretty_assertions::assert_eq!(
+            assert_eq!(
                 blame
                     .blame_for_rows(
                         &(0..8)
@@ -1131,7 +1131,7 @@ mod tests {
                 ]
             );
             // Subset of lines
-            pretty_assertions::assert_eq!(
+            assert_eq!(
                 blame
                     .blame_for_rows(
                         &(1..4)
@@ -1151,7 +1151,7 @@ mod tests {
                 ]
             );
             // Subset of lines, with some not displayed
-            pretty_assertions::assert_eq!(
+            assert_eq!(
                 blame
                     .blame_for_rows(
                         &[

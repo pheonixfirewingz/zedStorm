@@ -13,7 +13,7 @@ use std::{
 };
 
 use anyhow::{Context as _, Result, anyhow};
-use derive_more::{Deref, DerefMut};
+
 use futures::{Future, FutureExt, channel::oneshot, future::LocalBoxFuture};
 use itertools::Itertools;
 use parking_lot::RwLock;
@@ -31,7 +31,7 @@ pub use entity_map::*;
 use gpui_util::{ResultExt, debug_panic};
 #[cfg(any(test, feature = "test-support"))]
 pub use headless_app_context::*;
-use http_client::{HttpClient, Url};
+use http_client::HttpClient;
 use smallvec::SmallVec;
 #[cfg(any(test, feature = "test-support"))]
 pub use test_app::*;
@@ -117,8 +117,22 @@ impl AppCell {
 }
 
 #[doc(hidden)]
-#[derive(Deref, DerefMut)]
 pub struct AppRef<'a>(Ref<'a, App>);
+
+impl<'a> std::ops::Deref for AppRef<'a> {
+    type Target = Ref<'a, App>;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'a> std::ops::DerefMut for AppRef<'a> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 impl Drop for AppRef<'_> {
     fn drop(&mut self) {
@@ -130,8 +144,22 @@ impl Drop for AppRef<'_> {
 }
 
 #[doc(hidden)]
-#[derive(Deref, DerefMut)]
 pub struct AppRefMut<'a>(RefMut<'a, App>);
+
+impl<'a> std::ops::Deref for AppRefMut<'a> {
+    type Target = RefMut<'a, App>;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'a> std::ops::DerefMut for AppRefMut<'a> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 impl Drop for AppRefMut<'_> {
     fn drop(&mut self) {
@@ -3382,10 +3410,6 @@ impl HttpClient for NullHttpClient {
     }
 
     fn user_agent(&self) -> Option<&http_client::http::HeaderValue> {
-        None
-    }
-
-    fn proxy(&self) -> Option<&Url> {
         None
     }
 }

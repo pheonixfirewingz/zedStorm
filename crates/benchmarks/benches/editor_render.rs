@@ -8,7 +8,7 @@ use editor::{
 use gpui::{
     App, AppContext as _, BenchAppContext, BorrowAppContext as _, Focusable as _, UpdateGlobal as _,
 };
-use indoc::{formatdoc, indoc};
+
 use language::{Buffer, Capability, DiskState, File, LocalFile, Rope};
 use rand::{Rng as _, SeedableRng as _, rngs::StdRng};
 use settings::{
@@ -187,29 +187,26 @@ fn editor_render_with_editorconfig(cx: &mut BenchAppContext) {
                 ("", jetbrains_editorconfig()),
                 (
                     "src",
-                    indoc! {"
-                        [*.{ts,tsx}]
-                        indent_size = 2
-                    "}
+                    "[*.{ts,tsx}]
+indent_size = 2
+"
                     .to_string(),
                 ),
                 (
                     "src/app",
-                    indoc! {"
-                        [*]
-                        trim_trailing_whitespace = false
+                    "[*]
+trim_trailing_whitespace = false
 
-                        [*.ts]
-                        max_line_length = 100
-                    "}
+[*.ts]
+max_line_length = 100
+"
                     .to_string(),
                 ),
                 (
                     "src/app/components",
-                    indoc! {"
-                        [*.{ts,tsx}]
-                        indent_style = space
-                    "}
+                    "[*.{ts,tsx}]
+indent_style = space
+"
                     .to_string(),
                 ),
             ];
@@ -294,17 +291,16 @@ fn indented_code_text(line_count: usize) -> String {
 }
 
 fn jetbrains_editorconfig() -> String {
-    let mut content = indoc! {"
-        [*]
-        charset = utf-8
-        end_of_line = lf
-        indent_size = 4
-        indent_style = space
-        insert_final_newline = true
-        max_line_length = 150
-        tab_width = 4
-        trim_trailing_whitespace = false
-    "}
+    let mut content = "[*]
+charset = utf-8
+end_of_line = lf
+indent_size = 4
+indent_style = space
+insert_final_newline = true
+max_line_length = 150
+tab_width = 4
+trim_trailing_whitespace = false
+"
     .to_string();
     for key_index in 0..750 {
         content.push_str(&format!("ij_continuation_option_{key_index:04} = false\n"));
@@ -344,11 +340,12 @@ fn jetbrains_editorconfig() -> String {
         "*.{appxmanifest,asax,ascx,aspx,axaml,build,cg,cginc,compute,cs,cshtml,dtd,fs,fsi,fsscript,fsx,hlsl,hlsli,hlslinc,master,ml,mli,nuspec,paml,razor,resw,resx,shader,skin,usf,ush,vb,xaml,xamlx,xoml,xsd}",
     ];
     for (section_index, section) in sections.iter().enumerate() {
-        content.push_str(&formatdoc! {"
-
-            [{section}]
-            indent_size = 2
-        "});
+        content.push_str(&format!(
+            "
+[{section}]
+indent_size = 2
+"
+        ));
         for key_index in 0..40 {
             content.push_str(&format!(
                 "ij_section_{section_index:02}_option_{key_index:02} = false\n"

@@ -839,7 +839,7 @@ mod tests {
             );
         });
 
-        pretty_assertions::assert_eq!(expect, cx.display_text());
+        assert_eq!(expect, cx.display_text());
     }
 
     #[gpui::test]

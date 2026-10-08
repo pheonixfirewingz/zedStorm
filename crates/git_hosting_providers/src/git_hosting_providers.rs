@@ -76,7 +76,6 @@ pub fn get_host_from_git_remote_url(remote_url: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::get_host_from_git_remote_url;
-    use pretty_assertions::assert_eq;
 
     #[test]
     fn test_get_host_from_git_remote_url() {

@@ -857,7 +857,7 @@ mod tests {
 
     use futures::StreamExt as _;
     use gpui::{AppContext as _, Entity, Task, TestAppContext};
-    use indoc::indoc;
+
     use language::{ContextProvider, FakeLspAdapter};
     use languages::rust_lang;
     use lsp::LanguageServerName;
@@ -986,17 +986,16 @@ mod tests {
             path!("/project"),
             json!({
                 "first.rs": first_rs,
-                "second.rs": indoc! {"
-                    #[test]
-                    fn test_two() {
-                        assert!(true);
-                    }
+                "second.rs": "#[test]
+fn test_two() {
+    assert!(true);
+}
 
-                    #[test]
-                    fn test_three() {
-                        assert!(true);
-                    }
-                "},
+#[test]
+fn test_three() {
+    assert!(true);
+}
+",
             }),
         )
         .await;
@@ -1120,14 +1119,13 @@ mod tests {
         fs.insert_tree(
             path!("/project"),
             json!({
-                "main.rs": indoc! {"
-                    #[test]
-                    fn test_one() {
-                        assert!(true);
-                    }
+                "main.rs": "#[test]
+fn test_one() {
+    assert!(true);
+}
 
-                    fn helper() {}
-                "},
+fn helper() {}
+",
             }),
         )
         .await;
@@ -1248,16 +1246,15 @@ mod tests {
         let rust_language = language_registry.language_for_name("Rust").await.unwrap();
         let buffer = cx.new(|cx| {
             let mut buffer = language::Buffer::local(
-                indoc! {"
-                    fn main() {
-                        println!(\"hello\");
-                    }
+                "fn main() {
+    println!(\"hello\");
+}
 
-                    #[test]
-                    fn test_one() {
-                        assert!(true);
-                    }
-                "},
+#[test]
+fn test_one() {
+    assert!(true);
+}
+",
                 cx,
             );
             buffer.set_language(Some(rust_language), cx);
@@ -1335,12 +1332,11 @@ mod tests {
         fs.insert_tree(
             path!("/project"),
             json!({
-                "main.rs": indoc! {"
-                    #[test]
-                    fn test_one() {
-                        assert!(true);
-                    }
-                "},
+                "main.rs": "#[test]
+fn test_one() {
+    assert!(true);
+}
+",
             }),
         )
         .await;

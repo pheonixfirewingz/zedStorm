@@ -472,8 +472,8 @@ mod tests {
     use project::{FakeFs, Fs, Project};
     use settings::{DiffViewStyle, SettingsStore};
     use std::path::PathBuf;
-    use unindent::unindent;
     use util::path;
+    use util::unindent;
     use workspace::MultiWorkspace;
 
     fn init_test(cx: &mut TestAppContext) {

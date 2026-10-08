@@ -473,7 +473,7 @@ mod tests {
     use project::{FakeFs, Project};
     use serde_json::json;
     use settings::{DiffViewStyle, SettingsStore};
-    use unindent::unindent;
+    use util::unindent;
     use util::{path, test::marked_text_ranges};
     use workspace::MultiWorkspace;
 

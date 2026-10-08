@@ -11,7 +11,6 @@ use gpui::{
     ShapedRun, SharedString, Size, TextRenderingMode, point, size,
 };
 
-use itertools::Itertools;
 use parking_lot::RwLock;
 use smallvec::SmallVec;
 use std::{borrow::Cow, ops::Range, sync::Arc};
@@ -181,7 +180,7 @@ impl PlatformTextSystem for CosmicTextSystem {
             .db()
             .faces()
             .filter_map(|face| face.families.first().map(|family| family.0.clone()))
-            .collect_vec();
+            .collect::<Vec<_>>();
         result.sort_unstable();
         result.dedup();
         result

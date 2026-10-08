@@ -542,7 +542,7 @@ mod tests {
                     panic!("could not read golden test data file at {:?}. Did you run the test with UPDATE_GOLDEN=true before?", path);
                 }).replace("\r\n", "\n");
 
-            pretty_assertions::assert_eq!(have_json, want_json, "wrong blame entries");
+            assert_eq!(have_json, want_json, "wrong blame entries");
         }
     }
 

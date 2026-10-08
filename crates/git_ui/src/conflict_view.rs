@@ -10,7 +10,6 @@ use gpui::{
 };
 use language::{Anchor, Buffer, BufferId};
 use project::{ConflictRegion, ConflictSet, ConflictSetUpdate};
-use settings::Settings;
 use std::{ops::Range, sync::Arc};
 use ui::prelude::*;
 use util::debug_panic;

@@ -1746,7 +1746,6 @@ fn test_language(name: &str, grammar: tree_sitter::Language) -> Arc<Language> {
 mod tests {
     use super::*;
     use gpui::{TestAppContext, rgba};
-    use pretty_assertions::assert_matches;
 
     #[test]
     fn test_highlight_map() {
@@ -2180,11 +2179,14 @@ mod tests {
                 "#,
             )
             .unwrap();
-            assert_matches!(config.block_comment, Some(BlockCommentConfig { .. }));
-            assert_matches!(
+            assert!(matches!(
+                config.block_comment,
+                Some(BlockCommentConfig { .. })
+            ));
+            assert!(matches!(
                 config.documentation_comment,
                 Some(BlockCommentConfig { .. })
-            );
+            ));
 
             let block_config = config.block_comment.unwrap();
             assert_eq!(block_config.start.as_ref(), "a");
@@ -2208,10 +2210,10 @@ mod tests {
                 "#,
             )
             .unwrap();
-            assert_matches!(
+            assert!(matches!(
                 config.documentation_comment,
                 Some(BlockCommentConfig { .. })
-            );
+            ));
 
             let config = config.documentation_comment.unwrap();
             assert_eq!(config.start.as_ref(), "a");
@@ -2229,7 +2231,10 @@ mod tests {
                 "#,
             )
             .unwrap();
-            assert_matches!(config.block_comment, Some(BlockCommentConfig { .. }));
+            assert!(matches!(
+                config.block_comment,
+                Some(BlockCommentConfig { .. })
+            ));
 
             let config = config.block_comment.unwrap();
             assert_eq!(config.start.as_ref(), "a");

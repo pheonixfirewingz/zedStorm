@@ -113,6 +113,7 @@ mod tests {
             debug_adapters: Default::default(),
             debug_locators: Default::default(),
             language_model_providers: BTreeMap::default(),
+            diagram_renderers: Vec::new(),
         }
     }
 

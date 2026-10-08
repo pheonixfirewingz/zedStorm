@@ -2219,7 +2219,7 @@ impl Editor {
             .all::<MultiBufferOffset>(&self.display_snapshot(cx))
             .into_iter()
             .map(|selection| selection.range())
-            .collect_vec();
+            .collect::<Vec<_>>();
 
         let snippet = if let Some(snippet_body) = &action.snippet {
             if action.language.is_none() && action.name.is_none() {

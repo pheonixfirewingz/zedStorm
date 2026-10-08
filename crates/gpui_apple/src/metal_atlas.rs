@@ -1,5 +1,5 @@
 use anyhow::{Context as _, Result};
-use derive_more::{Deref, DerefMut};
+
 use etagere::BucketedAtlasAllocator;
 use gpui::{
     AtlasBackend, AtlasKey, AtlasState, AtlasTextureId, AtlasTextureKind, AtlasTextureList,
@@ -270,8 +270,22 @@ fn point_from_etagere(value: etagere::Point) -> Point<DevicePixels> {
     }
 }
 
-#[derive(Deref, DerefMut)]
 struct AssertSend<T>(T);
+
+impl<T> std::ops::Deref for AssertSend<T> {
+    type Target = T;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> std::ops::DerefMut for AssertSend<T> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 unsafe impl<T> Send for AssertSend<T> {}
 

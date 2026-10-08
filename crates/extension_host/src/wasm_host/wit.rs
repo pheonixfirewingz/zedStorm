@@ -105,6 +105,25 @@ pub enum Extension {
 }
 
 impl Extension {
+    pub async fn call_render_diagram(
+        &self,
+        store: &mut Store<WasmState>,
+        renderer_id: &str,
+        source: &str,
+        theme: &str,
+    ) -> wasmtime::Result<Result<String, String>> {
+        match self {
+            Self::V0_8_0(extension) => {
+                extension
+                    .call_render_diagram(store, renderer_id, source, theme)
+                    .await
+            }
+            _ => Err(wasmtime::Error::msg(
+                "`render_diagram` requires extension API v0.8.0",
+            )),
+        }
+    }
+
     pub async fn instantiate_async(
         executor: &BackgroundExecutor,
         store: &mut Store<WasmState>,

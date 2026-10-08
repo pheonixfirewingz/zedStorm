@@ -62,9 +62,49 @@ pub(crate) fn settings_data(cx: &App) -> Vec<SettingsPage> {
         debugger_page(),
         terminal_page(),
         version_control_page(),
-        network_page(),
+        ai_page(),
         developer_page(cx),
     ]
+}
+
+fn ai_page() -> SettingsPage {
+    SettingsPage {
+        title: "AI",
+        items: Box::new([
+            SettingsPageItem::SectionHeader("Vibe"),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "Enable Vibe",
+                description: "Enable Mistral Vibe in the chat model dropdown.",
+                field: Box::new(SettingField {
+                    organization_override: None,
+                    json_path: Some("ai.vibe.enabled"),
+                    pick: |content| content.ai.as_ref()?.vibe.as_ref()?.enabled.as_ref(),
+                    write: |content, value, _| {
+                        content
+                            .ai
+                            .get_or_insert_default()
+                            .vibe
+                            .get_or_insert_default()
+                            .enabled = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "API Key",
+                description: "Save your Mistral API key in the system credential store.",
+                field: Box::new(SettingField {
+                    organization_override: None,
+                    json_path: None,
+                    pick: |_| Some(&super::vibe_settings::VibeApiKey),
+                    write: |_, _, _| {},
+                }),
+                metadata: None,
+                files: USER,
+            }),
+        ]),
+    }
 }
 
 fn developer_page(cx: &App) -> SettingsPage {
@@ -7580,36 +7620,6 @@ fn version_control_page() -> SettingsPage {
             file_diff_section(),
             git_hunks_section(),
         ],
-    }
-}
-
-fn network_page() -> SettingsPage {
-    fn network_section() -> [SettingsPageItem; 2] {
-        [
-            SettingsPageItem::SectionHeader("Network"),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "Proxy",
-                description: "The proxy to use for network requests.",
-                field: Box::new(SettingField {
-                    organization_override: None,
-                    json_path: Some("proxy"),
-                    pick: |settings_content| settings_content.proxy.as_ref(),
-                    write: |settings_content, value, _| {
-                        settings_content.proxy = value;
-                    },
-                }),
-                metadata: Some(Box::new(SettingsFieldMetadata {
-                    placeholder: Some("socks5h://localhost:10808"),
-                    ..Default::default()
-                })),
-                files: USER,
-            }),
-        ]
-    }
-
-    SettingsPage {
-        title: "Network",
-        items: concat_sections![network_section()],
     }
 }
 

@@ -1374,22 +1374,21 @@ mod test {
 
     #[test]
     fn should_deserialize_compose_inline_volume_strings() {
-        let given_yaml = indoc::indoc! {r#"
-            name: devcontainer
-            services:
-              app:
-                image: node:18
-                volumes:
-                  - postgres-data:/var/lib/postgresql/data
-                  - /host/path:/container/path
-                  - /anonymous/volume
-                  - type: bind
-                    source: /explicit
-                    target: /mnt/explicit
-            volumes:
-              postgres-data:
-                name: devcontainer_postgres-data
-        "#};
+        let given_yaml = r#"name: devcontainer
+services:
+  app:
+    image: node:18
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - /host/path:/container/path
+      - /anonymous/volume
+      - type: bind
+        source: /explicit
+        target: /mnt/explicit
+volumes:
+  postgres-data:
+    name: devcontainer_postgres-data
+"#;
 
         let config: DockerComposeConfig = serde_yaml::from_str(given_yaml).unwrap();
         let service = config.services.get("app").unwrap();
@@ -1412,16 +1411,15 @@ mod test {
 
     #[test]
     fn should_deserialize_compose_top_level_volumes_with_null_value() {
-        let given_yaml = indoc::indoc! {r#"
-            name: devcontainer
-            services:
-              app:
-                image: node:18
-            volumes:
-              postgres-data:
-              named-vol:
-                name: custom-name
-        "#};
+        let given_yaml = r#"name: devcontainer
+services:
+  app:
+    image: node:18
+volumes:
+  postgres-data:
+  named-vol:
+    name: custom-name
+"#;
 
         let config: DockerComposeConfig = serde_yaml::from_str(given_yaml).unwrap();
         assert_eq!(config.volumes.len(), 2);

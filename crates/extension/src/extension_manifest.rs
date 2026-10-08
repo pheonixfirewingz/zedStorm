@@ -122,6 +122,8 @@ pub struct ExtensionManifest {
     pub debug_locators: BTreeMap<Arc<str>, DebugLocatorManifestEntry>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub language_model_providers: BTreeMap<Arc<str>, LanguageModelProviderManifestEntry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagram_renderers: Vec<Arc<str>>,
 }
 
 impl ExtensionManifest {
@@ -388,12 +390,13 @@ fn manifest_from_old_manifest(
         debug_adapters: Default::default(),
         debug_locators: Default::default(),
         language_model_providers: Default::default(),
+        diagram_renderers: Vec::new(),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use pretty_assertions::assert_eq;
+
     use util::rel_path::rel_path_buf;
 
     use crate::ProcessExecCapability;
@@ -422,6 +425,7 @@ mod tests {
             debug_adapters: Default::default(),
             debug_locators: Default::default(),
             language_model_providers: BTreeMap::default(),
+            diagram_renderers: Vec::new(),
         }
     }
 
@@ -523,19 +527,20 @@ mod tests {
 
     #[test]
     fn test_deserialize_opt_in_languages() {
-        let manifest: ExtensionManifest = toml::from_str(indoc::indoc! {r#"
-            id = "test-manifest"
-            name = "Test Manifest"
-            version = "0.0.1"
-            schema_version = 1
+        let manifest: ExtensionManifest = toml::from_str(
+            r#"id = "test-manifest"
+name = "Test Manifest"
+version = "0.0.1"
+schema_version = 1
 
-            [language_servers.default-server]
-            languages = ["Julia"]
+[language_servers.default-server]
+languages = ["Julia"]
 
-            [language_servers.opt-in-server]
-            languages = ["Julia", "Markdown"]
-            opt_in_languages = ["Julia"]
-        "#})
+[language_servers.opt-in-server]
+languages = ["Julia", "Markdown"]
+opt_in_languages = ["Julia"]
+"#,
+        )
         .expect("manifest should parse");
 
         let julia = LanguageName::new("Julia");
@@ -559,15 +564,12 @@ mod tests {
     #[test]
     #[cfg(target_os = "windows")]
     fn test_deserialize_manifest_with_windows_separators() {
-        use indoc::indoc;
-
-        let content = indoc! {r#"
-            id = "test-manifest"
-            name = "Test Manifest"
-            version = "0.0.1"
-            schema_version = 0
-            languages = ["foo\\bar"]
-        "#};
+        let content = r#"id = "test-manifest"
+name = "Test Manifest"
+version = "0.0.1"
+schema_version = 0
+languages = ["foo\\bar"]
+"#;
         let manifest: ExtensionManifest = toml::from_str(&content).expect("manifest should parse");
         assert_eq!(manifest.languages, vec![rel_path_buf("foo/bar")]);
     }
@@ -580,7 +582,6 @@ mod tests {
 /// format has been migrated.
 #[cfg(test)]
 mod next_schema_version_tests {
-    use pretty_assertions::assert_eq;
 
     use super::*;
 
@@ -592,15 +593,14 @@ mod next_schema_version_tests {
 
     fn parse_manifest(language_server: &str) -> Result<ExtensionManifest, toml::de::Error> {
         toml::from_str(&format!(
-            indoc::indoc! {r#"
-                id = "test-manifest"
-                name = "Test Manifest"
-                version = "0.0.1"
-                schema_version = {}
+            r#"id = "test-manifest"
+name = "Test Manifest"
+version = "0.0.1"
+schema_version = {}
 
-                [language_servers.my-server]
-                {}
-            "#},
+[language_servers.my-server]
+{}
+"#,
             NEXT_SCHEMA_VERSION, language_server
         ))
     }
@@ -612,11 +612,12 @@ mod next_schema_version_tests {
         }
 
         assert!(
-            parse_manifest(indoc::indoc! {r#"
-                languages = ["Julia", "Markdown"]
-                language_ids = { Julia = "julia" }
-                opt_in_languages = ["Julia"]
-            "#})
+            parse_manifest(
+                r#"languages = ["Julia", "Markdown"]
+language_ids = { Julia = "julia" }
+opt_in_languages = ["Julia"]
+"#
+            )
             .is_err(),
             "`languages`, `language_ids` and `opt_in_languages` must be folded \
             into a single `languages` map on schema version {NEXT_SCHEMA_VERSION}",
@@ -629,11 +630,12 @@ mod next_schema_version_tests {
             return;
         }
 
-        let manifest = parse_manifest(indoc::indoc! {r#"
-            [language_servers.my-server.languages]
-            Julia = { language_id = "julia", enabled_by_default = false }
-            Markdown = {}
-        "#})
+        let manifest = parse_manifest(
+            r#"[language_servers.my-server.languages]
+Julia = { language_id = "julia", enabled_by_default = false }
+Markdown = {}
+"#,
+        )
         .unwrap_or_else(|error| {
             panic!(
                 "language server languages must be a map keyed by language name \

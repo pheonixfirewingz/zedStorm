@@ -303,8 +303,6 @@ impl GitHostingProvider for Github {
 #[cfg(test)]
 mod tests {
     use git::repository::repo_path;
-    use indoc::indoc;
-    use pretty_assertions::assert_eq;
 
     use super::*;
 
@@ -540,16 +538,14 @@ mod tests {
         assert!(github.extract_pull_request(&remote, message).is_none());
 
         // Pull request number at end of first line
-        let message = indoc! {r#"
-            project panel: do not expand collapsed worktrees on "collapse all entries" (#10687)
+        let message = r#"project panel: do not expand collapsed worktrees on "collapse all entries" (#10687)
 
-            Fixes #10597
+Fixes #10597
 
-            Release Notes:
+Release Notes:
 
-            - Fixed "project panel: collapse all entries" expanding collapsed worktrees.
-            "#
-        };
+- Fixed "project panel: collapse all entries" expanding collapsed worktrees.
+"#;
 
         assert_eq!(
             github
@@ -561,12 +557,10 @@ mod tests {
         );
 
         // Pull request number in middle of line, which we want to ignore
-        let message = indoc! {r#"
-            Follow-up to #10687 to fix problems
+        let message = r#"Follow-up to #10687 to fix problems
 
-            See the original PR, this is a fix.
-            "#
-        };
+See the original PR, this is a fix.
+"#;
         assert_eq!(github.extract_pull_request(&remote, message), None);
     }
 

@@ -23,8 +23,6 @@ editor = { workspace = true, features = ["test-support"] }
 futures.workspace = true
 gpui = { workspace = true, features = ["bench-support"] }
 gpui_platform = { workspace = true, features = ["bench-support", "font-kit"] }
-indoc.workspace = true
-itertools.workspace = true
 language = { workspace = true, features = ["test-support"] }
 lsp = { workspace = true, features = ["test-support"] }
 markdown.workspace = true

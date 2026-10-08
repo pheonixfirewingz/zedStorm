@@ -156,6 +156,7 @@ fn update_layout_action_filter(cx: &mut App) {
 
 pub struct TitleBar {
     debugger_subscription: Option<(gpui::EntityId, Subscription)>,
+    configuration_subscription: Option<(gpui::EntityId, Subscription)>,
     debugger_state: Option<(Option<gpui::EntityId>, Option<SharedString>, bool)>,
     platform_titlebar: Entity<PlatformTitleBar>,
     project: Entity<Project>,
@@ -221,10 +222,31 @@ impl Render for TitleBar {
         let active_session = debug_panel
             .as_ref()
             .and_then(|panel| panel.read(cx).active_session());
-        let session_label = active_session
+        let configurations = debug_panel
             .as_ref()
-            .and_then(|session| session.read(cx).session(cx).read(cx).label())
-            .unwrap_or_else(|| "Run / Debug".into());
+            .map(|panel| panel.read(cx).run_configurations.clone());
+        if let Some(configurations) = &configurations {
+            if self.configuration_subscription.as_ref().map(|(id, _)| *id)
+                != Some(configurations.entity_id())
+            {
+                self.configuration_subscription = Some((
+                    configurations.entity_id(),
+                    cx.observe(configurations, |_, _, cx| cx.notify()),
+                ));
+            }
+        } else {
+            self.configuration_subscription = None;
+        }
+        let configuration_label = configurations
+            .as_ref()
+            .map(|configurations| configurations.read(cx).selected_label())
+            .unwrap_or_else(|| "Select configuration".into());
+        let can_run = configurations
+            .as_ref()
+            .is_some_and(|configurations| configurations.read(cx).can_launch(false, cx));
+        let can_debug = configurations
+            .as_ref()
+            .is_some_and(|configurations| configurations.read(cx).can_launch(true, cx));
         let can_stop = active_session
             .as_ref()
             .is_some_and(|session| !session.read(cx).session(cx).read(cx).is_terminated());
@@ -349,83 +371,136 @@ impl Render for TitleBar {
                 .gap_1()
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(
-                    PopoverMenu::new("run-debug-sessions")
+                    PopoverMenu::new("run-debug-configurations")
                         .trigger(
-                            Button::new("run-debug-session-selector", session_label)
+                            Button::new("run-debug-configuration-selector", configuration_label)
                                 .truncate(true)
-                                .width(px(160.))
+                                .width(px(if window.viewport_size().width < px(900.) {
+                                    120.
+                                } else {
+                                    180.
+                                }))
                                 .label_size(LabelSize::Small)
                                 .tab_index(0_isize)
                                 .end_icon(Icon::new(IconName::ChevronDown).size(IconSize::XSmall)),
                         )
-                        .menu(move |window, cx| {
-                            let panel = debug_panel.clone();
-                            Some(ui::ContextMenu::build(
-                                window,
-                                cx,
-                                move |mut menu, _, cx| {
-                                    if let Some(panel) = &panel {
-                                        let sessions =
-                                            panel.read(cx).sessions().collect::<Vec<_>>();
-                                        for session in sessions {
-                                            let label = session
-                                                .read(cx)
-                                                .session(cx)
-                                                .read(cx)
-                                                .label()
-                                                .unwrap_or_else(|| "Debug Session".into());
-                                            let panel = panel.clone();
-                                            menu = menu.entry(label, None, move |window, cx| {
-                                                panel.update(cx, |panel, cx| {
-                                                    panel.activate_session(
-                                                        session.clone(),
-                                                        window,
-                                                        cx,
-                                                    )
-                                                });
-                                            });
+                        .menu({
+                            let configurations = configurations.clone();
+                            let debug_panel = debug_panel.clone();
+                            move |window, cx| {
+                                let configurations = configurations.clone();
+                                let debug_panel = debug_panel.clone();
+                                Some(ui::ContextMenu::build(
+                                    window,
+                                    cx,
+                                    move |mut menu, _, cx| {
+                                        let mut has_sessions = false;
+                                        if let Some(panel) = &debug_panel {
+                                            let sessions =
+                                                panel.read(cx).sessions().collect::<Vec<_>>();
+                                            if !sessions.is_empty() {
+                                                has_sessions = true;
+                                                menu = menu.header("Running Sessions");
+                                                for session in sessions {
+                                                    let label = session
+                                                        .read(cx)
+                                                        .session(cx)
+                                                        .read(cx)
+                                                        .label()
+                                                        .unwrap_or_else(|| "Debug Session".into());
+                                                    let panel = panel.clone();
+                                                    menu = menu.entry(label, None, move |window, cx| {
+                                                        panel.update(cx, |panel, cx| {
+                                                            panel.activate_session(
+                                                                session.clone(),
+                                                                window,
+                                                                cx,
+                                                            )
+                                                        });
+                                                    });
+                                                }
+                                            }
                                         }
+
+                                        if let Some(configurations) = &configurations {
+                                            let entries = &configurations.read(cx).entries;
+                                            if !entries.is_empty() {
+                                                if has_sessions {
+                                                    menu = menu.separator();
+                                                    menu = menu.header("Configurations");
+                                                }
+                                                for entry in entries {
+                                                    let key = entry.key.clone();
+                                                    let label = entry.label();
+                                                    let configurations = configurations.clone();
+                                                    menu = menu.entry(label, None, move |_, cx| {
+                                                        configurations.update(
+                                                            cx,
+                                                            |configurations, cx| {
+                                                                configurations.select(key.clone(), cx)
+                                                            },
+                                                        )
+                                                    });
+                                                }
+                                            }
+                                        }
+
                                         menu = menu.separator();
-                                    }
-                                    menu.action(
-                                        "New Debug Session",
-                                        debugger_ui::Start.boxed_clone(),
-                                    )
-                                    .action(
-                                        "Run Configuration",
-                                        zed_actions::Spawn::modal().boxed_clone(),
-                                    )
-                                    .action(
-                                        "Edit Debug Configurations",
-                                        zed_actions::OpenProjectDebugTasks.boxed_clone(),
-                                    )
-                                },
-                            ))
+                                        menu.action(
+                                            "Edit Configurations…",
+                                            debugger_ui::run_configurations::EditConfigurations
+                                                .boxed_clone(),
+                                        )
+                                    },
+                                ))
+                            }
                         }),
                 )
                 .child(
-                    Button::new("run-configuration", "Run")
-                        .tab_index(0_isize)
-                        .start_icon(Icon::new(IconName::PlayFilled).color(Color::Success))
-                        .tooltip(Tooltip::for_action_title(
-                            "Run Configuration",
-                            &zed_actions::Spawn::modal(),
-                        ))
-                        .on_click(|_, window, cx| {
-                            window.dispatch_action(zed_actions::Spawn::modal().boxed_clone(), cx);
-                        }),
+                    Button::new(
+                        "run-configuration",
+                        if window.viewport_size().width < px(900.) {
+                            ""
+                        } else {
+                            "Run"
+                        },
+                    )
+                    .disabled(!can_run)
+                    .tab_index(0_isize)
+                    .start_icon(Icon::new(IconName::PlayFilled).color(Color::Success))
+                    .tooltip(Tooltip::for_action_title(
+                        "Run Configuration",
+                        &debugger_ui::run_configurations::RunSelected,
+                    ))
+                    .on_click(|_, window, cx| {
+                        window.dispatch_action(
+                            debugger_ui::run_configurations::RunSelected.boxed_clone(),
+                            cx,
+                        );
+                    }),
                 )
                 .child(
-                    Button::new("debug-configuration", "Debug")
-                        .tab_index(0_isize)
-                        .start_icon(Icon::new(IconName::Debug).color(Color::Success))
-                        .tooltip(Tooltip::for_action_title(
-                            "Debug Configuration",
-                            &debugger_ui::Start,
-                        ))
-                        .on_click(|_, window, cx| {
-                            window.dispatch_action(debugger_ui::Start.boxed_clone(), cx);
-                        }),
+                    Button::new(
+                        "debug-configuration",
+                        if window.viewport_size().width < px(900.) {
+                            ""
+                        } else {
+                            "Debug"
+                        },
+                    )
+                    .disabled(!can_debug)
+                    .tab_index(0_isize)
+                    .start_icon(Icon::new(IconName::Debug).color(Color::Success))
+                    .tooltip(Tooltip::for_action_title(
+                        "Debug Configuration",
+                        &debugger_ui::run_configurations::DebugSelected,
+                    ))
+                    .on_click(|_, window, cx| {
+                        window.dispatch_action(
+                            debugger_ui::run_configurations::DebugSelected.boxed_clone(),
+                            cx,
+                        );
+                    }),
                 )
                 .child(
                     IconButton::new("stop-debug-session", IconName::Power)
@@ -565,6 +640,7 @@ impl TitleBar {
 
         Self {
             debugger_subscription: None,
+            configuration_subscription: None,
             debugger_state: None,
             platform_titlebar,
             application_menu,

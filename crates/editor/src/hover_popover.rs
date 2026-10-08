@@ -1485,7 +1485,7 @@ mod tests {
     use collections::BTreeSet;
     use futures::stream::StreamExt;
     use gpui::App;
-    use indoc::indoc;
+
     use markdown::parser::MarkdownEvent;
     use project::InlayId;
     use settings::InlayHintSettingsContent;
@@ -1594,21 +1594,21 @@ mod tests {
         .await;
         let counter = Arc::new(AtomicUsize::new(0));
         // Basic hover delays and then pops without moving the mouse
-        cx.set_state(indoc! {"
-                oneˇ
-                two
-                three
-                fn test() { println!(); }
-            "});
+        cx.set_state(
+            "oneˇ
+two
+three
+fn test() { println!(); }
+",
+        );
 
         //prompt autocompletion menu
         cx.simulate_keystroke(".");
         handle_completion_request(
-            indoc! {"
-                        one.|<>
-                        two
-                        three
-                    "},
+            "one.|<>
+two
+three
+",
             vec!["first_completion", "second_completion"],
             true,
             counter.clone(),
@@ -1619,12 +1619,13 @@ mod tests {
             .await;
         assert_eq!(counter.load(atomic::Ordering::Acquire), 1); // 1 completion request
 
-        let hover_point = cx.display_point(indoc! {"
-                one.
-                two
-                three
-                fn test() { printˇln!(); }
-            "});
+        let hover_point = cx.display_point(
+            "one.
+two
+three
+fn test() { printˇln!(); }
+",
+        );
         cx.update_editor(|editor, window, cx| {
             let snapshot = editor.snapshot(window, cx);
             let anchor = snapshot
@@ -1635,12 +1636,13 @@ mod tests {
         assert!(!cx.editor(|editor, _window, _cx| editor.hover_state.visible()));
 
         // After delay, hover should be visible.
-        let symbol_range = cx.lsp_range(indoc! {"
-                one.
-                two
-                three
-                fn test() { «println!»(); }
-            "});
+        let symbol_range = cx.lsp_range(
+            "one.
+two
+three
+fn test() { «println!»(); }
+",
+        );
         let mut requests =
             cx.set_request_handler::<lsp::request::HoverRequest, _, _>(move |_, _, _| async move {
                 Ok(Some(lsp::Hover {
@@ -1683,12 +1685,13 @@ mod tests {
                 .confirm_completion(&ConfirmCompletion::default(), window, cx)
                 .unwrap()
         });
-        cx.assert_editor_state(indoc! {"
-            one.second_completionˇ
-            two
-            three
-            fn test() { println!(); }
-        "});
+        cx.assert_editor_state(
+            "one.second_completionˇ
+two
+three
+fn test() { println!(); }
+",
+        );
 
         // check that the completion menu is no longer visible and that there still has only been 1 completion request
         cx.editor(|editor, _, _| assert!(!editor.context_menu_visible()));
@@ -1714,12 +1717,13 @@ mod tests {
         });
 
         // Mouse moved with no hover response dismisses
-        let hover_point = cx.display_point(indoc! {"
-                one.second_completionˇ
-                two
-                three
-                fn teˇst() { println!(); }
-            "});
+        let hover_point = cx.display_point(
+            "one.second_completionˇ
+two
+three
+fn teˇst() { println!(); }
+",
+        );
         let mut request = cx
             .lsp
             .set_request_handler::<lsp::request::HoverRequest, _, _>(
@@ -1756,12 +1760,14 @@ mod tests {
         .await;
 
         // Basic hover delays and then pops without moving the mouse
-        cx.set_state(indoc! {"
-            fn ˇtest() { println!(); }
-        "});
-        let hover_point = cx.display_point(indoc! {"
-            fn test() { printˇln!(); }
-        "});
+        cx.set_state(
+            "fn ˇtest() { println!(); }
+",
+        );
+        let hover_point = cx.display_point(
+            "fn test() { printˇln!(); }
+",
+        );
 
         cx.update_editor(|editor, window, cx| {
             let snapshot = editor.snapshot(window, cx);
@@ -1773,9 +1779,10 @@ mod tests {
         assert!(!cx.editor(|editor, _window, _cx| editor.hover_state.visible()));
 
         // After delay, hover should be visible.
-        let symbol_range = cx.lsp_range(indoc! {"
-            fn test() { «println!»(); }
-        "});
+        let symbol_range = cx.lsp_range(
+            "fn test() { «println!»(); }
+",
+        );
         let mut requests =
             cx.set_request_handler::<lsp::request::HoverRequest, _, _>(move |_, _, _| async move {
                 Ok(Some(lsp::Hover {
@@ -1809,9 +1816,10 @@ mod tests {
         });
 
         // Mouse moved with no hover response dismisses
-        let hover_point = cx.display_point(indoc! {"
-            fn teˇst() { println!(); }
-        "});
+        let hover_point = cx.display_point(
+            "fn teˇst() { println!(); }
+",
+        );
         let mut request = cx
             .lsp
             .set_request_handler::<lsp::request::HoverRequest, _, _>(
@@ -1845,12 +1853,14 @@ mod tests {
         )
         .await;
 
-        cx.set_state(indoc! {"
-            fn ˇtest() { println!(); }
-        "});
-        let hover_point = cx.display_point(indoc! {"
-            fn test() { printˇln!(); }
-        "});
+        cx.set_state(
+            "fn ˇtest() { println!(); }
+",
+        );
+        let hover_point = cx.display_point(
+            "fn test() { printˇln!(); }
+",
+        );
 
         cx.update_editor(|editor, window, cx| {
             let snapshot = editor.snapshot(window, cx);
@@ -1904,13 +1914,15 @@ mod tests {
         .await;
 
         // Hover with keyboard has no delay
-        cx.set_state(indoc! {"
-            fˇn test() { println!(); }
-        "});
+        cx.set_state(
+            "fˇn test() { println!(); }
+",
+        );
         cx.update_editor(|editor, window, cx| hover(editor, &Hover, window, cx));
-        let symbol_range = cx.lsp_range(indoc! {"
-            «fn» test() { println!(); }
-        "});
+        let symbol_range = cx.lsp_range(
+            "«fn» test() { println!(); }
+",
+        );
 
         cx.editor(|editor, _window, _cx| {
             assert!(!editor.hover_state.visible());
@@ -1971,13 +1983,15 @@ mod tests {
         .await;
 
         // Hover with keyboard has no delay
-        cx.set_state(indoc! {"
-            fˇn test() { println!(); }
-        "});
+        cx.set_state(
+            "fˇn test() { println!(); }
+",
+        );
         cx.update_editor(|editor, window, cx| hover(editor, &Hover, window, cx));
-        let symbol_range = cx.lsp_range(indoc! {"
-            «fn» test() { println!(); }
-        "});
+        let symbol_range = cx.lsp_range(
+            "«fn» test() { println!(); }
+",
+        );
         cx.set_request_handler::<lsp::request::HoverRequest, _, _>(move |_, _, _| async move {
             Ok(Some(lsp::Hover {
                 contents: lsp::HoverContents::Array(vec![
@@ -2031,13 +2045,15 @@ mod tests {
         )
         .await;
 
-        cx.set_state(indoc! {"
-            fˇn test() { println!(); }
-        "});
+        cx.set_state(
+            "fˇn test() { println!(); }
+",
+        );
         cx.update_editor(|editor, window, cx| hover(editor, &Hover, window, cx));
-        let symbol_range = cx.lsp_range(indoc! {"
-            «fn» test() { println!(); }
-        "});
+        let symbol_range = cx.lsp_range(
+            "«fn» test() { println!(); }
+",
+        );
 
         let oversized_content = "a".repeat(MAX_HOVER_BYTES + 1234);
         cx.set_request_handler::<lsp::request::HoverRequest, _, _>(move |_, _, _| {
@@ -2381,13 +2397,15 @@ mod tests {
         .await;
 
         // Hover with keyboard has no delay
-        cx.set_state(indoc! {"
-            fˇn test() { println!(); }
-        "});
+        cx.set_state(
+            "fˇn test() { println!(); }
+",
+        );
         cx.update_editor(|editor, window, cx| hover(editor, &Hover, window, cx));
-        let symbol_range = cx.lsp_range(indoc! {"
-            «fn» test() { println!(); }
-        "});
+        let symbol_range = cx.lsp_range(
+            "«fn» test() { println!(); }
+",
+        );
 
         let code_str = "\nlet hovered_point: Vector2F // size = 8, align = 0x4\n";
         let markdown_string = format!("\n```rust\n{code_str}```");
@@ -2446,10 +2464,11 @@ mod tests {
         )
         .await;
 
-        cx.set_state(indoc! {"
-            fn fuˇnc(abc def: i32) -> u32 {
-            }
-        "});
+        cx.set_state(
+            "fn fuˇnc(abc def: i32) -> u32 {
+}
+",
+        );
 
         cx.lsp
             .set_request_handler::<lsp::request::HoverRequest, _, _>({
@@ -2457,20 +2476,17 @@ mod tests {
                     Ok(Some(lsp::Hover {
                         contents: lsp::HoverContents::Markup(lsp::MarkupContent {
                             kind: lsp::MarkupKind::Markdown,
-                            value: indoc!(
-                                r#"
-                    ### function `errands_data_read`
+                            value: r#"### function `errands_data_read`
 
-                    ---
-                    → `char *`
-                    Function to read a file into a string
+---
+→ `char *`
+Function to read a file into a string
 
-                    ---
-                    ```cpp
-                    static char *errands_data_read()
-                    ```
-                    "#
-                            )
+---
+```cpp
+static char *errands_data_read()
+```
+"#
                             .to_string(),
                         }),
                         range: None,
@@ -2518,53 +2534,57 @@ mod tests {
         )
         .await;
 
-        cx.set_state(indoc! {"
-            struct TestStruct;
+        cx.set_state(
+            "struct TestStruct;
 
-            // ==================
+// ==================
 
-            struct TestNewType<T>(T);
+struct TestNewType<T>(T);
 
-            fn main() {
-                let variableˇ = TestNewType(TestStruct);
-            }
-        "});
+fn main() {
+    let variableˇ = TestNewType(TestStruct);
+}
+",
+        );
 
-        let hint_start_offset = cx.ranges(indoc! {"
-            struct TestStruct;
+        let hint_start_offset = cx.ranges(
+            "struct TestStruct;
 
-            // ==================
+// ==================
 
-            struct TestNewType<T>(T);
+struct TestNewType<T>(T);
 
-            fn main() {
-                let variableˇ = TestNewType(TestStruct);
-            }
-        "})[0]
-            .start;
+fn main() {
+    let variableˇ = TestNewType(TestStruct);
+}
+",
+        )[0]
+        .start;
         let hint_position = cx.to_lsp(MultiBufferOffset(hint_start_offset));
-        let new_type_target_range = cx.lsp_range(indoc! {"
-            struct TestStruct;
+        let new_type_target_range = cx.lsp_range(
+            "struct TestStruct;
 
-            // ==================
+// ==================
 
-            struct «TestNewType»<T>(T);
+struct «TestNewType»<T>(T);
 
-            fn main() {
-                let variable = TestNewType(TestStruct);
-            }
-        "});
-        let struct_target_range = cx.lsp_range(indoc! {"
-            struct «TestStruct»;
+fn main() {
+    let variable = TestNewType(TestStruct);
+}
+",
+        );
+        let struct_target_range = cx.lsp_range(
+            "struct «TestStruct»;
 
-            // ==================
+// ==================
 
-            struct TestNewType<T>(T);
+struct TestNewType<T>(T);
 
-            fn main() {
-                let variable = TestNewType(TestStruct);
-            }
-        "});
+fn main() {
+    let variable = TestNewType(TestStruct);
+}
+",
+        );
 
         let uri = cx.buffer_lsp_url.clone();
         let new_type_label = "TestNewType";
@@ -2601,17 +2621,18 @@ mod tests {
         });
 
         let inlay_range = cx
-            .ranges(indoc! {"
-                struct TestStruct;
+            .ranges(
+                "struct TestStruct;
 
-                // ==================
+// ==================
 
-                struct TestNewType<T>(T);
+struct TestNewType<T>(T);
 
-                fn main() {
-                    let variable« »= TestNewType(TestStruct);
-                }
-        "})
+fn main() {
+    let variable« »= TestNewType(TestStruct);
+}
+",
+            )
             .first()
             .cloned()
             .unwrap();
@@ -2923,17 +2944,20 @@ mod tests {
         )
         .await;
 
-        cx.set_state(indoc! {"
-            fn ˇtest() { println!(); }
-        "});
+        cx.set_state(
+            "fn ˇtest() { println!(); }
+",
+        );
 
         // Trigger hover on a symbol
-        let hover_point = cx.display_point(indoc! {"
-            fn test() { printˇln!(); }
-        "});
-        let symbol_range = cx.lsp_range(indoc! {"
-            fn test() { «println!»(); }
-        "});
+        let hover_point = cx.display_point(
+            "fn test() { printˇln!(); }
+",
+        );
+        let symbol_range = cx.lsp_range(
+            "fn test() { «println!»(); }
+",
+        );
         let mut requests =
             cx.set_request_handler::<lsp::request::HoverRequest, _, _>(move |_, _, _| async move {
                 Ok(Some(lsp::Hover {
@@ -3005,17 +3029,20 @@ mod tests {
         )
         .await;
 
-        cx.set_state(indoc! {"
-            fn ˇtest() { println!(); }
-        "});
+        cx.set_state(
+            "fn ˇtest() { println!(); }
+",
+        );
 
         // Trigger hover on a symbol
-        let hover_point = cx.display_point(indoc! {"
-            fn test() { printˇln!(); }
-        "});
-        let symbol_range = cx.lsp_range(indoc! {"
-            fn test() { «println!»(); }
-        "});
+        let hover_point = cx.display_point(
+            "fn test() { printˇln!(); }
+",
+        );
+        let symbol_range = cx.lsp_range(
+            "fn test() { «println!»(); }
+",
+        );
         let mut requests =
             cx.set_request_handler::<lsp::request::HoverRequest, _, _>(move |_, _, _| async move {
                 Ok(Some(lsp::Hover {
@@ -3079,16 +3106,19 @@ mod tests {
         )
         .await;
 
-        cx.set_state(indoc! {"
-            fn ˇtest() { println!(); }
-        "});
+        cx.set_state(
+            "fn ˇtest() { println!(); }
+",
+        );
 
-        let hover_point = cx.display_point(indoc! {"
-            fn test() { printˇln!(); }
-        "});
-        let symbol_range = cx.lsp_range(indoc! {"
-            fn test() { «println!»(); }
-        "});
+        let hover_point = cx.display_point(
+            "fn test() { printˇln!(); }
+",
+        );
+        let symbol_range = cx.lsp_range(
+            "fn test() { «println!»(); }
+",
+        );
         let mut requests =
             cx.set_request_handler::<lsp::request::HoverRequest, _, _>(move |_, _, _| async move {
                 Ok(Some(lsp::Hover {
@@ -3192,16 +3222,19 @@ mod tests {
         )
         .await;
 
-        cx.set_state(indoc! {"
-            fn ˇtest() { println!(); }
-        "});
+        cx.set_state(
+            "fn ˇtest() { println!(); }
+",
+        );
 
-        let hover_point = cx.display_point(indoc! {"
-            fn test() { printˇln!(); }
-        "});
-        let symbol_range = cx.lsp_range(indoc! {"
-            fn test() { «println!»(); }
-        "});
+        let hover_point = cx.display_point(
+            "fn test() { printˇln!(); }
+",
+        );
+        let symbol_range = cx.lsp_range(
+            "fn test() { «println!»(); }
+",
+        );
         let mut requests =
             cx.set_request_handler::<lsp::request::HoverRequest, _, _>(move |_, _, _| async move {
                 Ok(Some(lsp::Hover {
@@ -3302,13 +3335,15 @@ mod tests {
         )
         .await;
 
-        cx.set_state(indoc! {"
-            fn ˇtest() { println!(); }
-        "});
+        cx.set_state(
+            "fn ˇtest() { println!(); }
+",
+        );
 
-        let hover_point = cx.display_point(indoc! {"
-            fn test() { printˇln!(); }
-        "});
+        let hover_point = cx.display_point(
+            "fn test() { printˇln!(); }
+",
+        );
 
         // Trigger hover_at — should be gated by hover_popover_enabled=false
         cx.update_editor(|editor, window, cx| {

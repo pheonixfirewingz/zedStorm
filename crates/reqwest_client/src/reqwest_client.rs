@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::sync::{LazyLock, OnceLock};
 use std::{borrow::Cow, mem, pin::Pin, task::Poll, time::Duration};
 
@@ -7,7 +6,7 @@ use gpui_util::defer;
 use anyhow::anyhow;
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::{AsyncRead, FutureExt as _, TryStreamExt as _};
-use http_client::{RedirectPolicy, RequestTimeout, Url, http};
+use http_client::{RedirectPolicy, RequestTimeout, http};
 use regex::Regex;
 use reqwest::{
     header::{HeaderMap, HeaderValue},
@@ -20,7 +19,6 @@ static REDACT_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"key=[^&]+")
 
 pub struct ReqwestClient {
     client: reqwest::Client,
-    proxy: Option<Url>,
     user_agent: Option<HeaderValue>,
     handle: tokio::runtime::Handle,
 }
@@ -28,10 +26,11 @@ pub struct ReqwestClient {
 impl ReqwestClient {
     /// Shared connection-management configuration for every client this type
     /// builds. `read_timeout` sets an idle timeout on each body read (see
-    /// [`ReqwestClient::proxy_user_agent_and_read_timeout`]); `None` leaves
+    /// [`ReqwestClient::user_agent_and_read_timeout`]); `None` leaves
     /// reads without a timeout.
     fn builder(read_timeout: Option<Duration>) -> reqwest::ClientBuilder {
         let builder = reqwest::Client::builder()
+            .no_proxy()
             .use_rustls_tls()
             .connect_timeout(Duration::from_secs(10))
             // Detect and drop connections that have silently gone bad on a
@@ -56,18 +55,11 @@ impl ReqwestClient {
             .into()
     }
 
-    pub fn user_agent(agent: &str) -> anyhow::Result<Self> {
-        let mut map = HeaderMap::new();
-        map.insert(http::header::USER_AGENT, HeaderValue::from_str(agent)?);
-        let client = Self::builder(None).default_headers(map).build()?;
-        Ok(client.into())
+    pub fn user_agent(user_agent: &str) -> anyhow::Result<Self> {
+        Self::user_agent_and_read_timeout(user_agent, None)
     }
 
-    pub fn proxy_and_user_agent(proxy: Option<Url>, user_agent: &str) -> anyhow::Result<Self> {
-        Self::proxy_user_agent_and_read_timeout(proxy, user_agent, None)
-    }
-
-    /// Like [`ReqwestClient::proxy_and_user_agent`], but also applies a
+    /// Like [`ReqwestClient::user_agent`], but also applies a
     /// per-read idle timeout. `read_timeout` fires only after that long with no
     /// bytes received on a response body and resets on every chunk, so it
     /// aborts a silently stalled stream without disturbing a healthy one that
@@ -80,8 +72,7 @@ impl ReqwestClient {
     /// pauses during system sleep, so it does not fire from a suspend alone;
     /// callers that need prompt detection of a connection killed while
     /// suspended must re-validate the stream on wake themselves.
-    pub fn proxy_user_agent_and_read_timeout(
-        proxy: Option<Url>,
+    pub fn user_agent_and_read_timeout(
         user_agent: &str,
         read_timeout: Option<Duration>,
     ) -> anyhow::Result<Self> {
@@ -89,32 +80,11 @@ impl ReqwestClient {
 
         let mut map = HeaderMap::new();
         map.insert(http::header::USER_AGENT, user_agent.clone());
-        let mut client = Self::builder(read_timeout).default_headers(map);
-        let client_has_proxy;
-
-        if let Some(proxy) = proxy.as_ref().and_then(|proxy_url| {
-            reqwest::Proxy::all(proxy_url.clone())
-                .inspect_err(|e| {
-                    log::error!(
-                        "Failed to parse proxy URL '{}': {}",
-                        proxy_url,
-                        e.source().unwrap_or(&e as &_)
-                    )
-                })
-                .ok()
-        }) {
-            // Respect NO_PROXY env var
-            client = client.proxy(proxy.no_proxy(reqwest::NoProxy::from_env()));
-            client_has_proxy = true;
-        } else {
-            client_has_proxy = false;
-        };
-
-        let client = client
+        let client = Self::builder(read_timeout)
+            .default_headers(map)
             .use_preconfigured_tls(http_client_tls::tls_config())
             .build()?;
         let mut client: ReqwestClient = client.into();
-        client.proxy = client_has_proxy.then_some(proxy).flatten();
         client.user_agent = Some(user_agent);
         Ok(client)
     }
@@ -140,7 +110,6 @@ impl From<reqwest::Client> for ReqwestClient {
         Self {
             client,
             handle,
-            proxy: None,
             user_agent: None,
         }
     }
@@ -257,10 +226,6 @@ fn redact_error(mut error: reqwest::Error) -> reqwest::Error {
 }
 
 impl http_client::HttpClient for ReqwestClient {
-    fn proxy(&self) -> Option<&Url> {
-        self.proxy.as_ref()
-    }
-
     fn user_agent(&self) -> Option<&HeaderValue> {
         self.user_agent.as_ref()
     }
@@ -327,11 +292,82 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use futures::AsyncReadExt as _;
-    use http_client::{
-        AsyncBody, HttpClient, HttpRequestExt as _, Method, Request as HttpRequest, Url,
-    };
+    use http_client::{AsyncBody, HttpClient, HttpRequestExt as _, Method, Request as HttpRequest};
 
     use crate::ReqwestClient;
+
+    #[test]
+    fn test_requests_ignore_proxy_environment() -> anyhow::Result<()> {
+        const CHILD_ENV: &str = "ZEDSTORM_TEST_DIRECT_HTTP";
+        if std::env::var_os(CHILD_ENV).is_none() {
+            // Environment changes run in a child to avoid races with other HTTP tests.
+            let mut command = std::process::Command::new(std::env::current_exe()?);
+            command
+                .args(["--exact", "tests::test_requests_ignore_proxy_environment"])
+                .env(CHILD_ENV, "1");
+            for name in [
+                "HTTP_PROXY",
+                "http_proxy",
+                "HTTPS_PROXY",
+                "https_proxy",
+                "ALL_PROXY",
+                "all_proxy",
+            ] {
+                command.env(name, "http://127.0.0.1:9");
+            }
+            command.env("NO_PROXY", "").env("no_proxy", "");
+            let output = command.output()?;
+            anyhow::ensure!(
+                output.status.success(),
+                "direct HTTP requests failed: {}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr),
+            );
+            return Ok(());
+        }
+
+        let _runtime_guard = crate::runtime().enter();
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let address = listener.local_addr()?;
+        let server = std::thread::spawn(move || -> anyhow::Result<()> {
+            for _ in 0..3 {
+                let (mut stream, _) = listener.accept()?;
+                stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+                let mut reader = BufReader::new(&mut stream);
+                let mut line = String::new();
+                loop {
+                    anyhow::ensure!(reader.read_line(&mut line)? > 0, "incomplete request");
+                    if line == "\r\n" {
+                        break;
+                    }
+                    line.clear();
+                }
+                stream.write_all(
+                    b"HTTP/1.1 200 OK\r\ncontent-length: 6\r\nconnection: close\r\n\r\ndirect",
+                )?;
+            }
+            Ok(())
+        });
+        for client in [
+            ReqwestClient::new(),
+            ReqwestClient::user_agent("test")?,
+            ReqwestClient::user_agent_and_read_timeout("test", Some(Duration::from_secs(5)))?,
+        ] {
+            let request = HttpRequest::builder()
+                .uri(format!("http://{address}"))
+                .timeout(Duration::from_secs(5))
+                .body(AsyncBody::empty())?;
+            let mut response = futures::executor::block_on(client.send(request))?;
+            assert_eq!(response.status(), http_client::StatusCode::OK);
+            let mut body = String::new();
+            futures::executor::block_on(response.body_mut().read_to_string(&mut body))?;
+            assert_eq!(body, "direct");
+        }
+        server
+            .join()
+            .map_err(|_| anyhow::anyhow!("HTTP server thread panicked"))??;
+        Ok(())
+    }
 
     /// Regression test: `StreamReader::poll_next` used to drop the reader it
     /// `take()`s whenever the reader returned `Poll::Pending`, so the next
@@ -460,45 +496,5 @@ mod tests {
         );
         drop(response);
         server.join().unwrap();
-    }
-
-    #[test]
-    fn test_proxy_uri() {
-        let client = ReqwestClient::new();
-        assert_eq!(client.proxy(), None);
-
-        let proxy = Url::parse("http://localhost:10809").unwrap();
-        let client = ReqwestClient::proxy_and_user_agent(Some(proxy.clone()), "test").unwrap();
-        assert_eq!(client.proxy(), Some(&proxy));
-
-        let proxy = Url::parse("https://localhost:10809").unwrap();
-        let client = ReqwestClient::proxy_and_user_agent(Some(proxy.clone()), "test").unwrap();
-        assert_eq!(client.proxy(), Some(&proxy));
-
-        let proxy = Url::parse("socks4://localhost:10808").unwrap();
-        let client = ReqwestClient::proxy_and_user_agent(Some(proxy.clone()), "test").unwrap();
-        assert_eq!(client.proxy(), Some(&proxy));
-
-        let proxy = Url::parse("socks4a://localhost:10808").unwrap();
-        let client = ReqwestClient::proxy_and_user_agent(Some(proxy.clone()), "test").unwrap();
-        assert_eq!(client.proxy(), Some(&proxy));
-
-        let proxy = Url::parse("socks5://localhost:10808").unwrap();
-        let client = ReqwestClient::proxy_and_user_agent(Some(proxy.clone()), "test").unwrap();
-        assert_eq!(client.proxy(), Some(&proxy));
-
-        let proxy = Url::parse("socks5h://localhost:10808").unwrap();
-        let client = ReqwestClient::proxy_and_user_agent(Some(proxy.clone()), "test").unwrap();
-        assert_eq!(client.proxy(), Some(&proxy));
-    }
-
-    #[test]
-    fn test_invalid_proxy_uri() {
-        let proxy = Url::parse("socks://127.0.0.1:20170").unwrap();
-        let client = ReqwestClient::proxy_and_user_agent(Some(proxy), "test").unwrap();
-        assert!(
-            client.proxy.is_none(),
-            "An invalid proxy URL should add no proxy to the client!"
-        )
     }
 }

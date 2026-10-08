@@ -102,7 +102,6 @@ impl GitHostingProvider for Gitiles {
 #[cfg(test)]
 mod tests {
     use git::repository::repo_path;
-    use pretty_assertions::assert_eq;
 
     use super::*;
 

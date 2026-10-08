@@ -1473,7 +1473,7 @@ mod tests {
     use crate::language;
     use gpui::{BorrowAppContext, Hsla, TestAppContext};
     use lsp::CompletionItemLabelDetails;
-    use pretty_assertions::assert_eq;
+
     use settings::SettingsStore;
     use theme::SyntaxTheme;
     use util::path;

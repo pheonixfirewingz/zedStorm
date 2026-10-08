@@ -273,7 +273,6 @@ mod tests {
     use fs::FakeFs;
     use gpui;
     use gpui::TestAppContext;
-    use indoc::indoc;
 
     #[gpui::test]
     fn test_lookup_snippets_dup_registry_snippets(cx: &mut TestAppContext) {
@@ -283,15 +282,14 @@ mod tests {
             SnippetRegistry::global(cx)
                 .register_snippets(
                     "ruby".as_ref(),
-                    indoc! {r#"
-                    {
-                      "Log to console": {
-                        "prefix": "log",
-                        "body": ["console.info(\"Hello, ${1:World}!\")", "$0"],
-                        "description": "Logs to console"
-                      }
-                    }
-            "#},
+                    r#"{
+  "Log to console": {
+    "prefix": "log",
+    "body": ["console.info(\"Hello, ${1:World}!\")", "$0"],
+    "description": "Logs to console"
+  }
+}
+"#,
                 )
                 .unwrap();
             let provider = SnippetProvider::new(fs.clone(), Default::default(), cx);

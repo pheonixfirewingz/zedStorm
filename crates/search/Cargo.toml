@@ -58,8 +58,6 @@ editor = { workspace = true, features = ["test-support"] }
 gpui = { workspace = true, features = ["test-support"] }
 language = { workspace = true, features = ["test-support"] }
 lsp.workspace = true
-pretty_assertions.workspace = true
 proto.workspace = true
-unindent.workspace = true
 util_macros.workspace = true
 workspace = { workspace = true, features = ["test-support"] }

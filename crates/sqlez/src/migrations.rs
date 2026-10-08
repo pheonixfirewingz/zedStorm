@@ -7,7 +7,7 @@
 use std::ffi::CString;
 
 use anyhow::{Context as _, Result};
-use indoc::{formatdoc, indoc};
+
 use libsqlite3_sys::sqlite3_exec;
 
 use crate::connection::Connection;
@@ -42,19 +42,20 @@ impl Connection {
     ) -> Result<()> {
         self.with_savepoint("migrating", || {
             // Setup the migrations table unconditionally
-            self.exec(indoc! {"
-                CREATE TABLE IF NOT EXISTS migrations (
-                    domain TEXT,
-                    step INTEGER,
-                    migration TEXT
-                )"})?()?;
+            self.exec(
+                "CREATE TABLE IF NOT EXISTS migrations (
+    domain TEXT,
+    step INTEGER,
+    migration TEXT
+)",
+            )?()?;
 
-            let completed_migrations =
-                self.select_bound::<&str, (String, usize, String)>(indoc! {"
-                    SELECT domain, step, migration FROM migrations
-                    WHERE domain = ?
-                    ORDER BY step
-                    "})?(domain)?;
+            let completed_migrations = self.select_bound::<&str, (String, usize, String)>(
+                "SELECT domain, step, migration FROM migrations
+WHERE domain = ?
+ORDER BY step
+",
+            )?(domain)?;
 
             let mut store_completed_migration = self
                 .exec_bound("INSERT INTO migrations (domain, step, migration) VALUES (?, ?, ?)")?;
@@ -84,14 +85,15 @@ impl Connection {
                     {
                         continue;
                     } else {
-                        anyhow::bail!(formatdoc! {"
-                            Migration changed for {domain} at step {index}
+                        anyhow::bail!(format!(
+                            "Migration changed for {domain} at step {index}
 
-                            Stored migration:
-                            {completed_migration}
+Stored migration:
+{completed_migration}
 
-                            Proposed migration:
-                            {migration}"});
+Proposed migration:
+{migration}"
+                        ));
                     }
                 }
 
@@ -152,7 +154,6 @@ impl Connection {
 
 #[cfg(test)]
 mod test {
-    use indoc::indoc;
 
     use crate::connection::Connection;
 
@@ -164,11 +165,10 @@ mod test {
         connection
             .migrate(
                 "test",
-                &[indoc! {"
-                CREATE TABLE test1 (
-                    a TEXT,
-                    b TEXT
-                )"}],
+                &["CREATE TABLE test1 (
+    a TEXT,
+    b TEXT
+)"],
                 &mut disallow_migration_change,
             )
             .unwrap();
@@ -179,7 +179,7 @@ mod test {
                 .select::<String>("SELECT (migration) FROM migrations")
                 .unwrap()()
             .unwrap()[..],
-            &[indoc! {"CREATE TABLE test1 (a TEXT, b TEXT)"}],
+            &["CREATE TABLE test1 (a TEXT, b TEXT)"],
         );
 
         // Add another step to the migration and run it again
@@ -187,16 +187,14 @@ mod test {
             .migrate(
                 "test",
                 &[
-                    indoc! {"
-                    CREATE TABLE test1 (
-                        a TEXT,
-                        b TEXT
-                    )"},
-                    indoc! {"
-                    CREATE TABLE test2 (
-                        c TEXT,
-                        d TEXT
-                    )"},
+                    "CREATE TABLE test1 (
+    a TEXT,
+    b TEXT
+)",
+                    "CREATE TABLE test2 (
+    c TEXT,
+    d TEXT
+)",
                 ],
                 &mut disallow_migration_change,
             )
@@ -209,8 +207,8 @@ mod test {
                 .unwrap()()
             .unwrap()[..],
             &[
-                indoc! {"CREATE TABLE test1 (a TEXT, b TEXT)"},
-                indoc! {"CREATE TABLE test2 (c TEXT, d TEXT)"},
+                "CREATE TABLE test1 (a TEXT, b TEXT)",
+                "CREATE TABLE test2 (c TEXT, d TEXT)",
             ],
         );
     }
@@ -220,19 +218,21 @@ mod test {
         let connection = Connection::open_memory(Some("migration_setup_works"));
 
         connection
-            .exec(indoc! {"
-                CREATE TABLE IF NOT EXISTS migrations (
-                    domain TEXT,
-                    step INTEGER,
-                    migration TEXT
-                );"})
+            .exec(
+                "CREATE TABLE IF NOT EXISTS migrations (
+    domain TEXT,
+    step INTEGER,
+    migration TEXT
+);",
+            )
             .unwrap()()
         .unwrap();
 
         let mut store_completed_migration = connection
-            .exec_bound::<(&str, usize, String)>(indoc! {"
-                INSERT INTO migrations (domain, step, migration)
-                VALUES (?, ?, ?)"})
+            .exec_bound::<(&str, usize, String)>(
+                "INSERT INTO migrations (domain, step, migration)
+VALUES (?, ?, ?)",
+            )
             .unwrap();
 
         let domain = "test_domain";
@@ -255,15 +255,15 @@ mod test {
 
         // Manually create the table for that migration with a row
         connection
-            .exec(indoc! {"
-                CREATE TABLE test_table (
-                    test_column INTEGER
-                );"})
+            .exec(
+                "CREATE TABLE test_table (
+    test_column INTEGER
+);",
+            )
             .unwrap()()
         .unwrap();
         connection
-            .exec(indoc! {"
-            INSERT INTO test_table (test_column) VALUES (1);"})
+            .exec("INSERT INTO test_table (test_column) VALUES (1);")
             .unwrap()()
         .unwrap();
 
@@ -371,16 +371,15 @@ mod test {
         connection
             .migrate(
                 "second_migration",
-                &[indoc! {"
-                    CREATE TABLE table2(b TEXT) STRICT;
+                &["CREATE TABLE table2(b TEXT) STRICT;
 
-                    INSERT INTO table2 (b)
-                    SELECT a FROM table1;
+INSERT INTO table2 (b)
+SELECT a FROM table1;
 
-                    DROP TABLE table1;
+DROP TABLE table1;
 
-                    ALTER TABLE table2 RENAME TO table1;
-                "}],
+ALTER TABLE table2 RENAME TO table1;
+"],
                 &mut disallow_migration_change,
             )
             .unwrap();

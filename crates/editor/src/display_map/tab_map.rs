@@ -1929,7 +1929,7 @@ mod tests {
         while let Some(tab_stop) = cursor.seek_forward(u32::MAX) {
             tab_stops.push(tab_stop);
         }
-        pretty_assertions::assert_eq!(tab_stops.as_slice(), all_tab_stops.as_slice(),);
+        assert_eq!(tab_stops.as_slice(), all_tab_stops.as_slice(),);
 
         assert_eq!(cursor.byte_offset(), byte_offset);
     }
@@ -1964,7 +1964,7 @@ mod tests {
         while let Some(tab_stop) = cursor.seek_forward(u32::MAX) {
             actual_tab_stops.push(tab_stop);
         }
-        pretty_assertions::assert_eq!(actual_tab_stops.as_slice(), expected_tab_stops.as_slice(),);
+        assert_eq!(actual_tab_stops.as_slice(), expected_tab_stops.as_slice(),);
 
         assert_eq!(cursor.byte_offset(), byte_offset);
     }
@@ -2041,12 +2041,10 @@ mod tests {
                 .cloned()
                 .collect();
 
-            pretty_assertions::assert_eq!(
-                found_tab_stops,
-                expected_found_tab_stops,
+            assert_eq!(
+                found_tab_stops, expected_found_tab_stops,
                 "TabStopCursor output mismatch for distance {}. Input: {:?}",
-                distance,
-                input
+                distance, input
             );
 
             let final_position = cursor.byte_offset();
@@ -2099,7 +2097,7 @@ mod tests {
             actual_tab_stops.push(tab_stop);
         }
 
-        pretty_assertions::assert_eq!(actual_tab_stops.as_slice(), expected_tab_stops.as_slice(),);
+        assert_eq!(actual_tab_stops.as_slice(), expected_tab_stops.as_slice(),);
 
         assert_eq!(cursor.byte_offset(), byte_offset);
     }
@@ -2152,12 +2150,10 @@ mod tests {
                 .cloned()
                 .collect();
 
-            pretty_assertions::assert_eq!(
-                found_tab_stops,
-                expected_found_tab_stops,
+            assert_eq!(
+                found_tab_stops, expected_found_tab_stops,
                 "TabStopCursor output mismatch for distance {}. Input: {:?}",
-                distance,
-                input
+                distance, input
             );
 
             let final_position = cursor.byte_offset();

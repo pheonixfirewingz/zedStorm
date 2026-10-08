@@ -9,7 +9,7 @@ use gpui::{
 };
 use parking_lot::Mutex;
 use postage::stream::Stream;
-use pretty_assertions::assert_eq;
+
 use rand::prelude::*;
 use rpc::{AnyProtoClient, NoopProtoClient, proto};
 use worktree::{Entry, EntryKind, Event, PathChange, Worktree, WorktreeModelHandle};
@@ -4181,7 +4181,7 @@ async fn test_repository_above_root(executor: BackgroundExecutor, cx: &mut TestA
     let repos = worktree.update(cx, |worktree, _| {
         worktree.as_local().unwrap().repositories()
     });
-    pretty_assertions::assert_eq!(repos, [Path::new(path!("/root")).into()]);
+    assert_eq!(repos, [Path::new(path!("/root")).into()]);
 
     fs.touch_path(path!("/root/subproject")).await;
     worktree
@@ -4194,7 +4194,7 @@ async fn test_repository_above_root(executor: BackgroundExecutor, cx: &mut TestA
     let repos = worktree.update(cx, |worktree, _| {
         worktree.as_local().unwrap().repositories()
     });
-    pretty_assertions::assert_eq!(repos, [Path::new(path!("/root")).into()]);
+    assert_eq!(repos, [Path::new(path!("/root")).into()]);
 }
 
 #[gpui::test]
@@ -7132,7 +7132,7 @@ async fn test_deferred_watch_repository_above_root(
     let repos = worktree.update(cx, |worktree, _| {
         worktree.as_local().unwrap().repositories()
     });
-    pretty_assertions::assert_eq!(repos, [Path::new(path!("/root")).into()]);
+    assert_eq!(repos, [Path::new(path!("/root")).into()]);
 }
 
 #[gpui::test]

@@ -63,7 +63,6 @@ collections.workspace = true
 bench_metrics = { workspace = true, optional = true }
 criterion = { workspace = true, optional = true }
 ctor.workspace = true
-derive_more = { workspace = true, features = ["add", "add_assign", "mul", "mul_assign", "not"] }
 etagere.workspace = true
 futures.workspace = true
 futures-concurrency = { workspace = true, optional = true }
@@ -74,7 +73,6 @@ image.workspace = true
 inventory.workspace = true
 itertools.workspace = true
 log.workspace = true
-num_cpus = "1.13"
 parking = "2.0.0"
 parking_lot.workspace = true
 postage = { workspace = true, features = ["blocking"], optional = true }
@@ -110,7 +108,6 @@ taffy = { workspace = true, features = [
 thiserror.workspace = true
 gpui_util.workspace = true
 hdrhistogram = { workspace = true, optional = true }
-waker-fn = "1.2.0"
 lyon = "1.0"
 pin-project = "1.1.10"
 spin.workspace = true

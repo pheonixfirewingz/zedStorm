@@ -3,7 +3,7 @@ use crate::{
     diagnostic_set::DiagnosticEntry,
     proto::{deserialize_diagnostics, serialize_diagnostics},
 };
-use pretty_assertions::assert_eq;
+
 use rpc::proto;
 use text::{Anchor, BufferId};
 

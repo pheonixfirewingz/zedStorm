@@ -57,7 +57,7 @@ use std::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
-use unindent::Unindent as _;
+use util::Unindent as _;
 use util::{path, paths::PathMatcher, rel_path::rel_path};
 
 #[gpui::test]

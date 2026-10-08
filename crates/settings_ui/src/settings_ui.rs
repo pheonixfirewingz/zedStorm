@@ -1,6 +1,7 @@
 mod components;
 mod page_data;
 pub mod pages;
+mod vibe_settings;
 
 use anyhow::{Context as _, Result};
 use cloud_api_types::OrganizationConfiguration;
@@ -515,6 +516,12 @@ fn init_renderers(cx: &mut App) {
                 )
             },
         )
+        .add_renderer::<vibe_settings::VibeApiKey>(
+            |settings_window, item, _, settings_file, _, sub_field, window, cx| {
+                let control = window.use_state(cx, vibe_settings::VibeKeyControl::new);
+                render_settings_item(settings_window, item, settings_file, control.into_any_element(), sub_field, cx)
+            },
+        )
         .add_basic_renderer::<bool>(render_toggle_button)
         .add_basic_renderer::<String>(render_text_field)
         .add_basic_renderer::<SharedString>(render_text_field)
@@ -838,7 +845,7 @@ fn open_settings_editor_with(
         cx.open_window(
             WindowOptions {
                 titlebar: Some(TitlebarOptions {
-                    title: Some("Zed — Settings".into()),
+                    title: Some("ZedStorm — Settings".into()),
                     appears_transparent: true,
                     traffic_light_position: Some(point(px(12.0), px(12.0))),
                 }),
@@ -5198,7 +5205,7 @@ pub mod test {
 
         let expected_settings_window = parse(after, window, cx);
 
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             settings_window
                 .visible_navbar_entries()
                 .map(|(_, entry)| entry)
@@ -5208,7 +5215,7 @@ pub mod test {
                 .map(|(_, entry)| entry)
                 .collect::<Vec<_>>(),
         );
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             settings_window.navbar_entries[settings_window.navbar_entry()],
             expected_settings_window.navbar_entries[expected_settings_window.navbar_entry()],
         );

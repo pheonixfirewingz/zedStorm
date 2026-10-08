@@ -2581,7 +2581,7 @@ impl EditorElement {
                         cx,
                     )
                 })
-                .collect_vec()
+                .collect::<Vec<_>>()
         })
     }
 
@@ -2637,7 +2637,7 @@ impl EditorElement {
                         cx,
                     )
                 })
-                .collect_vec()
+                .collect::<Vec<_>>()
         })
     }
 
@@ -2745,7 +2745,7 @@ impl EditorElement {
                         cx,
                     )
                 })
-                .collect_vec()
+                .collect::<Vec<_>>()
         })
     }
 
@@ -6280,7 +6280,7 @@ impl EditorElement {
                 end: point.row(),
                 color: *color,
             })
-            .collect_vec();
+            .collect::<Vec<_>>();
         scrollbar_layout.marker_quads_for_ranges(cursor_ranges, None)
     }
 
@@ -12089,13 +12089,12 @@ mod tests {
             buffer.edit(
                 [(
                     0..0,
-                    indoc::indoc! {"
-                        fn foo() {
-                            let one = 1;
-                            let two = 2;
-                            let three = 3;
-                        }
-                    "},
+                    "fn foo() {
+    let one = 1;
+    let two = 2;
+    let three = 3;
+}
+",
                 )],
                 None,
                 cx,
@@ -12630,16 +12629,15 @@ mod tests {
         let window = cx.add_window(|window, cx| {
             let buffer = cx.new(|cx| {
                 Buffer::local(
-                    indoc::indoc! {"
-                        fn test() -> int {
-                            return 2;
-                        }
+                    "fn test() -> int {
+    return 2;
+}
 
-                        fn another_test() -> int {
-                            # This is a very peculiar method that is hard to grasp.
-                            return 4;
-                        }
-                    "},
+fn another_test() -> int {
+    # This is a very peculiar method that is hard to grasp.
+    return 4;
+}
+",
                     cx,
                 )
                 .with_language(python_lang, cx)

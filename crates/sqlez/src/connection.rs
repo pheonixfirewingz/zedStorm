@@ -284,7 +284,7 @@ impl Drop for Connection {
 #[cfg(test)]
 mod test {
     use anyhow::Result;
-    use indoc::indoc;
+
     use std::{
         fs,
         sync::atomic::{AtomicUsize, Ordering},
@@ -333,10 +333,11 @@ mod test {
     fn string_round_trips() -> Result<()> {
         let connection = Connection::open_memory(Some("string_round_trips"));
         connection
-            .exec(indoc! {"
-            CREATE TABLE text (
-                text TEXT
-            );"})
+            .exec(
+                "CREATE TABLE text (
+    text TEXT
+);",
+            )
             .unwrap()()
         .unwrap();
 
@@ -359,12 +360,13 @@ mod test {
     fn tuple_round_trips() {
         let connection = Connection::open_memory(Some("tuple_round_trips"));
         connection
-            .exec(indoc! {"
-                CREATE TABLE test (
-                    text TEXT,
-                    integer INTEGER,
-                    blob BLOB
-                );"})
+            .exec(
+                "CREATE TABLE test (
+    text TEXT,
+    integer INTEGER,
+    blob BLOB
+);",
+            )
             .unwrap()()
         .unwrap();
 
@@ -393,11 +395,12 @@ mod test {
     fn bool_round_trips() {
         let connection = Connection::open_memory(Some("bool_round_trips"));
         connection
-            .exec(indoc! {"
-                CREATE TABLE bools (
-                    t INTEGER,
-                    f INTEGER
-                );"})
+            .exec(
+                "CREATE TABLE bools (
+    t INTEGER,
+    f INTEGER
+);",
+            )
             .unwrap()()
         .unwrap();
 
@@ -419,10 +422,11 @@ mod test {
     fn backup_works() {
         let connection1 = Connection::open_memory(Some("backup_works"));
         connection1
-            .exec(indoc! {"
-                CREATE TABLE blobs (
-                    data BLOB
-                );"})
+            .exec(
+                "CREATE TABLE blobs (
+    data BLOB
+);",
+            )
             .unwrap()()
         .unwrap();
         let blob = vec![0, 1, 2, 4, 8, 16, 32, 64];
@@ -450,10 +454,11 @@ mod test {
 
         let connection1 = Connection::open_memory(Some(&name));
         connection1
-            .exec(indoc! {"
-                CREATE TABLE shared (
-                    value INTEGER
-                )"})
+            .exec(
+                "CREATE TABLE shared (
+    value INTEGER
+)",
+            )
             .unwrap()()
         .unwrap();
         connection1
@@ -483,18 +488,15 @@ mod test {
         let connection = Connection::open_memory(Some("multi_step_statement_works"));
 
         connection
-            .exec(indoc! {"
-                CREATE TABLE test (
-                    col INTEGER
-                )"})
+            .exec(
+                "CREATE TABLE test (
+    col INTEGER
+)",
+            )
             .unwrap()()
         .unwrap();
 
-        connection
-            .exec(indoc! {"
-            INSERT INTO test(col) VALUES (2)"})
-            .unwrap()()
-        .unwrap();
+        connection.exec("INSERT INTO test(col) VALUES (2)").unwrap()().unwrap();
 
         assert_eq!(
             connection

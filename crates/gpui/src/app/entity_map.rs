@@ -1,7 +1,7 @@
 use crate::{App, AppContext, GpuiBorrow, VisualContext, Window, seal::Sealed};
 use anyhow::{Context as _, Result};
 use collections::FxHashSet;
-use derive_more::{Deref, DerefMut};
+
 use parking_lot::{RwLock, RwLockUpgradableReadGuard};
 use slotmap::{KeyData, SecondaryMap, SlotMap};
 use std::{
@@ -260,8 +260,22 @@ impl Drop for LeaseInner {
     }
 }
 
-#[derive(Deref, DerefMut)]
 pub(crate) struct Slot<T>(Entity<T>);
+
+impl<T> std::ops::Deref for Slot<T> {
+    type Target = Entity<T>;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> std::ops::DerefMut for Slot<T> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 /// A dynamically typed reference to a entity, which can be downcast into a `Entity<T>`.
 pub struct AnyEntity {
@@ -431,12 +445,24 @@ impl std::fmt::Debug for AnyEntity {
 
 /// A strong, well-typed reference to a struct which is managed
 /// by GPUI
-#[derive(Deref, DerefMut)]
 pub struct Entity<T> {
-    #[deref]
-    #[deref_mut]
     pub(crate) any_entity: AnyEntity,
     pub(crate) entity_type: PhantomData<fn(T) -> T>,
+}
+
+impl<T> std::ops::Deref for Entity<T> {
+    type Target = AnyEntity;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.any_entity
+    }
+}
+
+impl<T> std::ops::DerefMut for Entity<T> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.any_entity
+    }
 }
 
 impl<T> Sealed for Entity<T> {}
@@ -761,12 +787,24 @@ impl PartialOrd for AnyWeakEntity {
 }
 
 /// A weak reference to a entity of the given type.
-#[derive(Deref, DerefMut)]
 pub struct WeakEntity<T> {
-    #[deref]
-    #[deref_mut]
     any_entity: AnyWeakEntity,
     entity_type: PhantomData<fn(T) -> T>,
+}
+
+impl<T> std::ops::Deref for WeakEntity<T> {
+    type Target = AnyWeakEntity;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.any_entity
+    }
+}
+
+impl<T> std::ops::DerefMut for WeakEntity<T> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.any_entity
+    }
 }
 
 impl<T> std::fmt::Debug for WeakEntity<T> {

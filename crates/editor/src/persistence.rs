@@ -346,12 +346,18 @@ impl EditorDb {
         {
             first_selection = last_selection;
             last_selection = last_selection + count;
+            // Selection debouncing can finish before initial item serialization. Reserve
+            // the parent without replacing buffer data; deleted workspaces stay deleted.
             let query = format!(
                 r#"
+INSERT OR IGNORE INTO editors (item_id, workspace_id)
+SELECT ?1, ?2 FROM workspaces WHERE workspace_id = ?2;
+
 DELETE FROM editor_selections WHERE editor_id = ?1 AND workspace_id = ?2;
 
 INSERT OR IGNORE INTO editor_selections (editor_id, workspace_id, start, end)
-VALUES {placeholders};
+SELECT column1, column2, column3, column4 FROM (VALUES {placeholders})
+WHERE EXISTS (SELECT 1 FROM editors WHERE item_id = ?1 AND workspace_id = ?2);
 "#
             );
 
@@ -413,6 +419,97 @@ VALUES {placeholders};
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[gpui::test]
+    async fn test_selections_saved_before_editor_serialization(cx: &mut gpui::TestAppContext) {
+        let workspace_db = cx.update(|cx| WorkspaceDb::global(cx));
+        let workspace_id = workspace_db
+            .next_id()
+            .await
+            .expect("workspace allocation should succeed");
+        let editor_db = cx.update(|cx| EditorDb::global(cx));
+        let selections = vec![(2, 4), (8, 10)];
+        editor_db
+            .save_editor_selections(1234, workspace_id, selections.clone())
+            .await
+            .expect("selections should reserve an editor row before buffer serialization");
+        assert_eq!(
+            editor_db
+                .get_editor_selections(1234, workspace_id)
+                .expect("selections should load"),
+            selections
+        );
+
+        let editor = SerializedEditor {
+            abs_path: Some(PathBuf::from("testing.txt")),
+            contents: Some("saved buffer".into()),
+            ..Default::default()
+        };
+        editor_db
+            .save_serialized_editor(1234, workspace_id, editor.clone())
+            .await
+            .expect("buffer serialization should update the reserved editor row");
+        assert_eq!(
+            editor_db
+                .get_serialized_editor(1234, workspace_id)
+                .expect("editor should load"),
+            Some(editor)
+        );
+        assert_eq!(
+            editor_db
+                .get_editor_selections(1234, workspace_id)
+                .expect("selections should survive buffer serialization"),
+            selections
+        );
+        editor_db
+            .save_editor_selections(1234, workspace_id, vec![(12, 14)])
+            .await
+            .expect("saving selections should preserve serialized buffer data");
+        assert_eq!(
+            editor_db
+                .get_serialized_editor(1234, workspace_id)
+                .expect("editor should load"),
+            Some(SerializedEditor {
+                abs_path: Some(PathBuf::from("testing.txt")),
+                contents: Some("saved buffer".into()),
+                ..Default::default()
+            })
+        );
+    }
+
+    #[gpui::test]
+    async fn test_selections_do_not_recreate_deleted_workspace(cx: &mut gpui::TestAppContext) {
+        let workspace_db = cx.update(|cx| WorkspaceDb::global(cx));
+        let workspace_id = workspace_db
+            .next_id()
+            .await
+            .expect("workspace allocation should succeed");
+        let editor_db = cx.update(|cx| EditorDb::global(cx));
+        editor_db
+            .save_editor_selections(1234, workspace_id, vec![(2, 4)])
+            .await
+            .expect("initial selections should save");
+        workspace_db
+            .delete_workspace_by_id(workspace_id)
+            .await
+            .expect("workspace deletion should succeed");
+        editor_db
+            .save_editor_selections(1234, workspace_id, vec![(8, 10)])
+            .await
+            .expect("late selection writes should tolerate a deleted workspace");
+        assert!(
+            editor_db
+                .get_serialized_editor(1234, workspace_id)
+                .expect("editor lookup should succeed")
+                .is_none()
+        );
+        assert!(
+            editor_db
+                .get_editor_selections(1234, workspace_id)
+                .expect("selection lookup should succeed")
+                .is_empty()
+        );
+    }
 
     #[gpui::test]
     async fn test_save_and_get_serialized_editor(cx: &mut gpui::TestAppContext) {

@@ -128,7 +128,7 @@ mod tests {
     use gpui::TestAppContext;
     use lsp::FoldingRange;
     use multi_buffer::MultiBufferRow;
-    use pretty_assertions::assert_eq;
+
     use settings::DocumentFoldingRanges;
 
     use crate::{

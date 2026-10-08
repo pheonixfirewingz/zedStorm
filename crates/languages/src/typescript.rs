@@ -918,7 +918,7 @@ mod tests {
     use serde_json::json;
     use task::TaskTemplates;
     use theme::SyntaxTheme;
-    use unindent::Unindent;
+    use util::Unindent;
     use util::{path, rel_path::rel_path};
 
     use crate::typescript::{
@@ -1717,7 +1717,7 @@ mod tests {
             })
             .await
             .unwrap();
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             package_json_data,
             PackageJsonData {
                 jest_package_path: None,
@@ -1749,7 +1749,7 @@ mod tests {
             .into_iter()
             .map(|template| (template.label, template.cwd))
             .collect::<Vec<_>>();
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             task_templates,
             [
                 (

@@ -2,7 +2,6 @@ use std::{borrow::Cow, sync::LazyLock};
 
 use anyhow::Result;
 use collections::FxHashMap;
-use itertools::Itertools;
 use windows::Win32::{
     Foundation::{HANDLE, HGLOBAL},
     System::{
@@ -184,14 +183,14 @@ fn write_string(item: &ClipboardString) -> Result<()> {
     } else {
         Cow::Borrowed(item.text.as_str())
     };
-    let wide: Vec<u16> = text.encode_utf16().chain(Some(0)).collect_vec();
+    let wide: Vec<u16> = text.encode_utf16().chain(Some(0)).collect::<Vec<_>>();
     set_clipboard_bytes(&wide, CF_UNICODETEXT.0 as u32)?;
 
     if let Some(metadata) = item.metadata.as_ref() {
         let hash_bytes = ClipboardString::text_hash(&text).to_ne_bytes();
         set_clipboard_bytes(&hash_bytes, *CLIPBOARD_HASH_FORMAT)?;
 
-        let wide: Vec<u16> = metadata.encode_utf16().chain(Some(0)).collect_vec();
+        let wide: Vec<u16> = metadata.encode_utf16().chain(Some(0)).collect::<Vec<_>>();
         set_clipboard_bytes(&wide, *CLIPBOARD_METADATA_FORMAT)?;
     }
     Ok(())

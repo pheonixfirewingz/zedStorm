@@ -1682,7 +1682,7 @@ mod tests {
 
     use super::*;
     use fs::FakeFs;
-    use unindent::Unindent;
+    use util::Unindent;
     use util::rel_path::rel_path;
 
     #[derive(Debug, PartialEq)]
@@ -2005,7 +2005,7 @@ mod tests {
         for (range, replacement) in edits.into_iter() {
             new_json.replace_range(range, &replacement);
         }
-        pretty_assertions::assert_eq!(new_json, expected_new_json);
+        assert_eq!(new_json, expected_new_json);
     }
 
     #[gpui::test]
@@ -2719,7 +2719,7 @@ mod tests {
                 &VsCodeSettings::from_str(&vscode, VsCodeSettingsSource::VsCode).unwrap(),
             )
             .unwrap();
-        pretty_assertions::assert_eq!(new, expected);
+        assert_eq!(new, expected);
     }
 
     #[gpui::test]
@@ -2736,7 +2736,7 @@ mod tests {
                     .enabled = Some(true);
             })
             .unwrap();
-        pretty_assertions::assert_str_eq!(
+        assert_eq!(
             actual,
             r#"{
               "git": {
@@ -3138,7 +3138,7 @@ mod tests {
         ];
 
         files.sort();
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             files,
             vec![
                 &wt0_child2,

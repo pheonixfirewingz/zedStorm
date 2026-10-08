@@ -3,9 +3,9 @@
 
 # ZedStorm
 
-ZedStorm is a stripped-down, opinionated version of Zed, focused on a fast editor with integrated Codex CLI chat.
+ZedStorm is a stripped-down, opinionated version of Zed, focused on a fast editor with integrated Codex CLI and Mistral API chat.
 
-It uses a single fixed Islands Dark theme and removes Zed's account, collaboration, built-in agent, model-provider, and edit-prediction features from the application. Codex CLI handles the AI tools and authentication.
+It uses a single fixed Islands Dark theme and removes Zed's account, collaboration, built-in agent, model-provider, and edit-prediction features from the application. Codex CLI handles its tools and authentication. Mistral connects directly from Rust using an API key configured in Settings → AI → Vibe, shares Codex skill files, and uses the same chat model dropdown without requiring another CLI.
 
 Crash dumps and hang reports are kept locally; ZedStorm does not upload them or collect usage telemetry. Zed account, update, feedback, and remote-development integrations are removed. Networking remains available for editor tools and Codex CLI.
 

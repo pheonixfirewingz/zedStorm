@@ -203,10 +203,6 @@ Sandboxed terminal commands:
 - cannot reach the network unless you approve network access
 - can reach only an allowlist of macOS system (Mach) services that developer tooling needs; services that could be abused to escape the sandbox (LaunchServices and launchd, which can launch processes outside it), read the clipboard (the pasteboard), or capture audio are not reachable
 
-When network access is approved on macOS, Zed uses an HTTP/HTTPS proxy so access can be limited to approved hosts.
-Tools that do not honor proxy environment variables, such as SSH, FTP, and raw socket clients, may not work even after host-specific network access is approved.
-For networked terminal commands, prefer HTTPS URLs over SSH URLs when possible.
-
 ### Linux {#linux}
 
 On Linux, Zed uses [Bubblewrap][bubblewrap] (`bwrap`) for sandboxing.
@@ -224,10 +220,6 @@ Sandboxed terminal commands:
 - cannot write protected Git metadata
 - cannot write elsewhere unless you approve additional paths or broader write access
 - cannot reach the network unless you approve network access
-
-When host-specific network access is approved on Linux, Zed uses an HTTP/HTTPS proxy so access can be limited to approved
-hosts. Tools that do not honor proxy environment variables, such as SSH, FTP, and raw socket clients, may not work even
-after host-specific network access is approved.
 
 If Bubblewrap is unavailable or cannot create a sandbox in the current environment, Zed may run the command without the OS
 sandbox and show a warning in the tool output.

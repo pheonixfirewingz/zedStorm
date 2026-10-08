@@ -45,7 +45,6 @@ zed_actions.workspace = true
 buffer_diff.workspace = true
 lsp.workspace = true
 search = { workspace = true, features = ["test-support"] }
-pretty_assertions.workspace = true
 
 [package.metadata.cargo-shear]
 ignored = ["log"]

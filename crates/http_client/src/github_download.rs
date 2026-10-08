@@ -377,7 +377,6 @@ mod tests {
     use crate::{AsyncBody, Response};
     use futures::future::BoxFuture;
     use http::HeaderValue;
-    use url::Url;
 
     struct StaticResponseClient {
         body: Vec<u8>,
@@ -398,10 +397,6 @@ mod tests {
         }
 
         fn user_agent(&self) -> Option<&HeaderValue> {
-            None
-        }
-
-        fn proxy(&self) -> Option<&Url> {
             None
         }
     }

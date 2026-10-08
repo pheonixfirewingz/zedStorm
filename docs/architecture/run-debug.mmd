@@ -1,0 +1,24 @@
+flowchart TD
+    sources["Existing tasks.json / debug.json\nProposed shared run.json / local persistence"]
+    catalog["Project configuration catalog\nIdentity, capabilities, validation, resolution"]
+    editor["Configuration editor\nDraft, Apply, Save"]
+    header["Title-bar configuration selector\nRun / Debug / Sessions"]
+    controller["Workspace launch controller and session registry\nSelected configuration, launch snapshots, lifecycle"]
+    prerequisites["Ordered prerequisites\nBuild / setup / cancellation"]
+    run["Registered task / terminal executor"]
+    debug["Registered debugger / DAP executor"]
+    views["Run / Debug session views\nExisting terminal and debugger panes"]
+    services["Optional Services aggregation"]
+
+    sources --> catalog
+    editor -->|Persist configuration| catalog
+    catalog -->|Configurations and validation| header
+    catalog -->|Resolved launch definitions| controller
+    header -->|Launch or session action| controller
+    controller --> prerequisites
+    prerequisites -->|Success| run
+    prerequisites -->|Success| debug
+    run -->|Lifecycle events and output handle| controller
+    debug -->|Lifecycle events and view handle| controller
+    controller -->|Session selection and state| views
+    controller -->|Session list and state| services

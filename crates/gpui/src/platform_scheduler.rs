@@ -8,7 +8,7 @@ use scheduler::{
     spawn_dedicated_thread,
 };
 #[cfg(not(target_family = "wasm"))]
-use std::task::{Context, Poll};
+use std::task::{Context, Poll, Wake, Waker};
 use std::{
     any::Any,
     future::Future,
@@ -65,6 +65,20 @@ impl PlatformScheduler {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
+struct ParkerWaker(parking::Unparker);
+
+#[cfg(not(target_family = "wasm"))]
+impl Wake for ParkerWaker {
+    fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.unpark();
+    }
+}
+
 impl Scheduler for PlatformScheduler {
     #[cfg(not(target_family = "wasm"))]
     fn block(
@@ -73,13 +87,9 @@ impl Scheduler for PlatformScheduler {
         mut future: Pin<&mut dyn Future<Output = ()>>,
         timeout: Option<Duration>,
     ) -> bool {
-        use waker_fn::waker_fn;
         let deadline = timeout.map(|t| Instant::now() + t);
         let parker = parking::Parker::new();
-        let unparker = parker.unparker();
-        let waker = waker_fn(move || {
-            unparker.unpark();
-        });
+        let waker = Waker::from(Arc::new(ParkerWaker(parker.unparker())));
         let mut cx = Context::from_waker(&waker);
         if let Poll::Ready(()) = future.as_mut().poll(&mut cx) {
             return true;
@@ -216,6 +226,66 @@ mod tests {
         fn spawn_realtime(&self, _f: Box<dyn FnOnce() + Send>) {
             panic!("SmokeDispatcher does not implement realtime");
         }
+    }
+
+    #[test]
+    fn block_preserves_wakeups_before_parking() {
+        let scheduler = PlatformScheduler::new(Arc::new(SmokeDispatcher));
+        let mut first_poll = true;
+        let future = futures::future::poll_fn(|context| {
+            if first_poll {
+                first_poll = false;
+                context.waker().wake_by_ref();
+                Poll::Pending
+            } else {
+                Poll::Ready(())
+            }
+        });
+        let mut future = std::pin::pin!(future);
+        assert!(scheduler.block(None, future.as_mut(), Some(Duration::from_secs(2))));
+    }
+
+    #[test]
+    fn block_resumes_after_cross_thread_wakeup() {
+        use std::sync::{atomic::AtomicBool, mpsc};
+
+        let scheduler = PlatformScheduler::new(Arc::new(SmokeDispatcher));
+        let completed = Arc::new(AtomicBool::new(false));
+        let (sender, receiver) = mpsc::channel::<Waker>();
+        let worker = std::thread::spawn({
+            let completed = completed.clone();
+            move || {
+                let waker = receiver
+                    .recv_timeout(Duration::from_secs(2))
+                    .expect("scheduler must poll the future");
+                completed.store(true, Ordering::Release);
+                waker.wake();
+            }
+        });
+        let mut sender = Some(sender);
+        let future = futures::future::poll_fn(|context| {
+            if let Some(sender) = sender.take() {
+                sender
+                    .send(context.waker().clone())
+                    .expect("worker must receive the waker");
+                Poll::Pending
+            } else if completed.load(Ordering::Acquire) {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        });
+        let mut future = std::pin::pin!(future);
+        let resumed = scheduler.block(None, future.as_mut(), Some(Duration::from_secs(2)));
+        worker.join().expect("worker must finish successfully");
+        assert!(resumed);
+    }
+
+    #[test]
+    fn block_times_out_when_future_remains_pending() {
+        let scheduler = PlatformScheduler::new(Arc::new(SmokeDispatcher));
+        let mut future = std::pin::pin!(futures::future::pending());
+        assert!(!scheduler.block(None, future.as_mut(), Some(Duration::ZERO)));
     }
 
     #[test]

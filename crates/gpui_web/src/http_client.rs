@@ -71,10 +71,6 @@ impl HttpClient for FetchHttpClient {
         self.user_agent.as_ref()
     }
 
-    fn proxy(&self) -> Option<&http_client::Url> {
-        None
-    }
-
     fn send(
         &self,
         req: http_client::http::Request<AsyncBody>,

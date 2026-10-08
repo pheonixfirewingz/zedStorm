@@ -159,7 +159,7 @@ From the panel, you can simply type a commit message and hit the commit button, 
 
 Entries can be staged using each individual entry's checkbox. All changes can be staged using the button at the top of the panel, or {#action git::StageAll}.
 
-Entries are grouped into sections (**Tracked** and **Untracked** by default), and each section can be staged on its own without touching the others. Click the checkbox on a section header, or use {#action git::StageSection} / {#action git::UnstageSection}, which act on the section containing the selected entry. These are also available by right-clicking an entry. Neither is bound by default; bind them in your keymap under the `GitPanel` context if you use them often.
+Entries are grouped into sections (**Staged** and **Unstaged** by default), and each section can be staged on its own without touching the others. Click the checkbox on a section header, or use {#action git::StageSection} / {#action git::UnstageSection}, which act on the section containing the selected entry. These are also available by right-clicking an entry. Neither is bound by default; bind them in your keymap under the `GitPanel` context if you use them often.
 
 To open a changed file in the editor without a diff view, right-click on the file in the Git Panel and select **View File**. Use **Open Diff** ({#kb menu::Confirm}) or **Open Diff (File)** to review changes in a diff view instead.
 
@@ -171,6 +171,12 @@ Zed offers two commit textareas:
 
 1. The first one is available right at the bottom of the Git Panel. Hitting {#kb git::Commit} immediately commits all of your staged changes.
 2. The second is available via the action {#action git::ExpandCommitEditor} or via hitting the {#kb git::ExpandCommitEditor} while focused in the Git Panel commit textarea.
+
+### Generating a Commit Message with AI
+
+Stage the changes you want to commit, then click the gold sparkle icon above the commit editor or run {#action git::GenerateCommitMessage}. This uses your Codex connection to draft a message from the staged diff. Review and edit the result before committing. You can cancel generation, and a draft edited during generation will be preserved.
+
+Generation requires a local repository, staged changes, and a signed-in Codex CLI. Large diffs are automatically compacted into per-file metadata, change counts, and sampled changes. Review the generated message for details omitted from the samples. If the staged changes change during generation, retry with the updated diff.
 
 ### Undoing a Commit
 

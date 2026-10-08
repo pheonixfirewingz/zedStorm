@@ -369,7 +369,7 @@ fn to_hex_hash(object: impl Serialize) -> anyhow::Result<String> {
     let json = serde_json_lenient::to_string(&object).context("serializing the object")?;
     let mut hasher = Sha256::new();
     hasher.update(json.as_bytes());
-    Ok(hex::encode(hasher.finalize()))
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 pub fn substitute_variables_in_str(template_str: &str, context: &TaskContext) -> Option<String> {

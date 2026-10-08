@@ -93,6 +93,10 @@ impl MermaidState {
         zoom_for_offset: impl Fn(usize) -> f32,
         cx: &mut Context<Markdown>,
     ) {
+        if extension::DiagramRendererRegistry::renderer("mermaid", cx).is_none() {
+            self.clear(cx);
+            return;
+        }
         let mut new_order = Vec::new();
         let mut source_offsets = Vec::new();
         for (source_offset, mermaid_diagram) in parsed.mermaid_diagrams.iter() {
@@ -209,17 +213,21 @@ impl CachedMermaidDiagram {
         let render_image = Arc::new(OnceLock::<anyhow::Result<Arc<RenderImage>>>::new());
         let parsed_svg = Arc::new(OnceLock::<Arc<ParsedSvg>>::new());
         let svg_renderer = cx.svg_renderer();
-        let mermaid_theme = build_mermaid_theme(cx);
+        let mermaid_theme = build_mermaid_theme(cx).to_string();
+        let renderer = extension::DiagramRendererRegistry::renderer("mermaid", cx);
 
         let task = cx.spawn({
             let render_image = render_image.clone();
             let parsed_svg = parsed_svg.clone();
             let fallback_image = fallback_image.clone();
             async move |this, cx| {
+                let svg = match renderer {
+                    Some(renderer) => renderer(contents.contents.to_string(), mermaid_theme).await,
+                    None => Err(anyhow::anyhow!("Mermaid extension is not installed")),
+                };
                 let value = cx
                     .background_spawn(async move {
-                        let svg_string =
-                            mermaid_render::render_to_svg(&contents.contents, &mermaid_theme)?;
+                        let svg_string = svg?;
                         let tree = svg_renderer
                             .parse_svg(svg_string.as_bytes())
                             .map_err(|error| anyhow::anyhow!("{error}"))?;
@@ -359,50 +367,51 @@ fn mermaid_font_family(font_family: &str) -> String {
     }
 }
 
-fn build_mermaid_theme(cx: &Context<Markdown>) -> mermaid_render::MermaidTheme {
+fn build_mermaid_theme(cx: &Context<Markdown>) -> serde_json::Value {
     let colors = cx.theme().colors();
     let theme_settings = ThemeSettings::get_global(cx);
-    let is_dark = !cx.theme().appearance.is_light();
-
     let players = cx.theme().players();
-    let git_branch_colors = std::array::from_fn(|i| players.0[i % players.0.len()].cursor);
-    let git_branch_label_colors = git_branch_colors.map(mermaid_render::text_color_for_background);
-
-    mermaid_render::MermaidTheme {
-        dark_mode: is_dark,
-        font_family: mermaid_font_family(theme_settings.mermaid_font_family().as_ref()),
-        background: colors.editor_background,
-        primary_color: colors.surface_background,
-        primary_text_color: colors.text,
-        primary_border_color: colors.border,
-        secondary_color: colors.element_background,
-        tertiary_color: colors.ghost_element_hover,
-        line_color: colors.border,
-        text_color: colors.text,
-        edge_label_background: colors.editor_background,
-        cluster_background: colors.panel_background,
-        cluster_border: colors.border_variant,
-        note_background: colors.surface_background,
-        note_border: colors.border_variant,
-        actor_background: colors.element_background,
-        actor_border: colors.border,
-        activation_background: colors.ghost_element_hover,
-        activation_border: colors.border,
-        git_branch_colors,
-        git_branch_label_colors,
-        er_attr_bg_odd: colors.surface_background,
-        er_attr_bg_even: colors.element_background,
-        error_color: cx.theme().status().error,
-        warning_color: cx.theme().status().warning,
-        accent_colors: players
+    let color = |color: gpui::Hsla| serde_json::json!({ "h": color.h, "s": color.s, "l": color.l, "a": color.a });
+    let git_branch_colors: [serde_json::Value; 8] = std::array::from_fn(|index| {
+        players
             .0
-            .iter()
-            .map(|player| mermaid_render::AccentColor {
-                foreground: player.cursor,
-                background: player.background,
+            .get(index % players.0.len().max(1))
+            .map_or_else(|| color(colors.text), |player| color(player.cursor))
+    });
+    let dark_mode = !cx.theme().appearance.is_light();
+
+    serde_json::json!({
+        "dark_mode": dark_mode,
+        "font_family": mermaid_font_family(theme_settings.mermaid_font_family().as_ref()),
+        "background": color(colors.editor_background),
+        "primary_color": color(colors.surface_background),
+        "primary_text_color": color(colors.text),
+        "primary_border_color": color(colors.border),
+        "secondary_color": color(colors.element_background),
+        "tertiary_color": color(colors.ghost_element_hover),
+        "line_color": color(colors.border),
+        "text_color": color(colors.text),
+        "edge_label_background": color(colors.editor_background),
+        "cluster_background": color(colors.panel_background),
+        "cluster_border": color(colors.border_variant),
+        "note_background": color(colors.surface_background),
+        "note_border": color(colors.border_variant),
+        "actor_background": color(colors.element_background),
+        "actor_border": color(colors.border),
+        "activation_background": color(colors.ghost_element_hover),
+        "activation_border": color(colors.border),
+        "git_branch_colors": git_branch_colors,
+        "er_attr_bg_odd": color(colors.surface_background),
+        "er_attr_bg_even": color(colors.element_background),
+        "error_color": color(cx.theme().status().error),
+        "warning_color": color(cx.theme().status().warning),
+        "accent_colors": players.0.iter().map(|player| {
+            serde_json::json!({
+                "foreground": color(player.cursor),
+                "background": color(player.background),
             })
-            .collect(),
-    }
+        }).collect::<Vec<_>>(),
+    })
 }
 
 fn parse_mermaid_info(info: &str) -> Option<u32> {
@@ -984,6 +993,18 @@ mod tests {
             if !cx.has_global::<theme::GlobalTheme>() {
                 theme_settings::init(theme::LoadThemes::JustBase, cx);
             }
+            extension::DiagramRendererRegistry::register(
+                "test-mermaid".into(),
+                "mermaid".into(),
+                Arc::new(|_, theme| {
+                    Box::pin(async move {
+                        let theme: serde_json::Value = serde_json::from_str(&theme)?;
+                        anyhow::ensure!(theme["font_family"].is_string(), "missing font family");
+                        Ok(r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="red"/></svg>"#.to_string())
+                    })
+                }),
+                cx,
+            );
         });
     }
 
@@ -1762,6 +1783,95 @@ mod tests {
             .join("\n");
 
         assert!(!text.contains("graph TD;"));
+    }
+
+    #[gpui::test]
+    fn test_mermaid_extension_install_reload_and_uninstall(cx: &mut TestAppContext) {
+        struct TestWindow;
+
+        impl Render for TestWindow {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                div()
+            }
+        }
+
+        ensure_theme_initialized(cx);
+        cx.update(|cx| extension::DiagramRendererRegistry::unregister("test-mermaid", cx));
+        let (_, cx) = cx.add_window_view(|_, _| TestWindow);
+        let markdown = cx.new(|cx| {
+            Markdown::new_with_options(
+                "```mermaid\ngraph TD;\n```".into(),
+                None,
+                None,
+                MarkdownOptions {
+                    render_mermaid_diagrams: true,
+                    ..Default::default()
+                },
+                cx,
+            )
+        });
+        cx.run_until_parked();
+
+        let source_is_visible = |rendered: crate::RenderedText| {
+            rendered
+                .lines
+                .iter()
+                .any(|line| line.layout.wrapped_text().contains("graph TD;"))
+        };
+        assert!(source_is_visible(draw_markdown_element(
+            markdown.clone(),
+            cx
+        )));
+
+        cx.update(|_, cx| {
+            extension::DiagramRendererRegistry::register(
+                "test-mermaid".into(),
+                "mermaid".into(),
+                Arc::new(|_, _| Box::pin(async {
+                    Ok(r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"></svg>"#.to_string())
+                })),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        assert!(!source_is_visible(draw_markdown_element(
+            markdown.clone(),
+            cx
+        )));
+        markdown.read_with(cx, |markdown, _| {
+            assert_eq!(markdown.mermaid_state.cache.len(), 1);
+            assert!(
+                markdown
+                    .mermaid_state
+                    .cache
+                    .values()
+                    .all(|cached| { cached.render_image.get().is_some_and(Result::is_ok) })
+            );
+        });
+
+        cx.update(|_, cx| {
+            extension::DiagramRendererRegistry::register(
+                "test-mermaid".into(),
+                "mermaid".into(),
+                Arc::new(|_, _| Box::pin(async { Err(anyhow::anyhow!("Invalid diagram")) })),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        markdown.read_with(cx, |markdown, _| {
+            assert_eq!(markdown.mermaid_state.cache.len(), 1);
+            assert!(
+                markdown
+                    .mermaid_state
+                    .cache
+                    .values()
+                    .all(|cached| { cached.render_image.get().is_some_and(Result::is_err) })
+            );
+        });
+
+        cx.update(|_, cx| extension::DiagramRendererRegistry::unregister("test-mermaid", cx));
+        cx.run_until_parked();
+        assert!(source_is_visible(draw_markdown_element(markdown, cx)));
     }
 
     #[gpui::test]

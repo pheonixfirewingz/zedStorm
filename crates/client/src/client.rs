@@ -13,12 +13,10 @@ use clock::SystemClock;
 use futures::StreamExt;
 use futures::{FutureExt, Stream, TryFutureExt as _, future::BoxFuture, stream::BoxStream};
 use gpui::{App, AsyncApp, Entity, Global, Task, WeakEntity, actions};
-use http_client::{HttpClientWithUrl, read_proxy_from_env};
+use http_client::HttpClientWithUrl;
 use parking_lot::{Mutex, RwLock};
 use postage::watch;
 use rpc::proto::{AnyTypedEnvelope, EnvelopedMessage, PeerId, RequestMessage};
-use serde::Deserialize;
-use settings::{RegisterSetting, Settings};
 use std::{
     any::TypeId,
     future::Future,
@@ -32,7 +30,6 @@ use std::{
 };
 use telemetry::Telemetry;
 use thiserror::Error;
-use url::Url;
 use util::{ConnectionResult, ResultExt};
 
 pub use rpc::*;
@@ -56,40 +53,6 @@ actions!(
         Reconnect
     ]
 );
-
-#[derive(Deserialize, Default, RegisterSetting)]
-pub struct ProxySettings {
-    pub proxy: Option<String>,
-}
-
-impl ProxySettings {
-    pub fn proxy_url(&self) -> Option<Url> {
-        self.proxy
-            .as_deref()
-            .map(str::trim)
-            .filter(|input| !input.is_empty())
-            .and_then(|input| {
-                input
-                    .parse::<Url>()
-                    .inspect_err(|e| log::error!("Error parsing proxy settings: {}", e))
-                    .ok()
-            })
-            .or_else(read_proxy_from_env)
-    }
-}
-
-impl Settings for ProxySettings {
-    fn from_settings(content: &settings::SettingsContent) -> Self {
-        Self {
-            proxy: content
-                .proxy
-                .as_deref()
-                .map(str::trim)
-                .filter(|proxy| !proxy.is_empty())
-                .map(ToOwned::to_owned),
-        }
-    }
-}
 
 pub fn init(_client: &Arc<Client>, _cx: &mut App) {}
 
@@ -343,11 +306,7 @@ impl Client {
 
     pub fn production(cx: &mut App) -> Arc<Self> {
         let clock = Arc::new(clock::RealSystemClock);
-        let http = Arc::new(HttpClientWithUrl::new_url(
-            cx.http_client(),
-            "https://zed.dev",
-            cx.http_client().proxy().cloned(),
-        ));
+        let http = Arc::new(HttpClientWithUrl::new(cx.http_client(), "https://zed.dev"));
         Self::new(clock, http, cx)
     }
 
@@ -939,20 +898,7 @@ mod tests {
     use gpui::{AppContext as _, TestAppContext};
     use http_client::FakeHttpClient;
     use proto::TypedEnvelope;
-    use settings::{SettingsContent, SettingsStore};
-
-    #[test]
-    fn test_proxy_settings_trims_and_ignores_empty_proxy() {
-        let mut content = SettingsContent::default();
-        content.proxy = Some("   ".to_owned());
-        assert_eq!(ProxySettings::from_settings(&content).proxy, None);
-
-        content.proxy = Some("http://127.0.0.1:10809".to_owned());
-        assert_eq!(
-            ProxySettings::from_settings(&content).proxy.as_deref(),
-            Some("http://127.0.0.1:10809")
-        );
-    }
+    use settings::SettingsStore;
 
     #[gpui::test]
     async fn test_disabled_sign_in_rejects_all_authentication_routes(cx: &mut TestAppContext) {

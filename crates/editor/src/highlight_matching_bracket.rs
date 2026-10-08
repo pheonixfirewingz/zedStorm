@@ -88,7 +88,7 @@ impl Editor {
 mod tests {
     use super::*;
     use crate::{editor_tests::init_test, test::editor_lsp_test_context::EditorLspTestContext};
-    use indoc::indoc;
+
     use language::{BracketPair, BracketPairConfig, Language, LanguageConfig, LanguageMatcher};
 
     #[gpui::test]
@@ -127,10 +127,11 @@ mod tests {
                 },
                 Some(tree_sitter_rust::LANGUAGE.into()),
             )
-            .with_brackets_query(indoc! {r#"
-                ("{" @open "}" @close)
-                ("(" @open ")" @close)
-                "#})
+            .with_brackets_query(
+                r#"("{" @open "}" @close)
+("(" @open ")" @close)
+"#,
+            )
             .unwrap(),
             Default::default(),
             cx,
@@ -138,81 +139,81 @@ mod tests {
         .await;
 
         // positioning cursor inside bracket highlights both
-        cx.set_state(indoc! {r#"
-            pub fn test("Test ˇargument") {
-                another_test(1, 2, 3);
-            }
-        "#});
+        cx.set_state(
+            r#"pub fn test("Test ˇargument") {
+    another_test(1, 2, 3);
+}
+"#,
+        );
         cx.run_until_parked();
         cx.assert_editor_text_highlights(
             HighlightKey::MatchingBracket,
-            indoc! {r#"
-            pub fn test«(»"Test argument"«)» {
-                another_test(1, 2, 3);
-            }
-        "#},
+            r#"pub fn test«(»"Test argument"«)» {
+    another_test(1, 2, 3);
+}
+"#,
         );
 
-        cx.set_state(indoc! {r#"
-            pub fn test("Test argument") {
-                another_test(1, ˇ2, 3);
-            }
-        "#});
+        cx.set_state(
+            r#"pub fn test("Test argument") {
+    another_test(1, ˇ2, 3);
+}
+"#,
+        );
         cx.run_until_parked();
         cx.assert_editor_text_highlights(
             HighlightKey::MatchingBracket,
-            indoc! {r#"
-            pub fn test("Test argument") {
-                another_test«(»1, 2, 3«)»;
-            }
-        "#},
+            r#"pub fn test("Test argument") {
+    another_test«(»1, 2, 3«)»;
+}
+"#,
         );
 
-        cx.set_state(indoc! {r#"
-            pub fn test("Test argument") {
-                anotherˇ_test(1, 2, 3);
-            }
-        "#});
+        cx.set_state(
+            r#"pub fn test("Test argument") {
+    anotherˇ_test(1, 2, 3);
+}
+"#,
+        );
         cx.run_until_parked();
         cx.assert_editor_text_highlights(
             HighlightKey::MatchingBracket,
-            indoc! {r#"
-            pub fn test("Test argument") «{»
-                another_test(1, 2, 3);
-            «}»
-        "#},
+            r#"pub fn test("Test argument") «{»
+    another_test(1, 2, 3);
+«}»
+"#,
         );
 
         // positioning outside of brackets removes highlight
-        cx.set_state(indoc! {r#"
-            pub fˇn test("Test argument") {
-                another_test(1, 2, 3);
-            }
-        "#});
+        cx.set_state(
+            r#"pub fˇn test("Test argument") {
+    another_test(1, 2, 3);
+}
+"#,
+        );
         cx.run_until_parked();
         cx.assert_editor_text_highlights(
             HighlightKey::MatchingBracket,
-            indoc! {r#"
-            pub fn test("Test argument") {
-                another_test(1, 2, 3);
-            }
-        "#},
+            r#"pub fn test("Test argument") {
+    another_test(1, 2, 3);
+}
+"#,
         );
 
         // non empty selection dismisses highlight
-        cx.set_state(indoc! {r#"
-            pub fn test("Te«st argˇ»ument") {
-                another_test(1, 2, 3);
-            }
-        "#});
+        cx.set_state(
+            r#"pub fn test("Te«st argˇ»ument") {
+    another_test(1, 2, 3);
+}
+"#,
+        );
         cx.run_until_parked();
         cx.assert_editor_text_highlights(
             HighlightKey::MatchingBracket,
-            indoc! {r#"
-            pub fn test«("Test argument") {
-                another_test(1, 2, 3);
-            }
-        "#},
+            r#"pub fn test«("Test argument") {
+    another_test(1, 2, 3);
+}
+"#,
         );
     }
 }

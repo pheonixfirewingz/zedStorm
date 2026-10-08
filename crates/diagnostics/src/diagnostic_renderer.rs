@@ -341,7 +341,6 @@ impl DiagnosticBlock {
 mod tests {
     use super::*;
     use language::DiagnosticMessage;
-    use pretty_assertions::assert_eq;
 
     #[test]
     fn test_adapter_markdown_keeps_source_and_code_inline() {

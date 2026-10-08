@@ -327,8 +327,6 @@ fn parse_vim_settings(content: &str, settings: &mut ModelineSettings) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use indoc::indoc;
-    use pretty_assertions::assert_eq;
 
     #[test]
     fn test_no_modeline() {
@@ -366,12 +364,11 @@ mod tests {
 
     #[test]
     fn test_emacs_last_line_parsing() {
-        let content = indoc! {r#"
-        # Local Variables:
-        # compile-command: "cc foo.c -Dfoo=bar -Dhack=whatever \
-        #   -Dmumble=blaah"
-        # End:
-        "#}
+        let content = r#"# Local Variables:
+# compile-command: "cc foo.c -Dfoo=bar -Dhack=whatever \
+#   -Dmumble=blaah"
+# End:
+"#
         .lines()
         .collect::<Vec<_>>();
         let settings = parse_modeline(&[], &content).unwrap();
@@ -386,15 +383,14 @@ mod tests {
             }
         );
 
-        let content = indoc! {"
-            foo
-            /* Local Variables: */
-            /* eval: (font-lock-mode -1) */
-            /* mode: old-c */
-            /* mode: c */
-            /* End: */
-            /* mode: ignored */
-        "}
+        let content = "foo
+/* Local Variables: */
+/* eval: (font-lock-mode -1) */
+/* mode: old-c */
+/* mode: c */
+/* End: */
+/* mode: ignored */
+"
         .lines()
         .collect::<Vec<_>>();
         let settings = parse_modeline(&[], &content).unwrap();

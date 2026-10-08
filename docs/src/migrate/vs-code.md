@@ -158,7 +158,6 @@ The following VS Code settings are automatically imported when you use **Import 
 
 | VS Code Setting            | Zed Setting                                                  |
 | -------------------------- | ------------------------------------------------------------ |
-| `http.proxy`               | `proxy`                                                      |
 | `npm.packageManager`       | `node.npm_path`                                              |
 | `telemetry.telemetryLevel` | `telemetry.metrics`, `telemetry.diagnostics`                 |
 | `outline.icons`            | `outline_panel.file_icons`, `outline_panel.folder_indicator` |

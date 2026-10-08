@@ -8390,7 +8390,7 @@ impl Editor {
             .all_adjusted(&self.display_snapshot(cx))
             .into_iter()
             .map(|selection| selection.range())
-            .collect_vec();
+            .collect::<Vec<_>>();
 
         Some(self.perform_format(
             project,
@@ -9606,7 +9606,7 @@ impl Editor {
             ranges
                 .iter()
                 .map(|range| range.start.to_point(&snapshot)..range.end.to_point(&snapshot))
-                .collect_vec()
+                .collect::<Vec<_>>()
         } else {
             vec![]
         }

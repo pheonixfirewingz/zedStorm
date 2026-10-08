@@ -53,6 +53,39 @@ pub use self::shell::{
     get_default_system_shell, get_default_system_shell_preferring_bash, get_system_shell,
 };
 
+pub fn unindent(input: &str) -> String {
+    let input = input
+        .strip_prefix('\r')
+        .filter(|remaining| remaining.starts_with('\n'))
+        .unwrap_or(input);
+    let mut lines = input.split('\n');
+    let first_line = lines.next().unwrap_or("");
+    let indentation = lines
+        .clone()
+        .filter_map(|line| line.bytes().position(|byte| byte != b' ' && byte != b'\t'))
+        .min()
+        .unwrap_or(0);
+    let mut result = String::with_capacity(input.len());
+    result.push_str(first_line);
+    for (index, line) in lines.enumerate() {
+        if index > 0 || !input.starts_with('\n') {
+            result.push('\n');
+        }
+        result.push_str(line.get(indentation..).unwrap_or(""));
+    }
+    result
+}
+
+pub trait Unindent {
+    fn unindent(&self) -> String;
+}
+
+impl Unindent for str {
+    fn unindent(&self) -> String {
+        unindent(self)
+    }
+}
+
 pub fn truncate(s: &str, max_chars: usize) -> &str {
     match s.char_indices().nth(max_chars) {
         None => s,
@@ -706,7 +739,9 @@ pub fn dev_repo_root() -> Option<&'static std::path::Path> {
 /// detail). Hidden from the public API.
 #[doc(hidden)]
 pub mod __rust_embed {
-    pub use rust_embed::{EmbeddedFile, Filenames, Metadata, RustEmbed, flate, utils};
+    pub use rust_embed::{
+        EmbeddedCompressedFile, EmbeddedFile, Filenames, Metadata, RustEmbed, flate, utils,
+    };
 }
 
 /// Backs the dev arm of [`fs_embed!`]'s `iter`: every file under the root-relative
@@ -809,6 +844,12 @@ macro_rules! __fs_embed {
         // the two arms are interchangeable at call sites.
         #[cfg(debug_assertions)]
         impl $name {
+            pub fn compressed(
+                _file_path: &str,
+            ) -> ::core::option::Option<$crate::__rust_embed::EmbeddedCompressedFile> {
+                ::core::option::Option::None
+            }
+
             pub fn get(
                 file_path: &str,
             ) -> ::core::option::Option<$crate::__rust_embed::EmbeddedFile> {
@@ -833,6 +874,12 @@ macro_rules! __fs_embed {
 
         #[cfg(debug_assertions)]
         impl $crate::__rust_embed::RustEmbed for $name {
+            fn compressed(
+                file_path: &str,
+            ) -> ::core::option::Option<$crate::__rust_embed::EmbeddedCompressedFile> {
+                <$name>::compressed(file_path)
+            }
+
             fn get(
                 file_path: &str,
             ) -> ::core::option::Option<$crate::__rust_embed::EmbeddedFile> {
@@ -1046,6 +1093,23 @@ impl<O> From<anyhow::Result<O>> for ConnectionResult<O> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unindent_preserves_fixture_whitespace() {
+        for (input, expected) in [
+            ("", ""),
+            ("first", "first"),
+            ("\n    first\n      second\n    ", "first\n  second\n"),
+            ("inline\n    next\n", "inline\nnext\n"),
+            ("\n\tfirst\n\t\tsecond", "first\n\tsecond"),
+            ("\n    café\n      🦀\n", "café\n  🦀\n"),
+            ("\r\n    first\r\n    second\r\n", "first\r\nsecond\r\n"),
+            ("\n  \n    ", "  \n    "),
+        ] {
+            assert_eq!(unindent(input), expected);
+            assert_eq!(input.unindent(), expected);
+        }
+    }
 
     #[test]
     fn test_fs_embed_iter_and_get() {

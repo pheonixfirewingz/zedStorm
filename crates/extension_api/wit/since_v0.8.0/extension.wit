@@ -19,6 +19,9 @@ world extension {
     /// Initializes the extension.
     export init-extension: func();
 
+    /// Renders a diagram as SVG. Theme settings are supplied as JSON.
+    export render-diagram: func(renderer-id: string, source: string, theme: string) -> result<string, string>;
+
     /// The type of a downloaded file.
     enum downloaded-file-type {
         /// A gzipped file (`.gz`).

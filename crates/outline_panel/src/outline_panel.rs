@@ -5988,12 +5988,11 @@ impl GenerationState {
 #[cfg(test)]
 mod tests {
     use buffer_diff::BufferDiff;
-    use db::indoc;
     use editor::{HiddenUnstagedDiffHunkRenderer, PathKey};
     use futures::{FutureExt as _, StreamExt as _, future::poll_fn, task::Poll};
     use gpui::{MouseUpEvent, TestAppContext, UpdateGlobal, VisualTestContext, WindowHandle};
     use language::{self, FakeLspAdapter, markdown_lang, rust_lang};
-    use pretty_assertions::assert_eq;
+
     use project::FakeFs;
     use search::{
         buffer_search,
@@ -6901,30 +6900,24 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  crates/ide/
-                    src/
-                      interpret.rs  <==== selected
-                      ~~join_lines.rs~~
-                    asdsads"
-            ),
+            "root/
+  crates/ide/
+    src/
+      interpret.rs  <==== selected
+      ~~join_lines.rs~~
+    asdsads",
             cx,
         );
         set_buffer_order(&editor, &[&added, &deleted, &modified], cx);
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  crates/ide/
-                    asdsads
-                    src/
-                      ~~join_lines.rs~~
-                      interpret.rs  <==== selected"
-            ),
+            "root/
+  crates/ide/
+    asdsads
+    src/
+      ~~join_lines.rs~~
+      interpret.rs  <==== selected",
             cx,
         );
     }
@@ -6998,19 +6991,16 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                one/
-                  é/子/
-                    ~~second.txt~~
-                two/
-                  other.txt
-                external: untitled
-                one/
-                  é/子/  <==== selected
-                    ~~first.txt~~
-                  é"
-            ),
+            "one/
+  é/子/
+    ~~second.txt~~
+two/
+  other.txt
+external: untitled
+one/
+  é/子/  <==== selected
+    ~~first.txt~~
+  é",
             cx,
         );
         outline_panel.update_in(cx, |panel, window, cx| {
@@ -7020,17 +7010,14 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                one/
-                  é/子/
-                two/
-                  other.txt
-                external: untitled
-                one/
-                  é/子/  <==== selected
-                  é"
-            ),
+            "one/
+  é/子/
+two/
+  other.txt
+external: untitled
+one/
+  é/子/  <==== selected
+  é",
             cx,
         );
         outline_panel.update_in(cx, |panel, window, cx| {
@@ -7040,19 +7027,16 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                one/
-                  é/子/
-                    ~~second.txt~~
-                two/
-                  other.txt
-                external: untitled
-                one/
-                  é/子/  <==== selected
-                    ~~first.txt~~
-                  é"
-            ),
+            "one/
+  é/子/
+    ~~second.txt~~
+two/
+  other.txt
+external: untitled
+one/
+  é/子/  <==== selected
+    ~~first.txt~~
+  é",
             cx,
         );
         update_outline_panel_settings(cx, |settings| {
@@ -7070,21 +7054,18 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                one/
-                  é/
-                    子/
-                      ~~second.txt~~
-                two/
-                  other.txt
-                external: untitled
-                one/
-                  é/
-                    子/  <==== selected
-                      ~~first.txt~~
-                  é"
-            ),
+            "one/
+  é/
+    子/
+      ~~second.txt~~
+two/
+  other.txt
+external: untitled
+one/
+  é/
+    子/  <==== selected
+      ~~first.txt~~
+  é",
             cx,
         );
     }
@@ -7135,28 +7116,22 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  dir/sub/  <==== selected
-                    b.txt
-                    a.txt
-                  z.txt"
-            ),
+            "root/
+  dir/sub/  <==== selected
+    b.txt
+    a.txt
+  z.txt",
             cx,
         );
         set_buffer_order(&editor, &[&buffer_a, &buffer_b, &buffer_z], cx);
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  dir/sub/  <==== selected
-                    a.txt
-                    b.txt
-                  z.txt"
-            ),
+            "root/
+  dir/sub/  <==== selected
+    a.txt
+    b.txt
+  z.txt",
             cx,
         );
         outline_panel.update_in(cx, |panel, window, cx| {
@@ -7165,14 +7140,11 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  dir/sub/
-                    a.txt  <==== selected
-                    b.txt
-                  z.txt"
-            ),
+            "root/
+  dir/sub/
+    a.txt  <==== selected
+    b.txt
+  z.txt",
             cx,
         );
         select_directory(&outline_panel, worktree_id, rel_path("dir/sub"), cx);
@@ -7181,14 +7153,11 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  a.txt
-                  dir/sub/  <==== selected
-                    b.txt
-                  z.txt"
-            ),
+            "root/
+  a.txt
+  dir/sub/  <==== selected
+    b.txt
+  z.txt",
             cx,
         );
         rename_buffer(&project, &buffer_a, rel_path("dir/sub/a.txt"), cx).await;
@@ -7203,13 +7172,10 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  dir/sub/  <==== selected
-                    b.txt
-                  z.txt"
-            ),
+            "root/
+  dir/sub/  <==== selected
+    b.txt
+  z.txt",
             cx,
         );
     }
@@ -7245,12 +7211,9 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  a.txt  <==== selected
-                  z.txt"
-            ),
+            "root/
+  a.txt  <==== selected
+  z.txt",
             cx,
         );
 
@@ -7274,12 +7237,9 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  b.txt  <==== selected
-                  z.txt"
-            ),
+            "root/
+  b.txt  <==== selected
+  z.txt",
             cx,
         );
         outline_panel.update_in(cx, |panel, window, cx| {
@@ -7301,12 +7261,9 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  b.txt
-                  z.txt  <==== selected"
-            ),
+            "root/
+  b.txt
+  z.txt  <==== selected",
             cx,
         );
 
@@ -7317,12 +7274,9 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  b.txt  <==== selected
-                  z.txt"
-            ),
+            "root/
+  b.txt  <==== selected
+  z.txt",
             cx,
         );
         fs.remove_file(
@@ -7335,12 +7289,9 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  ~~b.txt~~  <==== selected
-                  z.txt"
-            ),
+            "root/
+  ~~b.txt~~  <==== selected
+  z.txt",
             cx,
         );
         outline_panel.read_with(cx, |panel, _| match &panel.selected_entry {
@@ -7389,13 +7340,10 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  d0/
-                    file.txt
-                  z.txt  <==== selected"
-            ),
+            "root/
+  d0/
+    file.txt
+  z.txt  <==== selected",
             cx,
         );
         assert_directory_paths(&outline_panel, worktree_id, &["", "d0"], &[], cx);
@@ -7411,12 +7359,9 @@ two/  <==== selected
                 &outline_panel,
                 &project,
                 &format!(
-                    indoc!(
-                        "
-                        root/
-                          {previous}/
-                          z.txt  <==== selected"
-                    ),
+                    "root/
+  {previous}/
+  z.txt  <==== selected",
                     previous = previous,
                 ),
                 cx,
@@ -7465,13 +7410,10 @@ two/  <==== selected
                 &outline_panel,
                 &project,
                 &format!(
-                    indoc!(
-                        "
-                        root/
-                          {next}/
-                            file.txt
-                          z.txt  <==== selected"
-                    ),
+                    "root/
+  {next}/
+    file.txt
+  z.txt  <==== selected",
                     next = next,
                 ),
                 cx,
@@ -7526,26 +7468,20 @@ two/  <==== selected
             });
             wait_for_outline_tasks(&outline_panel, cx).await;
             let expanded_tree = if auto_fold_dirs {
-                indoc!(
-                    "
-                    root/
-                      ignored/
-                        a/deep/  <==== selected
-                          open.txt
-                        b/
-                          open.txt"
-                )
+                "root/
+  ignored/
+    a/deep/  <==== selected
+      open.txt
+    b/
+      open.txt"
             } else {
-                indoc!(
-                    "
-                    root/
-                      ignored/
-                        a/
-                          deep/  <==== selected
-                            open.txt
-                        b/
-                          open.txt"
-                )
+                "root/
+  ignored/
+    a/
+      deep/  <==== selected
+        open.txt
+    b/
+      open.txt"
             };
             select_directory(&outline_panel, worktree_id, rel_path("ignored/a/deep"), cx);
             for keyboard in [true, false] {
@@ -7589,26 +7525,20 @@ two/  <==== selected
             select_in_buffer(&editor, buffer_a_id, cx);
             wait_for_outline_tasks(&outline_panel, cx).await;
             let revealed_tree = if auto_fold_dirs {
-                indoc!(
-                    "
-                    root/
-                      ignored/
-                        a/deep/
-                          open.txt  <==== selected
-                        b/
-                          open.txt"
-                )
+                "root/
+  ignored/
+    a/deep/
+      open.txt  <==== selected
+    b/
+      open.txt"
             } else {
-                indoc!(
-                    "
-                    root/
-                      ignored/
-                        a/
-                          deep/
-                            open.txt  <==== selected
-                        b/
-                          open.txt"
-                )
+                "root/
+  ignored/
+    a/
+      deep/
+        open.txt  <==== selected
+    b/
+      open.txt"
             };
             assert_tree(&outline_panel, &project, revealed_tree, cx);
             assert_eq!(
@@ -7707,13 +7637,10 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  a/b/  <==== selected
-                    file.txt
-                  z.txt"
-            ),
+            "root/
+  a/b/  <==== selected
+    file.txt
+  z.txt",
             cx,
         );
         let metadata_before = outline_panel.read_with(cx, |panel, _| {
@@ -7799,13 +7726,10 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  a/b/  <==== selected
-                    ~~file.txt~~
-                  z.txt"
-            ),
+            "root/
+  a/b/  <==== selected
+    ~~file.txt~~
+  z.txt",
             cx,
         );
         outline_panel.update_in(cx, |panel, window, cx| {
@@ -7815,13 +7739,10 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  a/b/
-                    ~~file.txt~~  <==== selected
-                  z.txt"
-            ),
+            "root/
+  a/b/
+    ~~file.txt~~  <==== selected
+  z.txt",
             cx,
         );
     }
@@ -7858,13 +7779,10 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  dir/
-                    a.txt
-                    b.txt"
-            ),
+            "root/
+  dir/
+    a.txt
+    b.txt",
             cx,
         );
 
@@ -7876,13 +7794,10 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  dir/
-                    ~~a.txt~~
-                    b.txt"
-            ),
+            "root/
+  dir/
+    ~~a.txt~~
+    b.txt",
             cx,
         );
     }
@@ -7926,14 +7841,11 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  dir/
-                    sub/
-                      a.txt
-                  keep.txt"
-            ),
+            "root/
+  dir/
+    sub/
+      a.txt
+  keep.txt",
             cx,
         );
 
@@ -7947,14 +7859,11 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  dir/
-                    sub/
-                      ~~a.txt~~
-                  keep.txt"
-            ),
+            "root/
+  dir/
+    sub/
+      ~~a.txt~~
+  keep.txt",
             cx,
         );
 
@@ -7966,12 +7875,9 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  dir/  <==== selected
-                  keep.txt"
-            ),
+            "root/
+  dir/  <==== selected
+  keep.txt",
             cx,
         );
 
@@ -7999,12 +7905,9 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  dir/  <==== selected
-                  keep.txt"
-            ),
+            "root/
+  dir/  <==== selected
+  keep.txt",
             cx,
         );
 
@@ -8025,12 +7928,9 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  dir/  <==== selected
-                  keep.txt"
-            ),
+            "root/
+  dir/  <==== selected
+  keep.txt",
             cx,
         );
 
@@ -8044,12 +7944,9 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  dir/  <==== selected
-                  keep.txt"
-            ),
+            "root/
+  dir/  <==== selected
+  keep.txt",
             cx,
         );
 
@@ -8060,14 +7957,11 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  dir/  <==== selected
-                    sub/
-                      a.txt
-                  keep.txt"
-            ),
+            "root/
+  dir/  <==== selected
+    sub/
+      a.txt
+  keep.txt",
             cx,
         );
     }
@@ -8116,17 +8010,14 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                one/
-                  é/
-                    子/
-                      a.txt
-                two/
-                  é/
-                    子/
-                      a.txt"
-            ),
+            "one/
+  é/
+    子/
+      a.txt
+two/
+  é/
+    子/
+      a.txt",
             cx,
         );
 
@@ -8145,17 +8036,14 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                one/
-                  é/
-                    子/
-                      ~~a.txt~~
-                two/
-                  é/
-                    子/
-                      ~~a.txt~~"
-            ),
+            "one/
+  é/
+    子/
+      ~~a.txt~~
+two/
+  é/
+    子/
+      ~~a.txt~~",
             cx,
         );
 
@@ -8167,15 +8055,12 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                one/
-                  é/  <==== selected
-                two/
-                  é/
-                    子/
-                      ~~a.txt~~"
-            ),
+            "one/
+  é/  <==== selected
+two/
+  é/
+    子/
+      ~~a.txt~~",
             cx,
         );
         outline_panel.update_in(cx, |panel, window, cx| {
@@ -8185,17 +8070,14 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                one/
-                  é/  <==== selected
-                    子/
-                      ~~a.txt~~
-                two/
-                  é/
-                    子/
-                      ~~a.txt~~"
-            ),
+            "one/
+  é/  <==== selected
+    子/
+      ~~a.txt~~
+two/
+  é/
+    子/
+      ~~a.txt~~",
             cx,
         );
     }
@@ -8229,13 +8111,10 @@ two/  <==== selected
             path!("/root"),
             json!({
                 "dir": {
-                    "a.rs": indoc!(
-                        "
-                        pub fn foo() {
-                            let x = 1;
-                        }
-                        "
-                    ),
+                    "a.rs": "pub fn foo() {
+    let x = 1;
+}
+",
                     "b.rs": "pub fn bar() {}\n",
                 }
             }),
@@ -8267,15 +8146,12 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  dir/
-                    ~~a.rs~~
-                        outline: pub fn foo  <==== selected
-                    b.rs
-                        outline: pub fn bar"
-            ),
+            "root/
+  dir/
+    ~~a.rs~~
+        outline: pub fn foo  <==== selected
+    b.rs
+        outline: pub fn bar",
             cx,
         );
 
@@ -8286,15 +8162,12 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  dir/
-                    ~~a.rs~~
-                        outline: pub fn foo
-                    b.rs
-                        outline: pub fn bar  <==== selected"
-            ),
+            "root/
+  dir/
+    ~~a.rs~~
+        outline: pub fn foo
+    b.rs
+        outline: pub fn bar  <==== selected",
             cx,
         );
 
@@ -8314,11 +8187,8 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  dir/  <==== selected"
-            ),
+            "root/
+  dir/  <==== selected",
             cx,
         );
 
@@ -8327,13 +8197,10 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  dir/
-                    ~~a.rs~~  <==== selected
-                    b.rs"
-            ),
+            "root/
+  dir/
+    ~~a.rs~~  <==== selected
+    b.rs",
             cx,
         );
     }
@@ -8422,13 +8289,10 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  dir/
-                    ~~a.txt~~  <==== selected
-                    b.txt"
-            ),
+            "root/
+  dir/
+    ~~a.txt~~  <==== selected
+    b.txt",
             cx,
         );
     }
@@ -8476,13 +8340,10 @@ two/  <==== selected
             json!({
                 "éx": "hello there",
                 "é": {
-                    "a.rs": indoc!(
-                        "
-                        pub fn foo() {
-                            let x = 1;
-                        }
-                        "
-                    )
+                    "a.rs": "pub fn foo() {
+    let x = 1;
+}
+"
                 }
             }),
         )
@@ -8521,14 +8382,11 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  é/
-                    ~~a.rs~~
-                        outline: pub fn foo  <==== selected
-                  éx"
-            ),
+            "root/
+  é/
+    ~~a.rs~~
+        outline: pub fn foo  <==== selected
+  éx",
             cx,
         );
 
@@ -8548,15 +8406,12 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  é
-                  é/
-                    ~~a.rs~~
-                        outline: pub fn foo
-                  éx"
-            ),
+            "root/
+  é
+  é/
+    ~~a.rs~~
+        outline: pub fn foo
+  éx",
             cx,
         );
 
@@ -8576,13 +8431,10 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  é
-                  é/  <==== selected
-                  éx"
-            ),
+            "root/
+  é
+  é/  <==== selected
+  éx",
             cx,
         );
 
@@ -8592,14 +8444,11 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  é
-                  é/
-                    ~~a.rs~~  <==== selected
-                  éx"
-            ),
+            "root/
+  é
+  é/
+    ~~a.rs~~  <==== selected
+  éx",
             cx,
         );
     }
@@ -8644,13 +8493,10 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  a/b/c/d/
-                    gone.txt
-                  keep.txt"
-            ),
+            "root/
+  a/b/c/d/
+    gone.txt
+  keep.txt",
             cx,
         );
 
@@ -8668,13 +8514,10 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  a/b/c/d/
-                    ~~gone.txt~~
-                  keep.txt"
-            ),
+            "root/
+  a/b/c/d/
+    ~~gone.txt~~
+  keep.txt",
             cx,
         );
         fs.create_dir(Path::new(path!("/root/a/b/c/d")))
@@ -8684,13 +8527,10 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  a/b/c/d/
-                    ~~gone.txt~~
-                  keep.txt"
-            ),
+            "root/
+  a/b/c/d/
+    ~~gone.txt~~
+  keep.txt",
             cx,
         );
 
@@ -8713,20 +8553,14 @@ two/  <==== selected
         });
 
         for expected in [
-            indoc!(
-                "
-                root/
-                  a/b/c/d/  <==== selected
-                    ~~gone.txt~~
-                  keep.txt"
-            ),
-            indoc!(
-                "
-                root/  <==== selected
-                  a/b/c/d/
-                    ~~gone.txt~~
-                  keep.txt"
-            ),
+            "root/
+  a/b/c/d/  <==== selected
+    ~~gone.txt~~
+  keep.txt",
+            "root/  <==== selected
+  a/b/c/d/
+    ~~gone.txt~~
+  keep.txt",
         ] {
             outline_panel.update_in(cx, |outline_panel, window, cx| {
                 outline_panel.select_parent(&SelectParent, window, cx);
@@ -8749,12 +8583,9 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  a/b/c/d/  <==== selected
-                  keep.txt"
-            ),
+            "root/
+  a/b/c/d/  <==== selected
+  keep.txt",
             cx,
         );
         outline_panel.update_in(cx, |panel, window, cx| {
@@ -8764,29 +8595,20 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  a/b/c/d/  <==== selected
-                    ~~gone.txt~~
-                  keep.txt"
-            ),
+            "root/
+  a/b/c/d/  <==== selected
+    ~~gone.txt~~
+  keep.txt",
             cx,
         );
         for expected in [
-            indoc!(
-                "
-                root/
-                  a/b/c/d/  <==== selected
-                  keep.txt"
-            ),
-            indoc!(
-                "
-                root/
-                  a/b/c/d/  <==== selected
-                    ~~gone.txt~~
-                  keep.txt"
-            ),
+            "root/
+  a/b/c/d/  <==== selected
+  keep.txt",
+            "root/
+  a/b/c/d/  <==== selected
+    ~~gone.txt~~
+  keep.txt",
         ] {
             outline_panel.update_in(cx, |panel, window, cx| {
                 let entry = panel
@@ -8869,12 +8691,9 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                external: excluded.txt
-                root/
-                  keep.txt"
-            ),
+            "external: excluded.txt
+root/
+  keep.txt",
             cx,
         );
     }
@@ -8993,16 +8812,13 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                root/
-                  excluded/
-                    ~~gone.txt~~
-                  missing/
-                    ~~gone.txt~~
-                  scanned/
-                    ~~gone.txt~~"
-            ),
+            "root/
+  excluded/
+    ~~gone.txt~~
+  missing/
+    ~~gone.txt~~
+  scanned/
+    ~~gone.txt~~",
             cx,
         );
     }
@@ -9032,13 +8848,10 @@ two/  <==== selected
             buffer.edit(
                 [(
                     0..0,
-                    indoc!(
-                        "
-                    pub fn phantom() {
-                        let x = 1;
-                    }
-                    "
-                    ),
+                    "pub fn phantom() {
+    let x = 1;
+}
+",
                 )],
                 None,
                 cx,
@@ -9055,15 +8868,12 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                external: never_existed.rs
-                    outline: pub fn phantom  <==== selected
-                root/
-                  dir/
-                    real.rs
-                        outline: pub fn real"
-            ),
+            "external: never_existed.rs
+    outline: pub fn phantom  <==== selected
+root/
+  dir/
+    real.rs
+        outline: pub fn real",
             cx,
         );
 
@@ -9083,13 +8893,10 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                external: never_existed.rs
-                    outline: pub fn phantom
-                root/
-                  dir/  <==== selected"
-            ),
+            "external: never_existed.rs
+    outline: pub fn phantom
+root/
+  dir/  <==== selected",
             cx,
         );
 
@@ -9099,13 +8906,10 @@ two/  <==== selected
         assert_tree(
             &outline_panel,
             &project,
-            indoc!(
-                "
-                external: never_existed.rs
-                    outline: pub fn phantom  <==== selected
-                root/
-                  dir/"
-            ),
+            "external: never_existed.rs
+    outline: pub fn phantom  <==== selected
+root/
+  dir/",
             cx,
         );
     }
@@ -9120,13 +8924,12 @@ two/  <==== selected
             root,
             json!({
                 "src": {
-                    "lib.rs": indoc!("
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+                    "lib.rs": "#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct OutlineEntryExcerpt {
     id: ExcerptId,
     buffer_id: BufferId,
     range: ExcerptRange<language::Anchor>,
-}"),
+}",
                 }
             }),
         )
@@ -9171,13 +8974,10 @@ struct OutlineEntryExcerpt {
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: struct OutlineEntryExcerpt
+                "outline: struct OutlineEntryExcerpt
   outline: id
   outline: buffer_id
   outline: range"
-                )
             );
         });
 
@@ -9198,13 +8998,10 @@ outline: struct OutlineEntryExcerpt
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: struct OutlineEntryExcerpt  <==== selected
+                "outline: struct OutlineEntryExcerpt  <==== selected
   outline: id
   outline: buffer_id
   outline: range"
-                )
             );
         });
 
@@ -9225,13 +9022,10 @@ outline: struct OutlineEntryExcerpt  <==== selected
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: struct OutlineEntryExcerpt
+                "outline: struct OutlineEntryExcerpt
   outline: id  <==== selected
   outline: buffer_id
   outline: range"
-                )
             );
         });
 
@@ -9252,13 +9046,10 @@ outline: struct OutlineEntryExcerpt
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: struct OutlineEntryExcerpt
+                "outline: struct OutlineEntryExcerpt
   outline: id
   outline: buffer_id  <==== selected
   outline: range"
-                )
             );
         });
 
@@ -9279,13 +9070,10 @@ outline: struct OutlineEntryExcerpt
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: struct OutlineEntryExcerpt
+                "outline: struct OutlineEntryExcerpt
   outline: id
   outline: buffer_id
   outline: range  <==== selected"
-                )
             );
         });
 
@@ -9306,13 +9094,10 @@ outline: struct OutlineEntryExcerpt
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: struct OutlineEntryExcerpt  <==== selected
+                "outline: struct OutlineEntryExcerpt  <==== selected
   outline: id
   outline: buffer_id
   outline: range"
-                )
             );
         });
 
@@ -9333,13 +9118,10 @@ outline: struct OutlineEntryExcerpt  <==== selected
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: struct OutlineEntryExcerpt
+                "outline: struct OutlineEntryExcerpt
   outline: id
   outline: buffer_id
   outline: range  <==== selected"
-                )
             );
         });
 
@@ -9360,13 +9142,10 @@ outline: struct OutlineEntryExcerpt
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: struct OutlineEntryExcerpt
+                "outline: struct OutlineEntryExcerpt
   outline: id
   outline: buffer_id  <==== selected
   outline: range"
-                )
             );
         });
 
@@ -9387,13 +9166,10 @@ outline: struct OutlineEntryExcerpt
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: struct OutlineEntryExcerpt
+                "outline: struct OutlineEntryExcerpt
   outline: id  <==== selected
   outline: buffer_id
   outline: range"
-                )
             );
         });
 
@@ -9414,13 +9190,10 @@ outline: struct OutlineEntryExcerpt
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: struct OutlineEntryExcerpt  <==== selected
+                "outline: struct OutlineEntryExcerpt  <==== selected
   outline: id
   outline: buffer_id
   outline: range"
-                )
             );
         });
 
@@ -9441,13 +9214,10 @@ outline: struct OutlineEntryExcerpt  <==== selected
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: struct OutlineEntryExcerpt
+                "outline: struct OutlineEntryExcerpt
   outline: id
   outline: buffer_id
   outline: range  <==== selected"
-                )
             );
         });
     }
@@ -10488,34 +10258,33 @@ outline: struct OutlineEntryExcerpt
             "/test",
             json!({
                 "src": {
-                    "lib.rs": indoc!("
-                            mod outer {
-                                pub struct OuterStruct {
-                                    field: String,
-                                }
-                                impl OuterStruct {
-                                    pub fn new() -> Self {
-                                        Self { field: String::new() }
-                                    }
-                                    pub fn method(&self) {
-                                        println!(\"{}\", self.field);
-                                    }
-                                }
-                                mod inner {
-                                    pub fn inner_function() {
-                                        let x = 42;
-                                        println!(\"{}\", x);
-                                    }
-                                    pub struct InnerStruct {
-                                        value: i32,
-                                    }
-                                }
-                            }
-                            fn main() {
-                                let s = outer::OuterStruct::new();
-                                s.method();
-                            }
-                        "),
+                    "lib.rs": "mod outer {
+    pub struct OuterStruct {
+        field: String,
+    }
+    impl OuterStruct {
+        pub fn new() -> Self {
+            Self { field: String::new() }
+        }
+        pub fn method(&self) {
+            println!(\"{}\", self.field);
+        }
+    }
+    mod inner {
+        pub fn inner_function() {
+            let x = 42;
+            println!(\"{}\", x);
+        }
+        pub struct InnerStruct {
+            value: i32,
+        }
+    }
+}
+fn main() {
+    let s = outer::OuterStruct::new();
+    s.method();
+}
+",
                 }
             }),
         )
@@ -10568,9 +10337,7 @@ outline: struct OutlineEntryExcerpt
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: mod outer  <==== selected
+                "outline: mod outer  <==== selected
   outline: pub struct OuterStruct
     outline: field
   outline: impl OuterStruct
@@ -10581,7 +10348,6 @@ outline: mod outer  <==== selected
     outline: pub struct InnerStruct
       outline: value
 outline: fn main"
-                )
             );
         });
 
@@ -10626,11 +10392,8 @@ outline: fn main"
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: mod outer  <==== selected
+                "outline: mod outer  <==== selected
 outline: fn main"
-                )
             );
         });
 
@@ -10650,9 +10413,7 @@ outline: fn main"
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: mod outer  <==== selected
+                "outline: mod outer  <==== selected
   outline: pub struct OuterStruct
     outline: field
   outline: impl OuterStruct
@@ -10663,7 +10424,6 @@ outline: mod outer  <==== selected
     outline: pub struct InnerStruct
       outline: value
 outline: fn main"
-                )
             );
         });
 
@@ -10715,11 +10475,8 @@ outline: fn main"
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: mod outer
+                "outline: mod outer
 outline: fn main"
-                )
             );
         });
 
@@ -11110,35 +10867,34 @@ outline: fn main"
             "/test",
             json!({
                 "src": {
-                    "main.rs": indoc!("
-                            struct Config {
-                                name: String,
-                                value: i32,
-                            }
-                            impl Config {
-                                fn new(name: String) -> Self {
-                                    Self { name, value: 0 }
-                                }
-                                fn get_value(&self) -> i32 {
-                                    self.value
-                                }
-                            }
-                            enum Status {
-                                Active,
-                                Inactive,
-                            }
-                            fn process_config(config: Config) -> Status {
-                                if config.get_value() > 0 {
-                                    Status::Active
-                                } else {
-                                    Status::Inactive
-                                }
-                            }
-                            fn main() {
-                                let config = Config::new(\"test\".to_string());
-                                let status = process_config(config);
-                            }
-                        "),
+                    "main.rs": "struct Config {
+    name: String,
+    value: i32,
+}
+impl Config {
+    fn new(name: String) -> Self {
+        Self { name, value: 0 }
+    }
+    fn get_value(&self) -> i32 {
+        self.value
+    }
+}
+enum Status {
+    Active,
+    Inactive,
+}
+fn process_config(config: Config) -> Status {
+    if config.get_value() > 0 {
+        Status::Active
+    } else {
+        Status::Inactive
+    }
+}
+fn main() {
+    let config = Config::new(\"test\".to_string());
+    let status = process_config(config);
+}
+",
                 }
             }),
         )
@@ -11188,9 +10944,7 @@ outline: fn main"
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: struct Config
+                "outline: struct Config
   outline: name
   outline: value
 outline: impl Config
@@ -11201,7 +10955,6 @@ outline: enum Status
   outline: Inactive
 outline: fn process_config
 outline: fn main"
-                )
             );
         });
 
@@ -11228,9 +10981,7 @@ outline: fn main"
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: struct Config  <==== selected
+                "outline: struct Config  <==== selected
   outline: name
   outline: value
 outline: impl Config
@@ -11241,7 +10992,6 @@ outline: enum Status
   outline: Inactive
 outline: fn process_config
 outline: fn main"
-                )
             );
         });
 
@@ -11264,9 +11014,7 @@ outline: fn main"
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: struct Config  <==== selected
+                "outline: struct Config  <==== selected
 outline: impl Config
   outline: fn new
   outline: fn get_value
@@ -11275,7 +11023,6 @@ outline: enum Status
   outline: Inactive
 outline: fn process_config
 outline: fn main"
-                )
             );
         });
 
@@ -11298,9 +11045,7 @@ outline: fn main"
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: struct Config  <==== selected
+                "outline: struct Config  <==== selected
   outline: name
   outline: value
 outline: impl Config
@@ -11311,7 +11056,6 @@ outline: enum Status
   outline: Inactive
 outline: fn process_config
 outline: fn main"
-                )
             );
         });
     }
@@ -11325,34 +11069,33 @@ outline: fn main"
             "/test",
             json!({
                 "src": {
-                    "lib.rs": indoc!("
-                            mod outer {
-                                pub struct OuterStruct {
-                                    field: String,
-                                }
-                                impl OuterStruct {
-                                    pub fn new() -> Self {
-                                        Self { field: String::new() }
-                                    }
-                                    pub fn method(&self) {
-                                        println!(\"{}\", self.field);
-                                    }
-                                }
-                                mod inner {
-                                    pub fn inner_function() {
-                                        let x = 42;
-                                        println!(\"{}\", x);
-                                    }
-                                    pub struct InnerStruct {
-                                        value: i32,
-                                    }
-                                }
-                            }
-                            fn main() {
-                                let s = outer::OuterStruct::new();
-                                s.method();
-                            }
-                        "),
+                    "lib.rs": "mod outer {
+    pub struct OuterStruct {
+        field: String,
+    }
+    impl OuterStruct {
+        pub fn new() -> Self {
+            Self { field: String::new() }
+        }
+        pub fn method(&self) {
+            println!(\"{}\", self.field);
+        }
+    }
+    mod inner {
+        pub fn inner_function() {
+            let x = 42;
+            println!(\"{}\", x);
+        }
+        pub struct InnerStruct {
+            value: i32,
+        }
+    }
+}
+fn main() {
+    let s = outer::OuterStruct::new();
+    s.method();
+}
+",
                 }
             }),
         )
@@ -11405,9 +11148,7 @@ outline: fn main"
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: mod outer  <==== selected
+                "outline: mod outer  <==== selected
   outline: pub struct OuterStruct
     outline: field
   outline: impl OuterStruct
@@ -11418,7 +11159,6 @@ outline: mod outer  <==== selected
     outline: pub struct InnerStruct
       outline: value
 outline: fn main"
-                )
             );
         });
 
@@ -11454,11 +11194,8 @@ outline: fn main"
             .advance_clock(UPDATE_DEBOUNCE + Duration::from_millis(100));
         cx.run_until_parked();
 
-        let expected_collapsed_output = indoc!(
-            "
-        outline: mod outer  <==== selected
-        outline: fn main"
-        );
+        let expected_collapsed_output = "outline: mod outer  <==== selected
+outline: fn main";
 
         outline_panel.update(cx, |panel, cx| {
             assert_eq! {
@@ -11481,20 +11218,17 @@ outline: fn main"
             .advance_clock(UPDATE_DEBOUNCE + Duration::from_millis(100));
         cx.run_until_parked();
 
-        let expected_expanded_output = indoc!(
-            "
-        outline: mod outer  <==== selected
-          outline: pub struct OuterStruct
-            outline: field
-          outline: impl OuterStruct
-            outline: pub fn new
-            outline: pub fn method
-          outline: mod inner
-            outline: pub fn inner_function
-            outline: pub struct InnerStruct
-              outline: value
-        outline: fn main"
-        );
+        let expected_expanded_output = "outline: mod outer  <==== selected
+  outline: pub struct OuterStruct
+    outline: field
+  outline: impl OuterStruct
+    outline: pub fn new
+    outline: pub fn method
+  outline: mod inner
+    outline: pub fn inner_function
+    outline: pub struct InnerStruct
+      outline: value
+outline: fn main";
 
         outline_panel.update(cx, |panel, cx| {
             assert_eq! {
@@ -11661,14 +11395,11 @@ search: | Field          | Meaning              «  »|"
             root,
             json!({
                 "src": {
-                    "lib.rs": indoc!(
-                        "
-                        struct Foo {
-                            bar: u32,
-                            baz: String,
-                        }
-                        "
-                    ),
+                    "lib.rs": "struct Foo {
+    bar: u32,
+    baz: String,
+}
+",
                 }
             }),
         )
@@ -11790,12 +11521,9 @@ search: | Field          | Meaning              «  »|"
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: struct Foo  <==== selected
+                "outline: struct Foo  <==== selected
   outline: bar
-  outline: baz"
-                ),
+  outline: baz",
                 "Step 1: tree-sitter outlines should be displayed by default"
             );
         });
@@ -11823,12 +11551,9 @@ outline: struct Foo  <==== selected
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: struct Foo  <==== selected
+                "outline: struct Foo  <==== selected
   outline: bar
-  outline: lsp_only_field"
-                ),
+  outline: lsp_only_field",
                 "Step 2: After switching to LSP, should see LSP-provided symbols"
             );
         });
@@ -11917,12 +11642,9 @@ outline: struct Foo  <==== selected
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: struct Foo  <==== selected
+                "outline: struct Foo  <==== selected
   outline: bar
-  outline: baz"
-                ),
+  outline: baz",
                 "Step 3: tree-sitter outlines should be restored"
             );
         });
@@ -11944,16 +11666,15 @@ outline: struct Foo  <==== selected
         fs.insert_tree(
             "/test",
             json!({
-                "doc.md": indoc!("
-                    # Section A
+                "doc.md": "# Section A
 
-                    ## Sub Section A
+## Sub Section A
 
-                    ## Sub Section B
+## Sub Section B
 
-                    # Section B
+# Section B
 
-                ")
+"
             }),
         )
         .await;
@@ -12074,16 +11795,14 @@ outline: struct Foo  <==== selected
             path!("/test"),
             json!({
                 "src": {
-                    "one.rs": indoc!("
-                        pub fn one() {
-                            let x = 1;
-                        }
-                    "),
-                    "two.rs": indoc!("
-                        pub struct Two {
-                            field: i32,
-                        }
-                    "),
+                    "one.rs": "pub fn one() {
+    let x = 1;
+}
+",
+                    "two.rs": "pub struct Two {
+    field: i32,
+}
+",
                 }
             }),
         )
@@ -12293,34 +12012,33 @@ outline: struct Foo  <==== selected
             "/test",
             json!({
                 "src": {
-                    "lib.rs": indoc!("
-                            mod outer {
-                                pub struct OuterStruct {
-                                    field: String,
-                                }
-                                impl OuterStruct {
-                                    pub fn new() -> Self {
-                                        Self { field: String::new() }
-                                    }
-                                    pub fn method(&self) {
-                                        println!(\"{}\", self.field);
-                                    }
-                                }
-                                mod inner {
-                                    pub fn inner_function() {
-                                        let x = 42;
-                                        println!(\"{}\", x);
-                                    }
-                                    pub struct InnerStruct {
-                                        value: i32,
-                                    }
-                                }
-                            }
-                            fn main() {
-                                let s = outer::OuterStruct::new();
-                                s.method();
-                            }
-                        "),
+                    "lib.rs": "mod outer {
+    pub struct OuterStruct {
+        field: String,
+    }
+    impl OuterStruct {
+        pub fn new() -> Self {
+            Self { field: String::new() }
+        }
+        pub fn method(&self) {
+            println!(\"{}\", self.field);
+        }
+    }
+    mod inner {
+        pub fn inner_function() {
+            let x = 42;
+            println!(\"{}\", x);
+        }
+        pub struct InnerStruct {
+            value: i32,
+        }
+    }
+}
+fn main() {
+    let s = outer::OuterStruct::new();
+    s.method();
+}
+",
                 }
             }),
         )
@@ -12373,9 +12091,7 @@ outline: struct Foo  <==== selected
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-outline: mod outer  <==== selected
+                "outline: mod outer  <==== selected
   outline: pub struct OuterStruct
     outline: field
   outline: impl OuterStruct
@@ -12385,8 +12101,7 @@ outline: mod outer  <==== selected
     outline: pub fn inner_function
     outline: pub struct InnerStruct
       outline: value
-outline: fn main"
-                ),
+outline: fn main",
                 "singleton editors should be exempt from hide-symbols mode"
             );
         });
@@ -12522,9 +12237,7 @@ outline: fn main"
                     outline_panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-rust-analyzer/
+                "rust-analyzer/
   crates/
     ide/src/
       inlay_hints/
@@ -12534,8 +12247,7 @@ rust-analyzer/
     rust-analyzer/src/
       cli/
         analysis_stats.rs
-      config.rs"
-                ),
+      config.rs",
                 "directories and files should still render in hide-symbols mode, \
                  with the previously selected search match remapped to its file"
             );
@@ -12583,29 +12295,26 @@ rust-analyzer/
             path!("/test"),
             json!({
                 "src": {
-                    "one.rs": indoc!("
-                        fn alpha() {
-                            let one = 1;
-                        }
+                    "one.rs": "fn alpha() {
+    let one = 1;
+}
 
-                        fn beta() {
-                            let two = 2;
-                        }
-                    "),
-                    "two.rs": indoc!("
-                        struct Gamma {
-                            field: i32,
-                        }
+fn beta() {
+    let two = 2;
+}
+",
+                    "two.rs": "struct Gamma {
+    field: i32,
+}
 
-                        fn delta() {}
-                    "),
-                    "three.rs": indoc!("
-                        mod epsilon {
-                            fn zeta() {
-                                let three = 3;
-                            }
-                        }
-                    "),
+fn delta() {}
+",
+                    "three.rs": "mod epsilon {
+    fn zeta() {
+        let three = 3;
+    }
+}
+",
                 }
             }),
         )
@@ -12657,9 +12366,7 @@ rust-analyzer/
                     None,
                     cx,
                 ),
-                indoc!(
-                    "
-test/
+                "test/
   src/
     one.rs
         outline: fn alpha
@@ -12669,8 +12376,7 @@ test/
           outline: fn zeta
     two.rs
         outline: struct Gamma
-          outline: field"
-                ),
+          outline: field",
                 "each excerpt should only show outlines intersecting its range, \
                  without duplicating outlines from other excerpts of the same buffer \
                  and without outlines that lie outside every excerpt"
@@ -12741,13 +12447,10 @@ test/
                     snapshot.excerpts().count(),
                     if dense { 1 } else { count as usize / 2 }
                 );
-                let mut expected = indoc!(
-                    "
-                    test/
-                      src/
-                        one.rs"
-                )
-                .to_string();
+                let mut expected = "test/
+  src/
+    one.rs"
+                    .to_string();
                 for index in (0..count).step_by(if dense { 1 } else { 2 }) {
                     expected.push_str(&format!("\n      search: fn «needle»_{index:04}() {{}}"));
                 }
@@ -12768,16 +12471,14 @@ test/
             path!("/test"),
             json!({
                 "src": {
-                    "one.rs": indoc!("
-                        pub fn one() {
-                            let x = 1;
-                        }
-                    "),
-                    "two.rs": indoc!("
-                        pub struct Two {
-                            field: i32,
-                        }
-                    "),
+                    "one.rs": "pub fn one() {
+    let x = 1;
+}
+",
+                    "two.rs": "pub struct Two {
+    field: i32,
+}
+",
                 }
             }),
         )
@@ -12866,15 +12567,12 @@ test/
                     None,
                     cx
                 ),
-                indoc!(
-                    "
-test/
+                "test/
   src/
     one.rs
         outline: pub fn one
     two.rs
-        outline: pub struct Two"
-                ),
+        outline: pub struct Two",
                 "after re-showing symbols, the depth applied during the combined settings \
                  change should keep struct Two collapsed, hiding its field"
             );
@@ -12890,16 +12588,14 @@ test/
             path!("/test"),
             json!({
                 "src": {
-                    "one.rs": indoc!("
-                        fn alpha() {
-                            let one = 1;
-                        }
-                    "),
-                    "two.rs": indoc!("
-                        pub struct Two {
-                            field: i32,
-                        }
-                    "),
+                    "one.rs": "fn alpha() {
+    let one = 1;
+}
+",
+                    "two.rs": "pub struct Two {
+    field: i32,
+}
+",
                 }
             }),
         )
@@ -12995,13 +12691,10 @@ test/
                     panel.selected_entry(),
                     cx,
                 ),
-                indoc!(
-                    "
-test/
+                "test/
   src/
     one.rs  <==== selected
-    two.rs"
-                ),
+    two.rs",
                 "clearing the filter should reveal the remapped file row still selected"
             );
         });
@@ -13026,16 +12719,14 @@ test/
             path!("/test"),
             json!({
                 "src": {
-                    "one.rs": indoc!("
-                        mod alpha {
-                            fn a() {}
-                        }
-                    "),
-                    "two.rs": indoc!("
-                        pub struct Two {
-                            field: i32,
-                        }
-                    "),
+                    "one.rs": "mod alpha {
+    fn a() {}
+}
+",
+                    "two.rs": "pub struct Two {
+    field: i32,
+}
+",
                 }
             }),
         )
@@ -13079,15 +12770,12 @@ test/
                     None,
                     cx
                 ),
-                indoc!(
-                    "
-test/
+                "test/
   src/
     one.rs
         outline: mod alpha
     two.rs
-        outline: pub struct Two"
-                ),
+        outline: pub struct Two",
                 "both files should render only their collapsed parent outlines"
             );
         });
@@ -13112,16 +12800,14 @@ test/
             path!("/test"),
             json!({
                 "src": {
-                    "one.rs": indoc!("
-                        mod alpha {
-                            fn a() {}
-                        }
-                    "),
-                    "two.rs": indoc!("
-                        pub struct Two {
-                            field: i32,
-                        }
-                    "),
+                    "one.rs": "mod alpha {
+    fn a() {}
+}
+",
+                    "two.rs": "pub struct Two {
+    field: i32,
+}
+",
                 }
             }),
         )
@@ -13171,15 +12857,12 @@ test/
                     None,
                     cx
                 ),
-                indoc!(
-                    "
-test/
+                "test/
   src/
     one.rs
         outline: mod alpha
     two.rs
-        outline: pub struct Two"
-                ),
+        outline: pub struct Two",
                 "a depth change while symbols were hidden should apply to outlines \
                  fetched after the symbols are shown again"
             );

@@ -892,7 +892,7 @@ mod tests {
     use settings::{DiffViewStyle, SettingsStore};
     use std::path::Path;
     use std::sync::Arc;
-    use unindent::Unindent as _;
+    use util::Unindent as _;
     use util::{
         path,
         rel_path::{RelPath, rel_path},

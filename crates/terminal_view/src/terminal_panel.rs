@@ -1878,7 +1878,7 @@ mod tests {
     use super::*;
     use crate::persistence::{SerializedPane, SerializedPaneGroup};
     use gpui::{Modifiers, TestAppContext, UpdateGlobal as _, VisualTestContext};
-    use pretty_assertions::assert_eq;
+
     use project::FakeFs;
     use settings::SettingsStore;
     use workspace::{MultiWorkspace, WorkspaceId};

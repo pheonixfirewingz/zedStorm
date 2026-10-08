@@ -315,7 +315,7 @@ pub fn locking_queue() -> WriteQueueConstructor {
 
 #[cfg(test)]
 mod test {
-    use indoc::indoc;
+
     use std::ops::Deref;
 
     use std::{thread, time::Duration};
@@ -337,12 +337,13 @@ mod test {
                 let builder =
                     ThreadSafeConnection::builder::<TestDomain>("annoying-test.db", false)
                         .with_db_initialization_query("PRAGMA journal_mode=WAL")
-                        .with_connection_initialize_query(indoc! {"
-                                PRAGMA synchronous=NORMAL;
-                                PRAGMA busy_timeout=1;
-                                PRAGMA foreign_keys=TRUE;
-                                PRAGMA case_sensitive_like=TRUE;
-                            "});
+                        .with_connection_initialize_query(
+                            "PRAGMA synchronous=NORMAL;
+PRAGMA busy_timeout=1;
+PRAGMA foreign_keys=TRUE;
+PRAGMA case_sensitive_like=TRUE;
+",
+                        );
 
                 let _ = pollster::block_on(builder.build()).unwrap().deref();
             }));

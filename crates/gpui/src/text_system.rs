@@ -19,7 +19,7 @@ use crate::{
 use anyhow::{Context as _, anyhow};
 use collections::{FxHashMap, FxHashSet};
 use core::fmt;
-use derive_more::{Add, Deref, FromStr, Sub};
+
 use itertools::Itertools;
 use parking_lot::{Mutex, RwLock, RwLockUpgradableReadGuard};
 use smallvec::{SmallVec, smallvec};
@@ -598,11 +598,18 @@ impl TextSystem {
 }
 
 /// The GPUI text layout subsystem.
-#[derive(Deref)]
 pub struct WindowTextSystem {
     line_layout_cache: LineLayoutCache,
-    #[deref]
+
     text_system: Arc<TextSystem>,
+}
+
+impl std::ops::Deref for WindowTextSystem {
+    type Target = Arc<TextSystem>;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.text_system
+    }
 }
 
 impl WindowTextSystem {
@@ -1123,9 +1130,39 @@ impl DerefMut for LineWrapperHandle {
 
 /// The degree of blackness or stroke thickness of a font. This value ranges from 100.0 to 900.0,
 /// with 400.0 as normal.
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Serialize, Deserialize, Add, Sub, FromStr)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct FontWeight(pub f32);
+
+impl std::ops::Add for FontWeight {
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn add(self, other: Self) -> Self::Output {
+        match (self, other) {
+            (Self(first), Self(other_first)) => Self(std::ops::Add::add(first, other_first)),
+        }
+    }
+}
+
+impl std::ops::Sub for FontWeight {
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn sub(self, other: Self) -> Self::Output {
+        match (self, other) {
+            (Self(first), Self(other_first)) => Self(std::ops::Sub::sub(first, other_first)),
+        }
+    }
+}
+
+impl std::str::FromStr for FontWeight {
+    type Err = <f32 as std::str::FromStr>::Err;
+    #[inline]
+    fn from_str(input: &str) -> std::result::Result<Self, Self::Err> {
+        std::str::FromStr::from_str(input).map(Self)
+    }
+}
 
 impl Display for FontWeight {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -11,7 +11,9 @@ use std::sync::Arc;
 use ::lsp::LanguageServerName;
 use anyhow::{Context as _, Result, bail};
 use async_trait::async_trait;
-use gpui::{App, EntityId, Task};
+use collections::BTreeMap;
+use futures::future::BoxFuture;
+use gpui::{App, BorrowAppContext as _, EntityId, Global, Task};
 use language::LanguageName;
 use semver::Version;
 use task::{SpawnInTerminal, ZedDebugConfig};
@@ -27,6 +29,59 @@ pub use crate::types::*;
 pub fn init(cx: &mut App) {
     extension_events::init(cx);
     ExtensionHostProxy::default_global(cx);
+    cx.default_global::<DiagramRendererRegistry>();
+}
+
+pub type DiagramRenderer =
+    Arc<dyn Fn(String, String) -> BoxFuture<'static, Result<String>> + Send + Sync>;
+
+#[derive(Default)]
+pub struct DiagramRendererRegistry {
+    renderers: BTreeMap<Arc<str>, BTreeMap<Arc<str>, DiagramRenderer>>,
+}
+
+impl Global for DiagramRendererRegistry {}
+
+impl DiagramRendererRegistry {
+    pub fn renderer(id: &str, cx: &App) -> Option<DiagramRenderer> {
+        cx.try_global::<Self>()?
+            .renderers
+            .get(id)
+            .and_then(|renderers| renderers.values().next().cloned())
+    }
+
+    pub fn register(
+        extension_id: Arc<str>,
+        renderer_id: Arc<str>,
+        renderer: DiagramRenderer,
+        cx: &mut App,
+    ) {
+        cx.default_global::<Self>();
+        cx.update_global::<Self, _>(|registry, _| {
+            registry
+                .renderers
+                .entry(renderer_id)
+                .or_default()
+                .insert(extension_id, renderer);
+        });
+    }
+
+    pub fn unregister(extension_id: &str, cx: &mut App) {
+        if !cx.try_global::<Self>().is_some_and(|registry| {
+            registry
+                .renderers
+                .values()
+                .any(|renderers| renderers.contains_key(extension_id))
+        }) {
+            return;
+        }
+        cx.update_global::<Self, _>(|registry, _| {
+            registry.renderers.retain(|_, renderers| {
+                renderers.remove(extension_id);
+                !renderers.is_empty()
+            });
+        });
+    }
 }
 
 #[async_trait]
@@ -48,6 +103,15 @@ pub trait KeyValueStoreDelegate: Send + Sync + 'static {
 
 #[async_trait]
 pub trait Extension: Send + Sync + 'static {
+    async fn render_diagram(
+        &self,
+        _renderer_id: Arc<str>,
+        _source: String,
+        _theme: String,
+    ) -> Result<String> {
+        bail!("diagram rendering is not supported by this extension")
+    }
+
     /// Returns the [`ExtensionManifest`] for this extension.
     fn manifest(&self) -> Arc<ExtensionManifest>;
 

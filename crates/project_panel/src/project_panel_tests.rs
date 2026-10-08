@@ -15,7 +15,7 @@ use language::{
     PointUtf16, Unclipped,
 };
 use menu::Cancel;
-use pretty_assertions::assert_eq;
+
 use project::{FakeFs, ProjectPath};
 use serde_json::json;
 use settings::{FolderIndicator, ProjectPanelAutoOpenSettings, SettingsStore, SplicingVec};

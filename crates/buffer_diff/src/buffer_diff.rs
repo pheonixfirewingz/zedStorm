@@ -2464,7 +2464,7 @@ pub fn assert_hunks<ExpectedText, HunkIter>(
         })
         .collect();
 
-    pretty_assertions::assert_eq!(actual_hunks, expected_hunks);
+    assert_eq!(actual_hunks, expected_hunks);
 }
 
 #[cfg(test)]
@@ -2473,10 +2473,10 @@ mod tests {
 
     use super::*;
     use gpui::TestAppContext;
-    use pretty_assertions::{assert_eq, assert_ne};
+
     use rand::{Rng as _, rngs::StdRng};
     use text::{Buffer, BufferId, ReplicaId, Rope};
-    use unindent::Unindent as _;
+    use util::Unindent as _;
     use util::test::marked_text_ranges;
 
     #[ctor::ctor(unsafe)]
@@ -2949,9 +2949,8 @@ mod tests {
                     )
                 }
 
-                pretty_assertions::assert_eq!(
-                    new_index_text,
-                    example.final_index_text,
+                assert_eq!(
+                    new_index_text, example.final_index_text,
                     "example: {}",
                     example.name
                 );

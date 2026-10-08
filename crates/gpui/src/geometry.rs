@@ -4,7 +4,7 @@
 
 use anyhow::{Context as _, anyhow};
 use core::fmt::Debug;
-use derive_more::{Add, AddAssign, Div, DivAssign, Mul, Neg, Sub, SubAssign};
+
 use refineable::Refineable;
 use schemars::{JsonSchema, json_schema};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
@@ -64,21 +64,7 @@ pub trait Along {
 /// println!("{:?}", point); // Outputs: Point { x: 10, y: 20 }
 /// ```
 #[derive(
-    Refineable,
-    Default,
-    Add,
-    AddAssign,
-    Sub,
-    SubAssign,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    Hash,
-    Neg,
+    Refineable, Default, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Hash,
 )]
 #[refineable(Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[repr(C)]
@@ -87,6 +73,121 @@ pub struct Point<T: Clone + Debug + Default + PartialEq> {
     pub x: T,
     /// The y coordinate of the point.
     pub y: T,
+}
+
+impl<T: Clone + Debug + Default + PartialEq> std::ops::Add for Point<T>
+where
+    T: std::ops::Add<Output = T>,
+{
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn add(self, other: Self) -> Self::Output {
+        match (self, other) {
+            (
+                Self {
+                    x: first,
+                    y: second,
+                },
+                Self {
+                    x: other_first,
+                    y: other_second,
+                },
+            ) => Self {
+                x: std::ops::Add::add(first, other_first),
+                y: std::ops::Add::add(second, other_second),
+            },
+        }
+    }
+}
+
+impl<T: Clone + Debug + Default + PartialEq> std::ops::AddAssign for Point<T>
+where
+    T: std::ops::AddAssign,
+{
+    #[inline]
+    #[track_caller]
+    fn add_assign(&mut self, other: Self) {
+        match (self, other) {
+            (
+                Self {
+                    x: first,
+                    y: second,
+                },
+                Self {
+                    x: other_first,
+                    y: other_second,
+                },
+            ) => {
+                std::ops::AddAssign::add_assign(first, other_first);
+                std::ops::AddAssign::add_assign(second, other_second);
+            }
+        }
+    }
+}
+
+impl<T: Clone + Debug + Default + PartialEq> std::ops::Sub for Point<T>
+where
+    T: std::ops::Sub<Output = T>,
+{
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn sub(self, other: Self) -> Self::Output {
+        match (self, other) {
+            (
+                Self {
+                    x: first,
+                    y: second,
+                },
+                Self {
+                    x: other_first,
+                    y: other_second,
+                },
+            ) => Self {
+                x: std::ops::Sub::sub(first, other_first),
+                y: std::ops::Sub::sub(second, other_second),
+            },
+        }
+    }
+}
+
+impl<T: Clone + Debug + Default + PartialEq> std::ops::SubAssign for Point<T>
+where
+    T: std::ops::SubAssign,
+{
+    #[inline]
+    #[track_caller]
+    fn sub_assign(&mut self, other: Self) {
+        match (self, other) {
+            (
+                Self {
+                    x: first,
+                    y: second,
+                },
+                Self {
+                    x: other_first,
+                    y: other_second,
+                },
+            ) => {
+                std::ops::SubAssign::sub_assign(first, other_first);
+                std::ops::SubAssign::sub_assign(second, other_second);
+            }
+        }
+    }
+}
+
+impl<T: Clone + Debug + Default + PartialEq + std::ops::Neg<Output = T>> std::ops::Neg
+    for Point<T>
+{
+    type Output = Point<T>;
+    #[inline]
+    fn neg(self) -> Point<T> {
+        Point {
+            x: self.x.neg(),
+            y: self.y.neg(),
+        }
+    }
 }
 
 /// Constructs a new `Point<T>` with the given x and y coordinates.
@@ -388,9 +489,7 @@ impl<T: Clone + Debug + Default + PartialEq + Display> Display for Point<T> {
 ///
 /// This struct is generic over the type `T`, which can be any type that implements `Clone`, `Default`, and `Debug`.
 /// It is commonly used to specify dimensions for elements in a UI, such as a window or element.
-#[derive(
-    Add, Clone, Copy, Default, Deserialize, Div, Hash, Neg, PartialEq, Refineable, Serialize, Sub,
-)]
+#[derive(Clone, Copy, Default, Deserialize, Hash, PartialEq, Refineable, Serialize)]
 #[refineable(Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[repr(C)]
 pub struct Size<T: Clone + Debug + Default + PartialEq> {
@@ -398,6 +497,90 @@ pub struct Size<T: Clone + Debug + Default + PartialEq> {
     pub width: T,
     /// The height component of the size.
     pub height: T,
+}
+
+impl<T: Clone + Debug + Default + PartialEq> std::ops::Add for Size<T>
+where
+    T: std::ops::Add<Output = T>,
+{
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn add(self, other: Self) -> Self::Output {
+        match (self, other) {
+            (
+                Self {
+                    width: first,
+                    height: second,
+                },
+                Self {
+                    width: other_first,
+                    height: other_second,
+                },
+            ) => Self {
+                width: std::ops::Add::add(first, other_first),
+                height: std::ops::Add::add(second, other_second),
+            },
+        }
+    }
+}
+
+impl<T: Clone + Debug + Default + PartialEq, Operand> std::ops::Div<Operand> for Size<T>
+where
+    T: std::ops::Div<Operand, Output = T>,
+    Operand: std::marker::Copy,
+{
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn div(self, other: Operand) -> Self::Output {
+        match self {
+            Self {
+                width: first,
+                height: second,
+            } => Self {
+                width: std::ops::Div::div(first, other),
+                height: std::ops::Div::div(second, other),
+            },
+        }
+    }
+}
+
+impl<T: Clone + Debug + Default + PartialEq + std::ops::Neg<Output = T>> std::ops::Neg for Size<T> {
+    type Output = Size<T>;
+    #[inline]
+    fn neg(self) -> Size<T> {
+        Size {
+            width: self.width.neg(),
+            height: self.height.neg(),
+        }
+    }
+}
+
+impl<T: Clone + Debug + Default + PartialEq> std::ops::Sub for Size<T>
+where
+    T: std::ops::Sub<Output = T>,
+{
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn sub(self, other: Self) -> Self::Output {
+        match (self, other) {
+            (
+                Self {
+                    width: first,
+                    height: second,
+                },
+                Self {
+                    width: other_first,
+                    height: other_second,
+                },
+            ) => Self {
+                width: std::ops::Sub::sub(first, other_first),
+                height: std::ops::Sub::sub(second, other_second),
+            },
+        }
+    }
 }
 
 impl<T: Clone + Debug + Default + PartialEq> Size<T> {
@@ -2588,24 +2771,92 @@ impl From<Pixels> for Corners<Pixels> {
 }
 
 /// Represents an angle in Radians
-#[derive(
-    Clone,
-    Copy,
-    Default,
-    Add,
-    AddAssign,
-    Sub,
-    SubAssign,
-    Neg,
-    Div,
-    DivAssign,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Debug,
-)]
+#[derive(Clone, Copy, Default, PartialEq, Serialize, Deserialize, Debug)]
 #[repr(transparent)]
 pub struct Radians(pub f32);
+
+impl std::ops::Add for Radians {
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn add(self, other: Self) -> Self::Output {
+        match (self, other) {
+            (Self(first), Self(other_first)) => Self(std::ops::Add::add(first, other_first)),
+        }
+    }
+}
+
+impl std::ops::AddAssign for Radians {
+    #[inline]
+    #[track_caller]
+    fn add_assign(&mut self, other: Self) {
+        match (self, other) {
+            (Self(first), Self(other_first)) => {
+                std::ops::AddAssign::add_assign(first, other_first);
+            }
+        }
+    }
+}
+
+impl std::ops::Sub for Radians {
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn sub(self, other: Self) -> Self::Output {
+        match (self, other) {
+            (Self(first), Self(other_first)) => Self(std::ops::Sub::sub(first, other_first)),
+        }
+    }
+}
+
+impl std::ops::SubAssign for Radians {
+    #[inline]
+    #[track_caller]
+    fn sub_assign(&mut self, other: Self) {
+        match (self, other) {
+            (Self(first), Self(other_first)) => {
+                std::ops::SubAssign::sub_assign(first, other_first);
+            }
+        }
+    }
+}
+
+impl std::ops::Neg for Radians {
+    type Output = Radians;
+    #[inline]
+    fn neg(self) -> Radians {
+        Radians(self.0.neg())
+    }
+}
+
+impl<Operand> std::ops::Div<Operand> for Radians
+where
+    f32: std::ops::Div<Operand, Output = f32>,
+{
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn div(self, other: Operand) -> Self::Output {
+        match self {
+            Self(first) => Self(std::ops::Div::div(first, other)),
+        }
+    }
+}
+
+impl<Operand> std::ops::DivAssign<Operand> for Radians
+where
+    f32: std::ops::DivAssign<Operand>,
+{
+    #[inline]
+    #[track_caller]
+    fn div_assign(&mut self, other: Operand) {
+        match self {
+            Self(first) => {
+                std::ops::DivAssign::div_assign(first, other);
+            }
+        }
+    }
+}
 
 /// Create a `Radian` from a raw value
 pub fn radians(value: f32) -> Radians {
@@ -2613,24 +2864,92 @@ pub fn radians(value: f32) -> Radians {
 }
 
 /// A type representing a percentage value.
-#[derive(
-    Clone,
-    Copy,
-    Default,
-    Add,
-    AddAssign,
-    Sub,
-    SubAssign,
-    Neg,
-    Div,
-    DivAssign,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Debug,
-)]
+#[derive(Clone, Copy, Default, PartialEq, Serialize, Deserialize, Debug)]
 #[repr(transparent)]
 pub struct Percentage(pub f32);
+
+impl std::ops::Add for Percentage {
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn add(self, other: Self) -> Self::Output {
+        match (self, other) {
+            (Self(first), Self(other_first)) => Self(std::ops::Add::add(first, other_first)),
+        }
+    }
+}
+
+impl std::ops::AddAssign for Percentage {
+    #[inline]
+    #[track_caller]
+    fn add_assign(&mut self, other: Self) {
+        match (self, other) {
+            (Self(first), Self(other_first)) => {
+                std::ops::AddAssign::add_assign(first, other_first);
+            }
+        }
+    }
+}
+
+impl std::ops::Sub for Percentage {
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn sub(self, other: Self) -> Self::Output {
+        match (self, other) {
+            (Self(first), Self(other_first)) => Self(std::ops::Sub::sub(first, other_first)),
+        }
+    }
+}
+
+impl std::ops::SubAssign for Percentage {
+    #[inline]
+    #[track_caller]
+    fn sub_assign(&mut self, other: Self) {
+        match (self, other) {
+            (Self(first), Self(other_first)) => {
+                std::ops::SubAssign::sub_assign(first, other_first);
+            }
+        }
+    }
+}
+
+impl std::ops::Neg for Percentage {
+    type Output = Percentage;
+    #[inline]
+    fn neg(self) -> Percentage {
+        Percentage(self.0.neg())
+    }
+}
+
+impl<Operand> std::ops::Div<Operand> for Percentage
+where
+    f32: std::ops::Div<Operand, Output = f32>,
+{
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn div(self, other: Operand) -> Self::Output {
+        match self {
+            Self(first) => Self(std::ops::Div::div(first, other)),
+        }
+    }
+}
+
+impl<Operand> std::ops::DivAssign<Operand> for Percentage
+where
+    f32: std::ops::DivAssign<Operand>,
+{
+    #[inline]
+    #[track_caller]
+    fn div_assign(&mut self, other: Operand) {
+        match self {
+            Self(first) => {
+                std::ops::DivAssign::div_assign(first, other);
+            }
+        }
+    }
+}
 
 /// Generate a `Radian` from a percentage of a full circle.
 pub fn percentage(value: f32) -> Percentage {
@@ -2669,24 +2988,92 @@ impl From<Percentage> for Radians {
 /// let scaled_length = length.scale(2.0);
 /// assert_eq!(scaled_length, ScaledPixels::from(20.0));
 /// ```
-#[derive(
-    Clone,
-    Copy,
-    Default,
-    Add,
-    AddAssign,
-    Sub,
-    SubAssign,
-    Neg,
-    Div,
-    DivAssign,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-)]
+#[derive(Clone, Copy, Default, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[repr(transparent)]
 pub struct Pixels(pub(crate) f32);
+
+impl std::ops::Add for Pixels {
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn add(self, other: Self) -> Self::Output {
+        match (self, other) {
+            (Self(first), Self(other_first)) => Self(std::ops::Add::add(first, other_first)),
+        }
+    }
+}
+
+impl std::ops::AddAssign for Pixels {
+    #[inline]
+    #[track_caller]
+    fn add_assign(&mut self, other: Self) {
+        match (self, other) {
+            (Self(first), Self(other_first)) => {
+                std::ops::AddAssign::add_assign(first, other_first);
+            }
+        }
+    }
+}
+
+impl std::ops::Sub for Pixels {
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn sub(self, other: Self) -> Self::Output {
+        match (self, other) {
+            (Self(first), Self(other_first)) => Self(std::ops::Sub::sub(first, other_first)),
+        }
+    }
+}
+
+impl std::ops::SubAssign for Pixels {
+    #[inline]
+    #[track_caller]
+    fn sub_assign(&mut self, other: Self) {
+        match (self, other) {
+            (Self(first), Self(other_first)) => {
+                std::ops::SubAssign::sub_assign(first, other_first);
+            }
+        }
+    }
+}
+
+impl std::ops::Neg for Pixels {
+    type Output = Pixels;
+    #[inline]
+    fn neg(self) -> Pixels {
+        Pixels(self.0.neg())
+    }
+}
+
+impl<Operand> std::ops::Div<Operand> for Pixels
+where
+    f32: std::ops::Div<Operand, Output = f32>,
+{
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn div(self, other: Operand) -> Self::Output {
+        match self {
+            Self(first) => Self(std::ops::Div::div(first, other)),
+        }
+    }
+}
+
+impl<Operand> std::ops::DivAssign<Operand> for Pixels
+where
+    f32: std::ops::DivAssign<Operand>,
+{
+    #[inline]
+    #[track_caller]
+    fn div_assign(&mut self, other: Operand) {
+        match self {
+            Self(first) => {
+                std::ops::DivAssign::div_assign(first, other);
+            }
+        }
+    }
+}
 
 impl Div for Pixels {
     type Output = f32;
@@ -2973,25 +3360,69 @@ impl From<usize> for Pixels {
 /// interfacing with hardware that operates on the pixel level. Unlike logical pixels that may be
 /// affected by the device's scale factor, `DevicePixels` always correspond to real pixels on the
 /// display.
-#[derive(
-    Add,
-    AddAssign,
-    Clone,
-    Copy,
-    Default,
-    Div,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-    Sub,
-    SubAssign,
-    Serialize,
-    Deserialize,
-)]
+#[derive(Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[repr(transparent)]
 pub struct DevicePixels(pub i32);
+
+impl std::ops::Add for DevicePixels {
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn add(self, other: Self) -> Self::Output {
+        match (self, other) {
+            (Self(first), Self(other_first)) => Self(std::ops::Add::add(first, other_first)),
+        }
+    }
+}
+
+impl std::ops::AddAssign for DevicePixels {
+    #[inline]
+    #[track_caller]
+    fn add_assign(&mut self, other: Self) {
+        match (self, other) {
+            (Self(first), Self(other_first)) => {
+                std::ops::AddAssign::add_assign(first, other_first);
+            }
+        }
+    }
+}
+
+impl<Operand> std::ops::Div<Operand> for DevicePixels
+where
+    i32: std::ops::Div<Operand, Output = i32>,
+{
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn div(self, other: Operand) -> Self::Output {
+        match self {
+            Self(first) => Self(std::ops::Div::div(first, other)),
+        }
+    }
+}
+
+impl std::ops::Sub for DevicePixels {
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn sub(self, other: Self) -> Self::Output {
+        match (self, other) {
+            (Self(first), Self(other_first)) => Self(std::ops::Sub::sub(first, other_first)),
+        }
+    }
+}
+
+impl std::ops::SubAssign for DevicePixels {
+    #[inline]
+    #[track_caller]
+    fn sub_assign(&mut self, other: Self) {
+        match (self, other) {
+            (Self(first), Self(other_first)) => {
+                std::ops::SubAssign::sub_assign(first, other_first);
+            }
+        }
+    }
+}
 
 impl DevicePixels {
     /// Converts the `DevicePixels` value to the number of bytes needed to represent it in memory.
@@ -3082,9 +3513,84 @@ impl From<usize> for DevicePixels {
 /// a single logical pixel may correspond to multiple physical pixels. By using `ScaledPixels`,
 /// dimensions and positions can be specified in a way that scales appropriately across different
 /// display resolutions.
-#[derive(Clone, Copy, Default, Add, AddAssign, Sub, SubAssign, Div, DivAssign, PartialEq)]
+#[derive(Clone, Copy, Default, PartialEq)]
 #[repr(transparent)]
 pub struct ScaledPixels(pub f32);
+
+impl std::ops::Add for ScaledPixels {
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn add(self, other: Self) -> Self::Output {
+        match (self, other) {
+            (Self(first), Self(other_first)) => Self(std::ops::Add::add(first, other_first)),
+        }
+    }
+}
+
+impl std::ops::AddAssign for ScaledPixels {
+    #[inline]
+    #[track_caller]
+    fn add_assign(&mut self, other: Self) {
+        match (self, other) {
+            (Self(first), Self(other_first)) => {
+                std::ops::AddAssign::add_assign(first, other_first);
+            }
+        }
+    }
+}
+
+impl std::ops::Sub for ScaledPixels {
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn sub(self, other: Self) -> Self::Output {
+        match (self, other) {
+            (Self(first), Self(other_first)) => Self(std::ops::Sub::sub(first, other_first)),
+        }
+    }
+}
+
+impl std::ops::SubAssign for ScaledPixels {
+    #[inline]
+    #[track_caller]
+    fn sub_assign(&mut self, other: Self) {
+        match (self, other) {
+            (Self(first), Self(other_first)) => {
+                std::ops::SubAssign::sub_assign(first, other_first);
+            }
+        }
+    }
+}
+
+impl<Operand> std::ops::Div<Operand> for ScaledPixels
+where
+    f32: std::ops::Div<Operand, Output = f32>,
+{
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn div(self, other: Operand) -> Self::Output {
+        match self {
+            Self(first) => Self(std::ops::Div::div(first, other)),
+        }
+    }
+}
+
+impl<Operand> std::ops::DivAssign<Operand> for ScaledPixels
+where
+    f32: std::ops::DivAssign<Operand>,
+{
+    #[inline]
+    #[track_caller]
+    fn div_assign(&mut self, other: Operand) {
+        match self {
+            Self(first) => {
+                std::ops::DivAssign::div_assign(first, other);
+            }
+        }
+    }
+}
 
 impl ScaledPixels {
     /// Returns the raw `f32` value of this `ScaledPixels`.
@@ -3246,8 +3752,66 @@ impl MulAssign<f32> for ScaledPixels {
 /// For example, if the root element's font-size is `16px`, then `1rem` equals `16px`. A length of `2rems` would then be `32px`.
 ///
 /// [set_rem_size]: crate::Window::set_rem_size
-#[derive(Clone, Copy, Default, Add, Sub, Mul, Div, Neg, PartialEq)]
+#[derive(Clone, Copy, Default, PartialEq)]
 pub struct Rems(pub f32);
+
+impl std::ops::Add for Rems {
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn add(self, other: Self) -> Self::Output {
+        match (self, other) {
+            (Self(first), Self(other_first)) => Self(std::ops::Add::add(first, other_first)),
+        }
+    }
+}
+
+impl std::ops::Sub for Rems {
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn sub(self, other: Self) -> Self::Output {
+        match (self, other) {
+            (Self(first), Self(other_first)) => Self(std::ops::Sub::sub(first, other_first)),
+        }
+    }
+}
+
+impl<Operand> std::ops::Mul<Operand> for Rems
+where
+    f32: std::ops::Mul<Operand, Output = f32>,
+{
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn mul(self, other: Operand) -> Self::Output {
+        match self {
+            Self(first) => Self(std::ops::Mul::mul(first, other)),
+        }
+    }
+}
+
+impl<Operand> std::ops::Div<Operand> for Rems
+where
+    f32: std::ops::Div<Operand, Output = f32>,
+{
+    type Output = Self;
+    #[inline]
+    #[track_caller]
+    fn div(self, other: Operand) -> Self::Output {
+        match self {
+            Self(first) => Self(std::ops::Div::div(first, other)),
+        }
+    }
+}
+
+impl std::ops::Neg for Rems {
+    type Output = Rems;
+    #[inline]
+    fn neg(self) -> Rems {
+        Rems(self.0.neg())
+    }
+}
 
 impl Rems {
     /// A length of zero.
@@ -3306,12 +3870,23 @@ impl TryFrom<&'_ str> for Rems {
 /// affected by the current font size, or a number of rems, which is relative to the font size of
 /// the root element. It is used for specifying dimensions that are either independent of or
 /// related to the typographic scale.
-#[derive(Clone, Copy, Neg, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum AbsoluteLength {
     /// A length in pixels.
     Pixels(Pixels),
     /// A length in rems.
     Rems(Rems),
+}
+
+impl Neg for AbsoluteLength {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        match self {
+            Self::Pixels(pixels) => Self::Pixels(-pixels),
+            Self::Rems(rems) => Self::Rems(-rems),
+        }
+    }
 }
 
 impl AbsoluteLength {
@@ -3468,12 +4043,23 @@ impl Serialize for AbsoluteLength {
 /// This enum represents lengths that have a specific value, as opposed to lengths that are automatically
 /// determined by the context. It includes absolute lengths in pixels or rems, and relative lengths as a
 /// fraction of the parent's size.
-#[derive(Clone, Copy, Neg, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum DefiniteLength {
     /// An absolute length specified in pixels or rems.
     Absolute(AbsoluteLength),
     /// A relative length specified as a fraction of the parent's size, between 0 and 1.
     Fraction(f32),
+}
+
+impl Neg for DefiniteLength {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        match self {
+            Self::Absolute(length) => Self::Absolute(-length),
+            Self::Fraction(fraction) => Self::Fraction(-fraction),
+        }
+    }
 }
 
 impl DefiniteLength {

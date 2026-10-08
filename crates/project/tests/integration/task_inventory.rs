@@ -1,7 +1,7 @@
 use gpui::{AppContext, Entity, Task, TestAppContext};
 use itertools::Itertools;
 use paths::tasks_file;
-use pretty_assertions::assert_eq;
+
 use serde_json::json;
 use settings::SettingsLocation;
 use std::path::Path;

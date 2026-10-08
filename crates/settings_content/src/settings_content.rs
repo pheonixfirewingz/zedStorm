@@ -48,14 +48,34 @@ use settings_macros::{MergeFrom, with_fallible_options};
     MergeFrom,
     PartialEq,
     PartialOrd,
-    derive_more::FromStr,
-    derive_more::Deref,
-    derive_more::From,
 )]
 #[serde(transparent)]
 pub struct PixelSetting(
     #[serde(serialize_with = "crate::serialize_f32_with_two_decimal_places")] pub f32,
 );
+
+impl std::str::FromStr for PixelSetting {
+    type Err = <f32 as std::str::FromStr>::Err;
+    #[inline]
+    fn from_str(input: &str) -> std::result::Result<Self, Self::Err> {
+        std::str::FromStr::from_str(input).map(Self)
+    }
+}
+
+impl std::ops::Deref for PixelSetting {
+    type Target = f32;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::convert::From<f32> for PixelSetting {
+    #[inline]
+    fn from(value: f32) -> Self {
+        PixelSetting(value)
+    }
+}
 
 impl std::fmt::Display for PixelSetting {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -168,6 +188,8 @@ pub enum ReduceMotionMode {
 #[with_fallible_options]
 #[derive(Debug, PartialEq, Default, Clone, Serialize, JsonSchema, MergeFrom)]
 pub struct SettingsContent {
+    pub ai: Option<AiSettingsContent>,
+
     #[serde(flatten)]
     pub project: ProjectSettingsContent,
 
@@ -258,8 +280,6 @@ pub struct SettingsContent {
     /// Configuration for Node-related features
     pub node: Option<NodeBinarySettings>,
 
-    pub proxy: Option<String>,
-
     /// Whether to reduce non-essential motion in the UI, such as loading
     /// spinners and pulsating labels, by rendering them in a static state.
     ///
@@ -313,6 +333,18 @@ pub struct SettingsContent {
     /// Settings for developer-oriented instrumentation tools (profilers,
     /// tracers, etc.) that can be toggled at runtime.
     pub instrumentation: Option<InstrumentationSettingsContent>,
+}
+
+#[with_fallible_options]
+#[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize, JsonSchema, MergeFrom)]
+pub struct AiSettingsContent {
+    pub vibe: Option<VibeSettingsContent>,
+}
+
+#[with_fallible_options]
+#[derive(Debug, PartialEq, Default, Clone, Serialize, Deserialize, JsonSchema, MergeFrom)]
+pub struct VibeSettingsContent {
+    pub enabled: Option<bool>,
 }
 
 /// Configuration for developer-oriented instrumentation tools that collect
@@ -383,12 +415,12 @@ impl SettingsContent {
 fallible_options::flattened_deserialize!(SettingsContent {
     sections: { project, theme, extension, workspace, editor, remote },
     options: {
-        call_hierarchy, command_palette, file_finder, git_panel, tabs, tab_bar, status_bar, preview_tabs,
+        ai, call_hierarchy, command_palette, file_finder, git_panel, tabs, tab_bar, status_bar, preview_tabs,
         auto_update, debugger, diagnostics,
         git,
         global_lsp_settings, image_viewer, markdown_preview, repl, helix_mode, hide_mouse,
         journal, log, line_indicator_format, copilot, outline_panel, project_panel,
-        node, proxy, reduce_motion, server_url, credentials_url, session, telemetry, terminal,
+        node, reduce_motion, server_url, credentials_url, session, telemetry, terminal,
         title_bar, vim_mode, which_key, vim, modeline_lines, feature_flags,
         instrumentation,
     },

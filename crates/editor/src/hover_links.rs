@@ -1211,7 +1211,7 @@ mod tests {
         Modifiers, MouseButton, MouseDownEvent, MousePressureEvent, MouseUpEvent, PlatformInput,
         PressureStage,
     };
-    use indoc::indoc;
+
     use language::Point;
     use lsp::request::{GotoDefinition, GotoTypeDefinition, References};
     use multi_buffer::{MultiBufferOffset, PathKey};
@@ -1275,21 +1275,24 @@ mod tests {
         )
         .await;
 
-        cx.set_state(indoc! {"
-            struct A;
-            let vˇariable = A;
-        "});
+        cx.set_state(
+            "struct A;
+let vˇariable = A;
+",
+        );
         let screen_coord = cx.editor(|editor, _, cx| editor.pixel_position_of_cursor(cx));
 
         // Basic hold cmd+shift, expect highlight in region if response contains type definition
-        let symbol_range = cx.lsp_range(indoc! {"
-            struct A;
-            let «variable» = A;
-        "});
-        let target_range = cx.lsp_range(indoc! {"
-            struct «A»;
-            let variable = A;
-        "});
+        let symbol_range = cx.lsp_range(
+            "struct A;
+let «variable» = A;
+",
+        );
+        let target_range = cx.lsp_range(
+            "struct «A»;
+let variable = A;
+",
+        );
 
         cx.run_until_parked();
 
@@ -1317,10 +1320,9 @@ mod tests {
         cx.run_until_parked();
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"
-            struct A;
-            let «variable» = A;
-        "},
+            "struct A;
+let «variable» = A;
+",
         );
 
         cx.simulate_modifiers_change(Modifiers::secondary_key());
@@ -1328,18 +1330,18 @@ mod tests {
         // Assert no link highlights
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"
-            struct A;
-            let variable = A;
-        "},
+            "struct A;
+let variable = A;
+",
         );
 
         cx.simulate_click(screen_coord.unwrap(), modifiers);
 
-        cx.assert_editor_state(indoc! {"
-            struct «Aˇ»;
-            let variable = A;
-        "});
+        cx.assert_editor_state(
+            "struct «Aˇ»;
+let variable = A;
+",
+        );
     }
 
     #[gpui::test]
@@ -1431,9 +1433,9 @@ mod tests {
         )
         .await;
 
-        cx.set_state(indoc! {"struct fileˇ;"});
+        cx.set_state("struct fileˇ;");
 
-        let target_range = cx.lsp_range(indoc! {"struct «file»;"});
+        let target_range = cx.lsp_range("struct «file»;");
 
         let _definitions =
             cx.set_request_handler::<GotoDefinition, _, _>(move |url, _, _| async move {
@@ -1459,7 +1461,7 @@ mod tests {
         });
 
         cx.run_until_parked();
-        let screen_coord = cx.pixel_position(indoc! {"struct fiˇle;"});
+        let screen_coord = cx.pixel_position("struct fiˇle;");
         cx.run_until_parked();
         cx.simulate_mouse_move(screen_coord, None, Modifiers::secondary_key());
         cx.run_until_parked();
@@ -1496,9 +1498,7 @@ mod tests {
             .insert_file(path!("/root/dir/file2.rs"), "".as_bytes().to_vec())
             .await;
 
-        cx.set_state(indoc! {
-            "// see file2ˇ.rs"
-        });
+        cx.set_state("// see file2ˇ.rs");
 
         let _definitions = cx
             .set_request_handler::<GotoDefinition, _, _>(move |_url, _, _| async move { Ok(None) });
@@ -1516,7 +1516,7 @@ mod tests {
 
         cx.run_until_parked();
 
-        let screen_coord = cx.pixel_position(indoc! {"// see fileˇ2.rs"});
+        let screen_coord = cx.pixel_position("// see fileˇ2.rs");
         cx.run_until_parked();
         cx.simulate_mouse_move(screen_coord, None, Modifiers::secondary_key());
         cx.run_until_parked();
@@ -1555,10 +1555,11 @@ mod tests {
         )
         .await;
 
-        cx.set_state(indoc! {"
-            fn ˇtest() { do_work(); }
-            fn do_work() { test(); }
-        "});
+        cx.set_state(
+            "fn ˇtest() { do_work(); }
+fn do_work() { test(); }
+",
+        );
 
         let request_count = Arc::new(AtomicUsize::new(0));
         let _requests = cx.set_request_handler::<GotoDefinition, _, _>({
@@ -1578,18 +1579,21 @@ mod tests {
             }
         });
 
-        let symbol_start = cx.pixel_position(indoc! {"
-            fn test() { ˇdo_work(); }
-            fn do_work() { test(); }
-        "});
-        let symbol_end = cx.pixel_position(indoc! {"
-            fn test() { do_worˇk(); }
-            fn do_work() { test(); }
-        "});
-        let other_symbol = cx.pixel_position(indoc! {"
-            fn test() { do_work(); }
-            fn do_work() { teˇst(); }
-        "});
+        let symbol_start = cx.pixel_position(
+            "fn test() { ˇdo_work(); }
+fn do_work() { test(); }
+",
+        );
+        let symbol_end = cx.pixel_position(
+            "fn test() { do_worˇk(); }
+fn do_work() { test(); }
+",
+        );
+        let other_symbol = cx.pixel_position(
+            "fn test() { do_work(); }
+fn do_work() { teˇst(); }
+",
+        );
 
         cx.simulate_mouse_move(symbol_start, None, Modifiers::secondary_key());
         cx.run_until_parked();
@@ -1621,10 +1625,11 @@ mod tests {
         )
         .await;
 
-        cx.set_state(indoc! {"
-            fn ˇtest() { do_work(); }
-            fn do_work() { test(); }
-        "});
+        cx.set_state(
+            "fn ˇtest() { do_work(); }
+fn do_work() { test(); }
+",
+        );
 
         let request_count = Arc::new(AtomicUsize::new(0));
         let _requests = cx.set_request_handler::<GotoDefinition, _, _>({
@@ -1639,14 +1644,16 @@ mod tests {
             }
         });
 
-        let first_point = cx.pixel_position(indoc! {"
-            fn test() { do_wˇork(); }
-            fn do_work() { test(); }
-        "});
-        let second_point = cx.pixel_position(indoc! {"
-            fn test() { do_woˇrk(); }
-            fn do_work() { test(); }
-        "});
+        let first_point = cx.pixel_position(
+            "fn test() { do_wˇork(); }
+fn do_work() { test(); }
+",
+        );
+        let second_point = cx.pixel_position(
+            "fn test() { do_woˇrk(); }
+fn do_work() { test(); }
+",
+        );
 
         cx.simulate_mouse_move(first_point, None, Modifiers::secondary_key());
         cx.run_until_parked();
@@ -1681,24 +1688,28 @@ mod tests {
         )
         .await;
 
-        cx.set_state(indoc! {"
-                fn ˇtest() { do_work(); }
-                fn do_work() { test(); }
-            "});
+        cx.set_state(
+            "fn ˇtest() { do_work(); }
+fn do_work() { test(); }
+",
+        );
 
         // Basic hold cmd, expect highlight in region if response contains definition
-        let hover_point = cx.pixel_position(indoc! {"
-                fn test() { do_wˇork(); }
-                fn do_work() { test(); }
-            "});
-        let symbol_range = cx.lsp_range(indoc! {"
-                fn test() { «do_work»(); }
-                fn do_work() { test(); }
-            "});
-        let target_range = cx.lsp_range(indoc! {"
-                fn test() { do_work(); }
-                fn «do_work»() { test(); }
-            "});
+        let hover_point = cx.pixel_position(
+            "fn test() { do_wˇork(); }
+fn do_work() { test(); }
+",
+        );
+        let symbol_range = cx.lsp_range(
+            "fn test() { «do_work»(); }
+fn do_work() { test(); }
+",
+        );
+        let target_range = cx.lsp_range(
+            "fn test() { do_work(); }
+fn «do_work»() { test(); }
+",
+        );
 
         let mut requests =
             cx.set_request_handler::<GotoDefinition, _, _>(move |url, _, _| async move {
@@ -1717,20 +1728,18 @@ mod tests {
         cx.background_executor.run_until_parked();
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"
-                fn test() { «do_work»(); }
-                fn do_work() { test(); }
-            "},
+            "fn test() { «do_work»(); }
+fn do_work() { test(); }
+",
         );
 
         // Unpress cmd causes highlight to go away
         cx.simulate_modifiers_change(Modifiers::none());
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"
-                fn test() { do_work(); }
-                fn do_work() { test(); }
-            "},
+            "fn test() { do_work(); }
+fn do_work() { test(); }
+",
         );
 
         let mut requests =
@@ -1750,17 +1759,17 @@ mod tests {
         cx.background_executor.run_until_parked();
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"
-                fn test() { «do_work»(); }
-                fn do_work() { test(); }
-            "},
+            "fn test() { «do_work»(); }
+fn do_work() { test(); }
+",
         );
 
         // Moving mouse to location with no response dismisses highlight
-        let hover_point = cx.pixel_position(indoc! {"
-                fˇn test() { do_work(); }
-                fn do_work() { test(); }
-            "});
+        let hover_point = cx.pixel_position(
+            "fˇn test() { do_work(); }
+fn do_work() { test(); }
+",
+        );
         let mut requests =
             cx.lsp
                 .set_request_handler::<GotoDefinition, _, _>(move |_, _| async move {
@@ -1775,36 +1784,37 @@ mod tests {
         // Assert no link highlights
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"
-                fn test() { do_work(); }
-                fn do_work() { test(); }
-            "},
+            "fn test() { do_work(); }
+fn do_work() { test(); }
+",
         );
 
         // // Move mouse without cmd and then pressing cmd triggers highlight
-        let hover_point = cx.pixel_position(indoc! {"
-                fn test() { do_work(); }
-                fn do_work() { teˇst(); }
-            "});
+        let hover_point = cx.pixel_position(
+            "fn test() { do_work(); }
+fn do_work() { teˇst(); }
+",
+        );
         cx.simulate_mouse_move(hover_point, None, Modifiers::none());
 
         // Assert no link highlights
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"
-                fn test() { do_work(); }
-                fn do_work() { test(); }
-            "},
+            "fn test() { do_work(); }
+fn do_work() { test(); }
+",
         );
 
-        let symbol_range = cx.lsp_range(indoc! {"
-                fn test() { do_work(); }
-                fn do_work() { «test»(); }
-            "});
-        let target_range = cx.lsp_range(indoc! {"
-                fn «test»() { do_work(); }
-                fn do_work() { test(); }
-            "});
+        let symbol_range = cx.lsp_range(
+            "fn test() { do_work(); }
+fn do_work() { «test»(); }
+",
+        );
+        let target_range = cx.lsp_range(
+            "fn «test»() { do_work(); }
+fn do_work() { test(); }
+",
+        );
 
         let mut requests =
             cx.set_request_handler::<GotoDefinition, _, _>(move |url, _, _| async move {
@@ -1825,44 +1835,41 @@ mod tests {
 
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"
-                fn test() { do_work(); }
-                fn do_work() { «test»(); }
-            "},
+            "fn test() { do_work(); }
+fn do_work() { «test»(); }
+",
         );
 
         cx.deactivate_window();
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"
-                fn test() { do_work(); }
-                fn do_work() { test(); }
-            "},
+            "fn test() { do_work(); }
+fn do_work() { test(); }
+",
         );
 
         cx.simulate_mouse_move(hover_point, None, Modifiers::secondary_key());
         cx.background_executor.run_until_parked();
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"
-                fn test() { do_work(); }
-                fn do_work() { «test»(); }
-            "},
+            "fn test() { do_work(); }
+fn do_work() { «test»(); }
+",
         );
 
         // Moving again within the same symbol range doesn't re-request
-        let hover_point = cx.pixel_position(indoc! {"
-                fn test() { do_work(); }
-                fn do_work() { tesˇt(); }
-            "});
+        let hover_point = cx.pixel_position(
+            "fn test() { do_work(); }
+fn do_work() { tesˇt(); }
+",
+        );
         cx.simulate_mouse_move(hover_point, None, Modifiers::secondary_key());
         cx.background_executor.run_until_parked();
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"
-                fn test() { do_work(); }
-                fn do_work() { «test»(); }
-            "},
+            "fn test() { do_work(); }
+fn do_work() { «test»(); }
+",
         );
 
         // Cmd click with existing definition doesn't re-request and dismisses highlight
@@ -1874,29 +1881,31 @@ mod tests {
                 Ok(Some(lsp::GotoDefinitionResponse::Link(vec![])))
             });
         cx.background_executor.run_until_parked();
-        cx.assert_editor_state(indoc! {"
-                fn «testˇ»() { do_work(); }
-                fn do_work() { test(); }
-            "});
+        cx.assert_editor_state(
+            "fn «testˇ»() { do_work(); }
+fn do_work() { test(); }
+",
+        );
 
         // Assert no link highlights after jump
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"
-                fn test() { do_work(); }
-                fn do_work() { test(); }
-            "},
+            "fn test() { do_work(); }
+fn do_work() { test(); }
+",
         );
 
         // Cmd click without existing definition requests and jumps
-        let hover_point = cx.pixel_position(indoc! {"
-                fn test() { do_wˇork(); }
-                fn do_work() { test(); }
-            "});
-        let target_range = cx.lsp_range(indoc! {"
-                fn test() { do_work(); }
-                fn «do_work»() { test(); }
-            "});
+        let hover_point = cx.pixel_position(
+            "fn test() { do_wˇork(); }
+fn do_work() { test(); }
+",
+        );
+        let target_range = cx.lsp_range(
+            "fn test() { do_work(); }
+fn «do_work»() { test(); }
+",
+        );
 
         let mut requests =
             cx.set_request_handler::<GotoDefinition, _, _>(move |url, _, _| async move {
@@ -1912,21 +1921,24 @@ mod tests {
         cx.simulate_click(hover_point, Modifiers::secondary_key());
         requests.next().await;
         cx.background_executor.run_until_parked();
-        cx.assert_editor_state(indoc! {"
-                fn test() { do_work(); }
-                fn «do_workˇ»() { test(); }
-            "});
+        cx.assert_editor_state(
+            "fn test() { do_work(); }
+fn «do_workˇ»() { test(); }
+",
+        );
 
         // 1. We have a pending selection, mouse point is over a symbol that we have a response for, hitting cmd and nothing happens
         // 2. Selection is completed, hovering
-        let hover_point = cx.pixel_position(indoc! {"
-                fn test() { do_wˇork(); }
-                fn do_work() { test(); }
-            "});
-        let target_range = cx.lsp_range(indoc! {"
-                fn test() { do_work(); }
-                fn «do_work»() { test(); }
-            "});
+        let hover_point = cx.pixel_position(
+            "fn test() { do_wˇork(); }
+fn do_work() { test(); }
+",
+        );
+        let target_range = cx.lsp_range(
+            "fn test() { do_work(); }
+fn «do_work»() { test(); }
+",
+        );
         let mut requests =
             cx.set_request_handler::<GotoDefinition, _, _>(move |url, _, _| async move {
                 Ok(Some(lsp::GotoDefinitionResponse::Link(vec![
@@ -1940,11 +1952,12 @@ mod tests {
             });
 
         // create a pending selection
-        let selection_range = cx.ranges(indoc! {"
-                fn «test() { do_w»ork(); }
-                fn do_work() { test(); }
-            "})[0]
-            .clone();
+        let selection_range = cx.ranges(
+            "fn «test() { do_w»ork(); }
+fn do_work() { test(); }
+",
+        )[0]
+        .clone();
         cx.update_editor(|editor, window, cx| {
             let snapshot = editor.buffer().read(cx).snapshot(cx);
             let anchor_range = snapshot.anchor_before(MultiBufferOffset(selection_range.start))
@@ -1958,10 +1971,9 @@ mod tests {
         assert!(requests.try_recv().is_err());
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"
-                fn test() { do_work(); }
-                fn do_work() { test(); }
-            "},
+            "fn test() { do_work(); }
+fn do_work() { test(); }
+",
         );
         cx.background_executor.run_until_parked();
     }
@@ -1995,29 +2007,32 @@ mod tests {
             cx,
         )
         .await;
-        cx.set_state(indoc! {"
-                struct TestStruct;
+        cx.set_state(
+            "struct TestStruct;
 
-                fn main() {
-                    let variableˇ = TestStruct;
-                }
-            "});
-        let hint_start_offset = cx.ranges(indoc! {"
-                struct TestStruct;
+fn main() {
+    let variableˇ = TestStruct;
+}
+",
+        );
+        let hint_start_offset = cx.ranges(
+            "struct TestStruct;
 
-                fn main() {
-                    let variableˇ = TestStruct;
-                }
-            "})[0]
-            .start;
+fn main() {
+    let variableˇ = TestStruct;
+}
+",
+        )[0]
+        .start;
         let hint_position = cx.to_lsp(MultiBufferOffset(hint_start_offset));
-        let target_range = cx.lsp_range(indoc! {"
-                struct «TestStruct»;
+        let target_range = cx.lsp_range(
+            "struct «TestStruct»;
 
-                fn main() {
-                    let variable = TestStruct;
-                }
-            "});
+fn main() {
+    let variable = TestStruct;
+}
+",
+        );
 
         let expected_uri = cx.buffer_lsp_url.clone();
         let hint_label = ": TestStruct";
@@ -2067,13 +2082,14 @@ mod tests {
         });
 
         let inlay_range = cx
-            .ranges(indoc! {"
-                struct TestStruct;
+            .ranges(
+                "struct TestStruct;
 
-                fn main() {
-                    let variable« »= TestStruct;
-                }
-            "})
+fn main() {
+    let variable« »= TestStruct;
+}
+",
+            )
             .first()
             .cloned()
             .unwrap();
@@ -2151,13 +2167,14 @@ mod tests {
             .await
             .expect("execute command request");
         cx.background_executor.run_until_parked();
-        cx.assert_editor_state(indoc! {"
-                struct TestStruct;
+        cx.assert_editor_state(
+            "struct TestStruct;
 
-                fn main() {
-                    let variableˇ = TestStruct;
-                }
-            "});
+fn main() {
+    let variableˇ = TestStruct;
+}
+",
+        );
 
         cx.simulate_event(MouseDownEvent {
             position: hover_point,
@@ -2182,13 +2199,12 @@ mod tests {
         cx.background_executor.run_until_parked();
         cx.simulate_click(hover_point, Modifiers::secondary_key());
         cx.background_executor.run_until_parked();
-        let destination = indoc! {"
-                struct «TestStructˇ»;
+        let destination = "struct «TestStructˇ»;
 
-                fn main() {
-                    let variable = TestStruct;
-                }
-            "};
+fn main() {
+    let variable = TestStruct;
+}
+";
         cx.assert_editor_state(destination);
 
         let source = cx.buffer_text().replace("= TestStruct", "= TeˇstStruct");
@@ -2246,20 +2262,21 @@ mod tests {
         )
         .await;
 
-        cx.set_state(indoc! {"
-            Let's test a [complex](https://zed.dev/channel/had-(oops)) caseˇ.
-        "});
+        cx.set_state(
+            "Let's test a [complex](https://zed.dev/channel/had-(oops)) caseˇ.
+",
+        );
 
-        let screen_coord = cx.pixel_position(indoc! {"
-            Let's test a [complex](https://zed.dev/channel/had-(ˇoops)) case.
-            "});
+        let screen_coord = cx.pixel_position(
+            "Let's test a [complex](https://zed.dev/channel/had-(ˇoops)) case.
+",
+        );
 
         cx.simulate_mouse_move(screen_coord, None, Modifiers::secondary_key());
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"
-            Let's test a [complex](«https://zed.dev/channel/had-(oops)ˇ») case.
-        "},
+            "Let's test a [complex](«https://zed.dev/channel/had-(oops)ˇ») case.
+",
         );
 
         cx.simulate_click(screen_coord, Modifiers::secondary_key());
@@ -2450,28 +2467,30 @@ mod tests {
         }
 
         // No link
-        cx.set_state(indoc! {"
-            Let's test a [complex](https://zed.dev/channel/) caseˇ.
-        "});
+        cx.set_state(
+            "Let's test a [complex](https://zed.dev/channel/) caseˇ.
+",
+        );
         assert_no_highlight!(cx);
 
         // No modifier
-        let screen_coord = cx.pixel_position(indoc! {"
-            Let's test a [complex](https://zed.dev/channel/ˇ) case.
-            "});
+        let screen_coord = cx.pixel_position(
+            "Let's test a [complex](https://zed.dev/channel/ˇ) case.
+",
+        );
         cx.simulate_mouse_move(screen_coord, None, Modifiers::none());
         assert_no_highlight!(cx);
 
         // Modifier active
-        let screen_coord = cx.pixel_position(indoc! {"
-            Let's test a [complex](https://zed.dev/channeˇl/) case.
-            "});
+        let screen_coord = cx.pixel_position(
+            "Let's test a [complex](https://zed.dev/channeˇl/) case.
+",
+        );
         cx.simulate_mouse_move(screen_coord, None, Modifiers::secondary_key());
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"
-            Let's test a [complex](«https://zed.dev/channel/ˇ») case.
-        "},
+            "Let's test a [complex](«https://zed.dev/channel/ˇ») case.
+",
         );
     }
 
@@ -2486,15 +2505,14 @@ mod tests {
         )
         .await;
 
-        cx.set_state(indoc! {"https://zed.dev/releases is a cool ˇwebpage."});
+        cx.set_state("https://zed.dev/releases is a cool ˇwebpage.");
 
-        let screen_coord =
-            cx.pixel_position(indoc! {"https://zed.dev/relˇeases is a cool webpage."});
+        let screen_coord = cx.pixel_position("https://zed.dev/relˇeases is a cool webpage.");
 
         cx.simulate_mouse_move(screen_coord, None, Modifiers::secondary_key());
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"«https://zed.dev/releasesˇ» is a cool webpage."},
+            "«https://zed.dev/releasesˇ» is a cool webpage.",
         );
 
         cx.simulate_click(screen_coord, Modifiers::secondary_key());
@@ -2512,15 +2530,14 @@ mod tests {
         )
         .await;
 
-        cx.set_state(indoc! {"A cool ˇwebpage is https://zed.dev/releases"});
+        cx.set_state("A cool ˇwebpage is https://zed.dev/releases");
 
-        let screen_coord =
-            cx.pixel_position(indoc! {"A cool webpage is https://zed.dev/releˇases"});
+        let screen_coord = cx.pixel_position("A cool webpage is https://zed.dev/releˇases");
 
         cx.simulate_mouse_move(screen_coord, None, Modifiers::secondary_key());
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"A cool webpage is «https://zed.dev/releasesˇ»"},
+            "A cool webpage is «https://zed.dev/releasesˇ»",
         );
 
         cx.simulate_click(screen_coord, Modifiers::secondary_key());
@@ -2899,20 +2916,21 @@ Sentence ending file2.rs.
         cx.run_until_parked();
 
         // file2.rs:5:3 should be highlighted and clickable
-        cx.set_state(indoc! {"
-            Go to file2.rs:5:3 for the fix.ˇ
-        "});
+        cx.set_state(
+            "Go to file2.rs:5:3 for the fix.ˇ
+",
+        );
 
-        let screen_coord = cx.pixel_position(indoc! {"
-            Go to filˇe2.rs:5:3 for the fix.
-        "});
+        let screen_coord = cx.pixel_position(
+            "Go to filˇe2.rs:5:3 for the fix.
+",
+        );
 
         cx.simulate_mouse_move(screen_coord, None, Modifiers::secondary_key());
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"
-            Go to «file2.rs:5:3ˇ» for the fix.
-        "},
+            "Go to «file2.rs:5:3ˇ» for the fix.
+",
         );
 
         cx.simulate_click(screen_coord, Modifiers::secondary_key());
@@ -2976,20 +2994,21 @@ Sentence ending file2.rs.
         cx.run_until_parked();
 
         // file2.rs:3 should be highlighted and clickable
-        cx.set_state(indoc! {"
-            Go to file2.rs:3 please.ˇ
-        "});
+        cx.set_state(
+            "Go to file2.rs:3 please.ˇ
+",
+        );
 
-        let screen_coord = cx.pixel_position(indoc! {"
-            Go to filˇe2.rs:3 please.
-        "});
+        let screen_coord = cx.pixel_position(
+            "Go to filˇe2.rs:3 please.
+",
+        );
 
         cx.simulate_mouse_move(screen_coord, None, Modifiers::secondary_key());
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"
-            Go to «file2.rs:3ˇ» please.
-        "},
+            "Go to «file2.rs:3ˇ» please.
+",
         );
 
         cx.simulate_click(screen_coord, Modifiers::secondary_key());
@@ -3034,20 +3053,21 @@ Sentence ending file2.rs.
         cx.run_until_parked();
 
         // file2.rs:2:in should resolve to file2.rs line 2 (like Ruby backtraces)
-        cx.set_state(indoc! {"
-            Error at file2.rs:2:in 'method'ˇ
-        "});
+        cx.set_state(
+            "Error at file2.rs:2:in 'method'ˇ
+",
+        );
 
-        let screen_coord = cx.pixel_position(indoc! {"
-            Error at filˇe2.rs:2:in 'method'
-        "});
+        let screen_coord = cx.pixel_position(
+            "Error at filˇe2.rs:2:in 'method'
+",
+        );
 
         cx.simulate_mouse_move(screen_coord, None, Modifiers::secondary_key());
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"
-            Error at «file2.rs:2:inˇ» 'method'
-        "},
+            "Error at «file2.rs:2:inˇ» 'method'
+",
         );
 
         cx.simulate_click(screen_coord, Modifiers::secondary_key());
@@ -3094,20 +3114,21 @@ Sentence ending file2.rs.
 
         // Markdown link [text](file2.rs:3:2) should highlight only the inner link,
         // not the surrounding markdown syntax.
-        cx.set_state(indoc! {"
-            See [here](file2.rs:3:2) for details.ˇ
-        "});
+        cx.set_state(
+            "See [here](file2.rs:3:2) for details.ˇ
+",
+        );
 
-        let screen_coord = cx.pixel_position(indoc! {"
-            See [here](filˇe2.rs:3:2) for details.
-        "});
+        let screen_coord = cx.pixel_position(
+            "See [here](filˇe2.rs:3:2) for details.
+",
+        );
 
         cx.simulate_mouse_move(screen_coord, None, Modifiers::secondary_key());
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"
-            See [here](«file2.rs:3:2ˇ») for details.
-        "},
+            "See [here](«file2.rs:3:2ˇ») for details.
+",
         );
 
         cx.simulate_click(screen_coord, Modifiers::secondary_key());
@@ -3164,14 +3185,16 @@ Sentence ending file2.rs.
             .insert_file("/root/dir/file2.rs", "This is file2.rs".as_bytes().to_vec())
             .await;
 
-        cx.set_state(indoc! {"
-            You can't open ../diˇr because it's a directory.
-        "});
+        cx.set_state(
+            "You can't open ../diˇr because it's a directory.
+",
+        );
 
         // File does not exist
-        let screen_coord = cx.pixel_position(indoc! {"
-            You can't open ../diˇr because it's a directory.
-        "});
+        let screen_coord = cx.pixel_position(
+            "You can't open ../diˇr because it's a directory.
+",
+        );
         cx.simulate_mouse_move(screen_coord, None, Modifiers::secondary_key());
 
         // No highlight
@@ -3202,14 +3225,16 @@ Sentence ending file2.rs.
         )
         .await;
 
-        cx.set_state(indoc! {"
-            You can't open ˇ\"🤩\" because it's an emoji.
-        "});
+        cx.set_state(
+            "You can't open ˇ\"🤩\" because it's an emoji.
+",
+        );
 
         // File does not exist
-        let screen_coord = cx.pixel_position(indoc! {"
-            You can't open ˇ\"🤩\" because it's an emoji.
-        "});
+        let screen_coord = cx.pixel_position(
+            "You can't open ˇ\"🤩\" because it's an emoji.
+",
+        );
         cx.simulate_mouse_move(screen_coord, None, Modifiers::secondary_key());
 
         // No highlight, does not panic...
@@ -3243,24 +3268,28 @@ Sentence ending file2.rs.
         )
         .await;
 
-        cx.set_state(indoc! {"
-                    fn ˇtest() { do_work(); }
-                    fn do_work() { test(); }
-                "});
+        cx.set_state(
+            "fn ˇtest() { do_work(); }
+fn do_work() { test(); }
+",
+        );
 
         // Position the mouse over a symbol that has a definition
-        let hover_point = cx.pixel_position(indoc! {"
-                    fn test() { do_wˇork(); }
-                    fn do_work() { test(); }
-                "});
-        let symbol_range = cx.lsp_range(indoc! {"
-                    fn test() { «do_work»(); }
-                    fn do_work() { test(); }
-                "});
-        let target_range = cx.lsp_range(indoc! {"
-                    fn test() { do_work(); }
-                    fn «do_work»() { test(); }
-                "});
+        let hover_point = cx.pixel_position(
+            "fn test() { do_wˇork(); }
+fn do_work() { test(); }
+",
+        );
+        let symbol_range = cx.lsp_range(
+            "fn test() { «do_work»(); }
+fn do_work() { test(); }
+",
+        );
+        let target_range = cx.lsp_range(
+            "fn test() { do_work(); }
+fn «do_work»() { test(); }
+",
+        );
 
         let mut requests =
             cx.set_request_handler::<GotoDefinition, _, _>(move |url, _, _| async move {
@@ -3296,10 +3325,11 @@ Sentence ending file2.rs.
         cx.background_executor.run_until_parked();
 
         // Assert that we navigated to the definition
-        cx.assert_editor_state(indoc! {"
-                    fn test() { do_work(); }
-                    fn «do_workˇ»() { test(); }
-                "});
+        cx.assert_editor_state(
+            "fn test() { do_work(); }
+fn «do_workˇ»() { test(); }
+",
+        );
     }
 
     #[gpui::test]
@@ -3318,19 +3348,21 @@ Sentence ending file2.rs.
         )
         .await;
 
-        cx.set_state(indoc! {"
-            // See LICENSE for details
-            fn main() {
-                println!(\"hello\");
-            }ˇ
-        "});
+        cx.set_state(
+            "// See LICENSE for details
+fn main() {
+    println!(\"hello\");
+}ˇ
+",
+        );
 
-        let link_range = cx.lsp_range(indoc! {"
-            // See «LICENSE» for details
-            fn main() {
-                println!(\"hello\");
-            }
-        "});
+        let link_range = cx.lsp_range(
+            "// See «LICENSE» for details
+fn main() {
+    println!(\"hello\");
+}
+",
+        );
 
         let mut requests = cx
             .lsp
@@ -3353,24 +3385,24 @@ Sentence ending file2.rs.
         cx.run_until_parked();
 
         // Cmd-hover over "LICENSE" should highlight it as a link
-        let screen_coord = cx.pixel_position(indoc! {"
-            // See LICˇENSE for details
-            fn main() {
-                println!(\"hello\");
-            }
-        "});
+        let screen_coord = cx.pixel_position(
+            "// See LICˇENSE for details
+fn main() {
+    println!(\"hello\");
+}
+",
+        );
 
         cx.simulate_mouse_move(screen_coord, None, Modifiers::secondary_key());
         cx.run_until_parked();
 
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"
-            // See «LICENSEˇ» for details
-            fn main() {
-                println!(\"hello\");
-            }
-        "},
+            "// See «LICENSEˇ» for details
+fn main() {
+    println!(\"hello\");
+}
+",
         );
 
         // Clicking opens the URL
@@ -3399,13 +3431,15 @@ Sentence ending file2.rs.
 
         // Text contains a URL, but the LSP provides a document link that
         // covers a broader range and points to a different target.
-        cx.set_state(indoc! {"
-            // See https://example.com for more infoˇ
-        "});
+        cx.set_state(
+            "// See https://example.com for more infoˇ
+",
+        );
 
-        let link_range = cx.lsp_range(indoc! {"
-            // «See https://example.com for more info»
-        "});
+        let link_range = cx.lsp_range(
+            "// «See https://example.com for more info»
+",
+        );
 
         let mut requests = cx
             .lsp
@@ -3426,9 +3460,10 @@ Sentence ending file2.rs.
         requests.next().await;
         cx.run_until_parked();
 
-        let screen_coord = cx.pixel_position(indoc! {"
-            // See https://examˇple.com for more info
-        "});
+        let screen_coord = cx.pixel_position(
+            "// See https://examˇple.com for more info
+",
+        );
 
         cx.simulate_mouse_move(screen_coord, None, Modifiers::secondary_key());
         cx.run_until_parked();
@@ -3436,9 +3471,8 @@ Sentence ending file2.rs.
         // LSP document link range is highlighted, not just the URL portion
         cx.assert_editor_text_highlights(
             HighlightKey::HoveredLinkState,
-            indoc! {"
-            // «See https://example.com for more infoˇ»
-        "},
+            "// «See https://example.com for more infoˇ»
+",
         );
 
         // Clicking navigates to the LSP-provided target, not the detected URL.
@@ -3471,19 +3505,22 @@ Sentence ending file2.rs.
         )
         .await;
 
-        cx.set_state(indoc! {"
-            // See LICENSE for details
-            fn definition() {}ˇ
-        "});
+        cx.set_state(
+            "// See LICENSE for details
+fn definition() {}ˇ
+",
+        );
 
-        let link_range = cx.lsp_range(indoc! {"
-            // See «LICENSE» for details
-            fn definition() {}
-        "});
-        let definition_target_range = cx.lsp_range(indoc! {"
-            // See LICENSE for details
-            fn «definition»() {}
-        "});
+        let link_range = cx.lsp_range(
+            "// See «LICENSE» for details
+fn definition() {}
+",
+        );
+        let definition_target_range = cx.lsp_range(
+            "// See LICENSE for details
+fn «definition»() {}
+",
+        );
 
         let mut document_link_requests = cx
             .lsp
@@ -3516,10 +3553,11 @@ Sentence ending file2.rs.
         document_link_requests.next().await;
         cx.run_until_parked();
 
-        let screen_coord = cx.pixel_position(indoc! {"
-            // See LICˇENSE for details
-            fn definition() {}
-        "});
+        let screen_coord = cx.pixel_position(
+            "// See LICˇENSE for details
+fn definition() {}
+",
+        );
         cx.simulate_mouse_move(screen_coord, None, Modifiers::secondary_key());
         definition_requests.next().await;
         cx.run_until_parked();
@@ -3553,10 +3591,11 @@ Sentence ending file2.rs.
         // location target over the external URL.
         cx.simulate_click(screen_coord, Modifiers::secondary_key());
         cx.run_until_parked();
-        cx.assert_editor_state(indoc! {"
-            // See LICENSE for details
-            fn «definitionˇ»() {}
-        "});
+        cx.assert_editor_state(
+            "// See LICENSE for details
+fn «definitionˇ»() {}
+",
+        );
     }
 
     #[gpui::test]
@@ -3575,13 +3614,15 @@ Sentence ending file2.rs.
         )
         .await;
 
-        cx.set_state(indoc! {"
-            // See LICENSE for detailsˇ
-        "});
+        cx.set_state(
+            "// See LICENSE for detailsˇ
+",
+        );
 
-        let link_range = cx.lsp_range(indoc! {"
-            // See «LICENSE» for details
-        "});
+        let link_range = cx.lsp_range(
+            "// See «LICENSE» for details
+",
+        );
 
         let mut requests = cx
             .lsp
@@ -3602,9 +3643,10 @@ Sentence ending file2.rs.
         requests.next().await;
         cx.run_until_parked();
 
-        let screen_coord = cx.pixel_position(indoc! {"
-            // See LICˇENSE for details
-        "});
+        let screen_coord = cx.pixel_position(
+            "// See LICˇENSE for details
+",
+        );
         // Plain hover (no modifier) is enough; the doc-link tooltip stacks
         // alongside the regular LSP hover popovers.
         cx.simulate_mouse_move(screen_coord, None, Modifiers::none());
@@ -3629,9 +3671,10 @@ Sentence ending file2.rs.
 
         // Move the mouse off the link; `show_hover` re-fires for the new
         // position and rebuilds `info_popovers` without the tooltip.
-        let off_link = cx.pixel_position(indoc! {"
-            // ˇSee LICENSE for details
-        "});
+        let off_link = cx.pixel_position(
+            "// ˇSee LICENSE for details
+",
+        );
         cx.simulate_mouse_move(off_link, None, Modifiers::none());
         cx.background_executor
             .advance_clock(std::time::Duration::from_millis(delay_ms + 100));
@@ -3667,13 +3710,15 @@ Sentence ending file2.rs.
         )
         .await;
 
-        cx.set_state(indoc! {"
-            // See LICENSE for detailsˇ
-        "});
+        cx.set_state(
+            "// See LICENSE for detailsˇ
+",
+        );
 
-        let link_range = cx.lsp_range(indoc! {"
-            // See «LICENSE» for details
-        "});
+        let link_range = cx.lsp_range(
+            "// See «LICENSE» for details
+",
+        );
         let resolve_data = serde_json::json!({"id": 42});
 
         let mut document_link_requests = {
@@ -3711,9 +3756,10 @@ Sentence ending file2.rs.
         document_link_requests.next().await;
         cx.run_until_parked();
 
-        let screen_coord = cx.pixel_position(indoc! {"
-            // See LICˇENSE for details
-        "});
+        let screen_coord = cx.pixel_position(
+            "// See LICˇENSE for details
+",
+        );
         cx.simulate_mouse_move(screen_coord, None, Modifiers::none());
         let delay_ms = cx.update(|_, cx| EditorSettings::get_global(cx).hover_popover_delay.0);
         cx.background_executor
@@ -3765,13 +3811,15 @@ Sentence ending file2.rs.
         )
         .await;
 
-        cx.set_state(indoc! {"
-            // See LICENSE for detailsˇ
-        "});
+        cx.set_state(
+            "// See LICENSE for detailsˇ
+",
+        );
 
-        let link_range = cx.lsp_range(indoc! {"
-            // See «LICENSE» for details
-        "});
+        let link_range = cx.lsp_range(
+            "// See «LICENSE» for details
+",
+        );
 
         let mut requests = cx
             .lsp
@@ -3792,9 +3840,10 @@ Sentence ending file2.rs.
         requests.next().await;
         cx.run_until_parked();
 
-        let screen_coord = cx.pixel_position(indoc! {"
-            // See LICˇENSE for details
-        "});
+        let screen_coord = cx.pixel_position(
+            "// See LICˇENSE for details
+",
+        );
         cx.simulate_mouse_move(screen_coord, None, Modifiers::none());
         cx.background_executor
             .advance_clock(std::time::Duration::from_millis(2000));

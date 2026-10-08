@@ -1,5 +1,4 @@
 use anyhow::Result;
-use indoc::formatdoc;
 
 use crate::connection::Connection;
 
@@ -19,9 +18,10 @@ impl Connection {
                 self.exec(&format!("RELEASE {name}"))?()?;
             }
             Err(_) => {
-                self.exec(&formatdoc! {"
-                    ROLLBACK TO {name};
-                    RELEASE {name}"})?()?;
+                self.exec(&format!(
+                    "ROLLBACK TO {name};
+RELEASE {name}"
+                ))?()?;
             }
         }
         result
@@ -42,9 +42,10 @@ impl Connection {
                 self.exec(&format!("RELEASE {name}"))?()?;
             }
             Ok(None) | Err(_) => {
-                self.exec(&formatdoc! {"
-                    ROLLBACK TO {name};
-                    RELEASE {name}"})?()?;
+                self.exec(&format!(
+                    "ROLLBACK TO {name};
+RELEASE {name}"
+                ))?()?;
             }
         }
         result
@@ -55,18 +56,18 @@ impl Connection {
 mod tests {
     use crate::connection::Connection;
     use anyhow::Result;
-    use indoc::indoc;
 
     #[test]
     fn test_nested_savepoints() -> Result<()> {
         let connection = Connection::open_memory(Some("nested_savepoints"));
 
         connection
-            .exec(indoc! {"
-            CREATE TABLE text (
-                text TEXT,
-                idx INTEGER
-            );"})
+            .exec(
+                "CREATE TABLE text (
+    text TEXT,
+    idx INTEGER
+);",
+            )
             .unwrap()()
         .unwrap();
 

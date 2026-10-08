@@ -61,7 +61,7 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
 
     vec![
         Menu {
-            name: "Zed".into(),
+            name: "ZedStorm".into(),
             disabled: false,
             items: vec![
                 #[cfg(not(target_os = "macos"))]
@@ -82,7 +82,7 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
                 MenuItem::action("Save As…", workspace::SaveAs),
                 MenuItem::action("Save All", workspace::SaveAll { save_intent: None }),
                 MenuItem::separator(),
-                MenuItem::action("About Zed", zed_actions::About),
+                MenuItem::action("About ZedStorm", zed_actions::About),
                 MenuItem::separator(),
                 MenuItem::submenu(Menu::new("Settings").items([
                     MenuItem::action("Open Settings", zed_actions::OpenSettings),

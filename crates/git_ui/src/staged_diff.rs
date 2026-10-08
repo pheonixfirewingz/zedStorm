@@ -697,7 +697,7 @@ mod tests {
     use serde_json::json;
     use settings::{DiffViewStyle, SettingsStore};
     use std::path::Path;
-    use unindent::Unindent as _;
+    use util::Unindent as _;
     use util::{path, rel_path::rel_path};
     use workspace::MultiWorkspace;
 

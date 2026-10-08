@@ -15,13 +15,12 @@ use gpui::{
     WeakEntity, Window, anchored, deferred, point,
 };
 use project::project_settings::{DiagnosticSeverity, ProjectSettings};
-use search::{BufferSearchBar, buffer_search};
+use search::BufferSearchBar;
 use settings::{GitDiffBaseSetting, Settings, SettingsStore, update_settings_file};
 use ui::{
     ButtonStyle, ContextMenu, ContextMenuEntry, DocumentationSide, IconButton, IconName, IconSize,
     PopoverMenu, PopoverMenuHandle, Tooltip, prelude::*,
 };
-use workspace::item::ItemBufferKind;
 use workspace::{
     ToolbarItemEvent, ToolbarItemLocation, ToolbarItemView, Workspace, item::ItemHandle,
 };
@@ -32,7 +31,7 @@ const MAX_CODE_ACTION_MENU_LINES: u32 = 16;
 pub struct QuickActionBar {
     _inlay_hints_enabled_subscription: Option<Subscription>,
     active_item: Option<Box<dyn ItemHandle>>,
-    buffer_search_bar: Entity<BufferSearchBar>,
+    _buffer_search_bar: Entity<BufferSearchBar>,
     show: bool,
     toggle_selections_handle: PopoverMenuHandle<ContextMenu>,
     toggle_settings_handle: PopoverMenuHandle<ContextMenu>,
@@ -48,7 +47,7 @@ impl QuickActionBar {
         let mut this = Self {
             _inlay_hints_enabled_subscription: None,
             active_item: None,
-            buffer_search_bar,
+            _buffer_search_bar: buffer_search_bar,
             show: true,
             toggle_selections_handle: Default::default(),
             toggle_settings_handle: Default::default(),
@@ -114,27 +113,6 @@ impl Render for QuickActionBar {
         let minimap_enabled = supports_minimap && editor_value.minimap().is_some();
         let has_available_code_actions = editor_value.has_available_code_actions_for_selection();
         let code_action_enabled = editor_value.code_actions_enabled_for_toolbar(cx);
-        let focus_handle = editor_value.focus_handle(cx);
-
-        let search_button = (editor.buffer_kind(cx) == ItemBufferKind::Singleton).then(|| {
-            QuickActionBarButton::new(
-                "toggle buffer search",
-                search::SEARCH_ICON,
-                !self.buffer_search_bar.read(cx).is_dismissed(),
-                Box::new(buffer_search::Deploy::find()),
-                focus_handle.clone(),
-                "Buffer Search",
-                {
-                    let buffer_search_bar = self.buffer_search_bar.clone();
-                    move |_, window, cx| {
-                        buffer_search_bar.update(cx, |search_bar, cx| {
-                            search_bar.toggle(&buffer_search::Deploy::find(), window, cx)
-                        });
-                    }
-                },
-            )
-        });
-
         let code_actions_dropdown = code_action_enabled.then(|| {
             let is_deployed = {
                 let menu_ref = editor.read(cx).context_menu().borrow();
@@ -596,7 +574,6 @@ impl Render for QuickActionBar {
             .gap(DynamicSpacing::Base01.rems(cx))
             .children(self.render_repl_menu(cx))
             .children(self.render_preview_button(cx))
-            .children(search_button)
             .children(code_actions_dropdown)
             .children(editor_selections_dropdown)
             .child(editor_settings_dropdown)
@@ -605,6 +582,7 @@ impl Render for QuickActionBar {
 
 impl EventEmitter<ToolbarItemEvent> for QuickActionBar {}
 
+#[allow(dead_code)]
 #[derive(IntoElement)]
 struct QuickActionBarButton {
     id: ElementId,
@@ -616,6 +594,7 @@ struct QuickActionBarButton {
     on_click: Box<dyn Fn(&ClickEvent, &mut Window, &mut App)>,
 }
 
+#[allow(dead_code)]
 impl QuickActionBarButton {
     fn new(
         id: impl Into<ElementId>,

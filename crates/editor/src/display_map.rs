@@ -2330,6 +2330,17 @@ impl DisplaySnapshot {
                 }),
             }
         } else if !self.use_lsp_folding_ranges
+            && !self.is_line_folded(buffer_row)
+            && let Some(range) = self.import_fold_range(buffer_row)
+        {
+            Some(Crease::Inline {
+                range,
+                placeholder: self.fold_placeholder.clone(),
+                render_toggle: None,
+                render_trailer: None,
+                metadata: None,
+            })
+        } else if !self.use_lsp_folding_ranges
             && self.starts_indent(MultiBufferRow(start.row))
             && !self.is_line_folded(MultiBufferRow(start.row))
         {
@@ -2405,6 +2416,72 @@ impl DisplaySnapshot {
         } else {
             None
         }
+    }
+
+    fn import_fold_range(&self, buffer_row: MultiBufferRow) -> Option<Range<Point>> {
+        let snapshot = self.buffer_snapshot();
+        let column = self.line_indent_for_buffer_row(buffer_row).raw_len();
+        let position = Point::new(buffer_row.0, column);
+        let (mut node, mut range) = snapshot.syntax_ancestor(position..position)?;
+        let is_import = |kind: &str| {
+            matches!(
+                kind,
+                "import_statement"
+                    | "import_from_statement"
+                    | "import_declaration"
+                    | "use_declaration"
+            )
+        };
+        while !is_import(node.kind()) {
+            let parent = node.parent()?;
+            range.start.0 = range
+                .start
+                .0
+                .checked_sub(node.start_byte() - parent.start_byte())?;
+            range.end.0 += parent.end_byte() - node.end_byte();
+            node = parent;
+        }
+        if range.start.to_point(snapshot).row != buffer_row.0 {
+            return None;
+        }
+        let (_, enclosing_range) = snapshot
+            .syntax_ancestor(range.start..MultiBufferOffset(range.end.0.checked_sub(1)?))?;
+        if enclosing_range.end < range.end {
+            return None;
+        }
+
+        // Sibling nodes keep grouping within one syntactic scope. Requiring the
+        // mapped range to have an ancestor also prevents crossing excerpt edges.
+        if let Some(previous) = node.prev_named_sibling()
+            && is_import(previous.kind())
+        {
+            return None;
+        }
+        let first_start = range.start;
+        while let Some(next) = node.next_named_sibling() {
+            if !is_import(next.kind()) {
+                break;
+            }
+            let next_start = MultiBufferOffset(range.end.0 + next.start_byte() - node.end_byte());
+            let next_end = MultiBufferOffset(next_start.0 + next.byte_range().len());
+            if snapshot
+                .syntax_ancestor(first_start..MultiBufferOffset(next_end.0 - 1))
+                .is_none_or(|(_, enclosing_range)| enclosing_range.end < next_end)
+            {
+                break;
+            }
+            if !snapshot
+                .text_for_range(range.end..next_start)
+                .all(|chunk| chunk.chars().all(char::is_whitespace))
+            {
+                break;
+            }
+            range.end = next_end;
+            node = next;
+        }
+        let start = Point::new(buffer_row.0, snapshot.line_len(buffer_row));
+        let end = range.end.to_point(snapshot);
+        (end.row > start.row).then_some(start..end)
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -2741,7 +2818,7 @@ pub mod tests {
     use std::{env, sync::Arc};
     use text::PointUtf16;
     use theme::{LoadThemes, SyntaxTheme};
-    use unindent::Unindent as _;
+    use util::Unindent as _;
     use util::test::{marked_text_ranges, sample_text};
 
     #[gpui::test(iterations = 100)]
@@ -3454,7 +3531,7 @@ pub mod tests {
             )
         });
 
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             cx.update(|cx| syntax_chunks(DisplayRow(0)..DisplayRow(7), &map, &theme, cx)),
             [
                 ("const".into(), Some(Hsla::green())),

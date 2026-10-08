@@ -23,7 +23,7 @@ use project::{
 };
 use serde_json::json;
 use settings::{ScanSymlinksSetting, SettingsStore};
-use unindent::Unindent;
+use util::Unindent;
 use util::{path, rel_path::rel_path};
 
 use crate::init_test;

@@ -682,7 +682,7 @@ fn get_language(editor: WeakEntity<Editor>, cx: &mut App) -> Option<Arc<Language
 mod tests {
     use super::*;
     use gpui::App;
-    use indoc::indoc;
+
     use language::{Buffer, Language, LanguageConfig, LanguageRegistry};
 
     #[gpui::test]
@@ -699,14 +699,13 @@ mod tests {
 
         let buffer = cx.new(|cx| {
             Buffer::local(
-                indoc! { r#"
-                    print(1 + 1)
-                    print(2 + 2)
+                r#"print(1 + 1)
+print(2 + 2)
 
-                    print(4 + 4)
+print(4 + 4)
 
 
-                "# },
+"#,
                 cx,
             )
             .with_language(test_language, cx)
@@ -729,9 +728,10 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             snippets,
-            vec![indoc! { r#"
-                print(1 + 1)
-                print(2 + 2)"# }]
+            vec![
+                r#"print(1 + 1)
+print(2 + 2)"#
+            ]
         );
 
         // Trimming multiple trailing blank lines
@@ -743,11 +743,12 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             snippets,
-            vec![indoc! { r#"
-                print(1 + 1)
-                print(2 + 2)
+            vec![
+                r#"print(1 + 1)
+print(2 + 2)
 
-                print(4 + 4)"# }]
+print(4 + 4)"#
+            ]
         );
     }
 
@@ -765,22 +766,21 @@ mod tests {
 
         let buffer = cx.new(|cx| {
             Buffer::local(
-                indoc! { r#"
-                    # Hello!
-                    # %% [markdown]
-                    # This is some arithmetic
-                    print(1 + 1)
-                    print(2 + 2)
+                r#"# Hello!
+# %% [markdown]
+# This is some arithmetic
+print(1 + 1)
+print(2 + 2)
 
-                    # %%
-                    print(3 + 3)
-                    print(4 + 4)
+# %%
+print(3 + 3)
+print(4 + 4)
 
-                    print(5 + 5)
-
+print(5 + 5)
 
 
-                "# },
+
+"#,
                 cx,
             )
             .with_language(test_language, cx)
@@ -796,11 +796,12 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             snippets,
-            vec![indoc! { r#"
-                # %% [markdown]
-                # This is some arithmetic
-                print(1 + 1)
-                print(2 + 2)"# }]
+            vec![
+                r#"# %% [markdown]
+# This is some arithmetic
+print(1 + 1)
+print(2 + 2)"#
+            ]
         );
 
         // Jupytext snippets intersecting a non-empty selection
@@ -812,19 +813,15 @@ mod tests {
         assert_eq!(
             snippets,
             vec![
-                indoc! { r#"
-                    # %% [markdown]
-                    # This is some arithmetic
-                    print(1 + 1)
-                    print(2 + 2)"#
-                },
-                indoc! { r#"
-                    # %%
-                    print(3 + 3)
-                    print(4 + 4)
+                r#"# %% [markdown]
+# This is some arithmetic
+print(1 + 1)
+print(2 + 2)"#,
+                r#"# %%
+print(3 + 3)
+print(4 + 4)
 
-                    print(5 + 5)"#
-                }
+print(5 + 5)"#
             ]
         );
     }
@@ -888,19 +885,17 @@ mod tests {
         // Two code blocks intersecting with selection
         let buffer = cx.new(|cx| {
             let mut buffer = Buffer::local(
-                indoc! { r#"
-                    Hey this is Markdown!
+                r#"Hey this is Markdown!
 
-                    ```typescript
-                    let foo = 999;
-                    console.log(foo + 1999);
-                    ```
+```typescript
+let foo = 999;
+console.log(foo + 1999);
+```
 
-                    ```typescript
-                    console.log("foo")
-                    ```
-                    "#
-                },
+```typescript
+console.log("foo")
+```
+"#,
                 cx,
             );
             buffer.set_language_registry(language_registry.clone());
@@ -918,11 +913,9 @@ mod tests {
         assert_eq!(
             snippets,
             vec![
-                indoc! { r#"
-                    let foo = 999;
-                    console.log(foo + 1999);
-                    "#
-                },
+                r#"let foo = 999;
+console.log(foo + 1999);
+"#,
                 "console.log(\"foo\")\n"
             ]
         );
@@ -930,22 +923,21 @@ mod tests {
         // Three code blocks intersecting with selection
         let buffer = cx.new(|cx| {
             let mut buffer = Buffer::local(
-                indoc! { r#"
-                    Hey this is Markdown!
+                r#"Hey this is Markdown!
 
-                    ```typescript
-                    let foo = 999;
-                    console.log(foo + 1999);
-                    ```
+```typescript
+let foo = 999;
+console.log(foo + 1999);
+```
 
-                    ```ts
-                    console.log("foo")
-                    ```
+```ts
+console.log("foo")
+```
 
-                    ```typescript
-                    console.log("another code block")
-                    ```
-                "# },
+```typescript
+console.log("another code block")
+```
+"#,
                 cx,
             );
             buffer.set_language_registry(language_registry.clone());
@@ -963,11 +955,9 @@ mod tests {
         assert_eq!(
             snippets,
             vec![
-                indoc! { r#"
-                    let foo = 999;
-                    console.log(foo + 1999);
-                    "#
-                },
+                r#"let foo = 999;
+console.log(foo + 1999);
+"#,
                 "console.log(\"foo\")\n",
                 "console.log(\"another code block\")\n",
             ]
@@ -976,15 +966,14 @@ mod tests {
         // Python code block
         let buffer = cx.new(|cx| {
             let mut buffer = Buffer::local(
-                indoc! { r#"
-                    Hey this is Markdown!
+                r#"Hey this is Markdown!
 
-                    ```python
-                    print("hello there")
-                    print("hello there")
-                    print("hello there")
-                    ```
-                "# },
+```python
+print("hello there")
+print("hello there")
+print("hello there")
+```
+"#,
                 cx,
             );
             buffer.set_language_registry(language_registry.clone());
@@ -1001,12 +990,12 @@ mod tests {
 
         assert_eq!(
             snippets,
-            vec![indoc! { r#"
-                print("hello there")
-                print("hello there")
-                print("hello there")
-                "#
-            },]
+            vec![
+                r#"print("hello there")
+print("hello there")
+print("hello there")
+"#,
+            ]
         );
     }
 
@@ -1023,11 +1012,10 @@ mod tests {
 
         let buffer = cx.new(|cx| {
             Buffer::local(
-                indoc! { r#"
-                    print(1 + 1)
+                r#"print(1 + 1)
 
-                    print(2 + 2)
-                "# },
+print(2 + 2)
+"#,
                 cx,
             )
             .with_language(test_language.clone(), cx)
@@ -1045,13 +1033,12 @@ mod tests {
         // Multiple blank lines should also skip forward
         let buffer = cx.new(|cx| {
             Buffer::local(
-                indoc! { r#"
-                    print(1 + 1)
+                r#"print(1 + 1)
 
 
 
-                    print(2 + 2)
-                "# },
+print(2 + 2)
+"#,
                 cx,
             )
             .with_language(test_language.clone(), cx)
@@ -1068,10 +1055,9 @@ mod tests {
         // Blank lines at end of file should return nothing
         let buffer = cx.new(|cx| {
             Buffer::local(
-                indoc! { r#"
-                    print(1 + 1)
+                r#"print(1 + 1)
 
-                "# },
+"#,
                 cx,
             )
             .with_language(test_language, cx)

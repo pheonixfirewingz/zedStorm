@@ -3,7 +3,6 @@
 
 use std::collections::BTreeMap;
 
-use pretty_assertions::assert_eq;
 use project::lsp_store::TokenType;
 
 use super::*;
@@ -645,11 +644,11 @@ async fn test_inlay_hint_resolve_state_uses_matching_dynamic_registration(
     }
 
     assert_eq!(hints.len(), 1);
-    assert_matches!(
+    assert!(matches!(
         &hints[0].resolve_state,
         ResolveState::CanResolve(id, _) if *id == server_id,
         "expected the matching file registration to mark the hint as resolvable",
-    );
+    ));
 }
 
 #[gpui::test]

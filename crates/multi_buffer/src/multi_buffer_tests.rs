@@ -1,7 +1,7 @@
 use super::*;
 use buffer_diff::{DiffHunkStatus, DiffHunkStatusKind};
 use gpui::{App, Entity, TestAppContext};
-use indoc::indoc;
+
 use language::{Buffer, Rope};
 use parking_lot::RwLock;
 use rand::prelude::*;
@@ -214,14 +214,11 @@ fn test_excerpt_boundaries_and_clipping(cx: &mut App) {
     let snapshot = multibuffer.read(cx).snapshot(cx);
     assert_eq!(
         snapshot.text(),
-        indoc!(
-            "
-            bbbb
-            ccccc
-            fff
-            gggg
-            jj"
-        ),
+        "bbbb
+ccccc
+fff
+gggg
+jj",
     );
     assert_eq!(
         snapshot
@@ -408,14 +405,12 @@ async fn test_diff_boundary_anchors(cx: &mut TestAppContext) {
     let actual_text = snapshot.text();
     let actual_row_infos = snapshot.row_infos(MultiBufferRow(0)).collect::<Vec<_>>();
     let actual_diff = format_diff(&actual_text, &actual_row_infos, &Default::default(), None);
-    pretty_assertions::assert_eq!(
+    assert_eq!(
         actual_diff,
-        indoc! {
-            "  one
-             - two
-               three
-             "
-        },
+        "  one
+- two
+  three
+",
     );
 
     multibuffer.update(cx, |multibuffer, cx| {
@@ -451,17 +446,15 @@ async fn test_diff_hunks_in_range(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc! {
-            "  one
-             - two
-             - three
-               four
-             - five
-             - six
-               seven
-             - eight
-            "
-        },
+        "  one
+- two
+- three
+  four
+- five
+- six
+  seven
+- eight
+",
     );
 
     assert_eq!(
@@ -491,13 +484,10 @@ async fn test_diff_hunks_in_range(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc! {
-            "
-            one
-            four
-            seven
-            "
-        },
+        "one
+four
+seven
+",
     );
 
     assert_eq!(
@@ -532,13 +522,11 @@ async fn test_diff_hunks_in_range_query_starting_at_added_row(cx: &mut TestAppCo
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc! {
-            "  one
-             - two
-             + TWO
-               three
-            "
-        },
+        "  one
+- two
++ TWO
+  three
+",
     );
 
     assert_eq!(
@@ -573,17 +561,15 @@ async fn test_inverted_diff_hunks_in_range(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc! {
-            "  one
-             - two
-             - three
-               four
-             - five
-             - six
-               seven
-             - eight
-            "
-        },
+        "  one
+- two
+- three
+  four
+- five
+- six
+  seven
+- eight
+",
     );
 
     assert_eq!(
@@ -632,17 +618,14 @@ async fn test_editing_text_in_diff_hunks(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc! {
-            "
-              one
-              two
-            + THREE
-              four
-              five
-            - six
-              seven
-            "
-        },
+        "  one
+  two
++ THREE
+  four
+  five
+- six
+  seven
+",
     );
 
     // Insert a newline within an insertion hunk
@@ -654,18 +637,15 @@ async fn test_editing_text_in_diff_hunks(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc! {
-            "
-              one
-              two
-            + __
-            + __THREE
-              four
-              five
-            - six
-              seven
-            "
-        },
+        "  one
+  two
++ __
++ __THREE
+  four
+  five
+- six
+  seven
+",
     );
 
     // Delete the newline before a deleted hunk.
@@ -677,16 +657,13 @@ async fn test_editing_text_in_diff_hunks(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc! {
-            "
-              one
-              two
-            + __
-            + __THREE
-              four
-              fiveseven
-            "
-        },
+        "  one
+  two
++ __
++ __THREE
+  four
+  fiveseven
+",
     );
 
     multibuffer.update(cx, |multibuffer, cx| multibuffer.undo(cx));
@@ -695,18 +672,15 @@ async fn test_editing_text_in_diff_hunks(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc! {
-            "
-              one
-              two
-            + __
-            + __THREE
-              four
-              five
-            - six
-              seven
-            "
-        },
+        "  one
+  two
++ __
++ __THREE
+  four
+  five
+- six
+  seven
+",
     );
 
     // Cannot (yet) insert at the beginning of a deleted hunk.
@@ -719,18 +693,15 @@ async fn test_editing_text_in_diff_hunks(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc! {
-            "
-              one
-              two
-            + __
-            + __THREE
-              four
-              five
-            - six
-              seven
-            "
-        },
+        "  one
+  two
++ __
++ __THREE
+  four
+  five
+- six
+  seven
+",
     );
 
     // Replace a range that ends in a deleted hunk.
@@ -742,16 +713,13 @@ async fn test_editing_text_in_diff_hunks(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc! {
-            "
-              one
-              two
-            + __
-            + __THREE
-              four
-              fifty-seven
-            "
-        },
+        "  one
+  two
++ __
++ __THREE
+  four
+  fifty-seven
+",
     );
 }
 
@@ -1769,25 +1737,19 @@ fn test_multibuffer_anchors(cx: &mut App) {
 
 #[gpui::test]
 async fn test_basic_diff_hunks(cx: &mut TestAppContext) {
-    let text = indoc!(
-        "
-        ZERO
-        one
-        TWO
-        three
-        six
-        "
-    );
-    let base_text = indoc!(
-        "
-        one
-        two
-        three
-        four
-        five
-        six
-        "
-    );
+    let text = "ZERO
+one
+TWO
+three
+six
+";
+    let base_text = "one
+two
+three
+four
+five
+six
+";
 
     let buffer = cx.new(|cx| Buffer::local(text, cx));
     let diff = cx
@@ -1805,15 +1767,12 @@ async fn test_basic_diff_hunks(cx: &mut TestAppContext) {
     });
     assert_eq!(
         snapshot.text(),
-        indoc!(
-            "
-            ZERO
-            one
-            TWO
-            three
-            six
-            "
-        ),
+        "ZERO
+one
+TWO
+three
+six
+",
     );
 
     multibuffer.update(cx, |multibuffer, cx| {
@@ -1825,18 +1784,15 @@ async fn test_basic_diff_hunks(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc!(
-            "
-            + ZERO
-              one
-            - two
-            + TWO
-              three
-            - four
-            - five
-              six
-            "
-        ),
+        "+ ZERO
+  one
+- two
++ TWO
+  three
+- four
+- five
+  six
+",
     );
 
     assert_eq!(
@@ -1870,15 +1826,12 @@ async fn test_basic_diff_hunks(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc!(
-            "
-            ZERO
-            one
-            TWO
-            three
-            six
-            "
-        ),
+        "ZERO
+one
+TWO
+three
+six
+",
     );
 
     assert_chunks_in_ranges(&snapshot);
@@ -1896,16 +1849,13 @@ async fn test_basic_diff_hunks(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc!(
-            "
-              ZERO
-              one
-            - two
-            + TWO
-              three
-              six
-            "
-        ),
+        "  ZERO
+  one
+- two
++ TWO
+  three
+  six
+",
     );
 
     // Expand the second diff hunk
@@ -1919,18 +1869,15 @@ async fn test_basic_diff_hunks(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc!(
-            "
-              ZERO
-              one
-            - two
-            + TWO
-              three
-            - four
-            - five
-              six
-            "
-        ),
+        "  ZERO
+  one
+- two
++ TWO
+  three
+- four
+- five
+  six
+",
     );
 
     assert_chunks_in_ranges(&snapshot);
@@ -1941,16 +1888,13 @@ async fn test_basic_diff_hunks(cx: &mut TestAppContext) {
     // Edit the buffer before the first hunk
     buffer.update(cx, |buffer, cx| {
         buffer.edit_via_marked_text(
-            indoc!(
-                "
-                ZERO
-                one« hundred
-                  thousand»
-                TWO
-                three
-                six
-                "
-            ),
+            "ZERO
+one« hundred
+  thousand»
+TWO
+three
+six
+",
             None,
             cx,
         );
@@ -1960,19 +1904,16 @@ async fn test_basic_diff_hunks(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc!(
-            "
-              ZERO
-              one hundred
-                thousand
-            - two
-            + TWO
-              three
-            - four
-            - five
-              six
-            "
-        ),
+        "  ZERO
+  one hundred
+    thousand
+- two
++ TWO
+  three
+- four
+- five
+  six
+",
     );
 
     assert_chunks_in_ranges(&snapshot);
@@ -1990,18 +1931,15 @@ async fn test_basic_diff_hunks(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc!(
-            "
-              ZERO
-              one hundred
-                thousand
-              TWO
-              three
-            - four
-            - five
-              six
-            "
-        ),
+        "  ZERO
+  one hundred
+    thousand
+  TWO
+  three
+- four
+- five
+  six
+",
     );
 
     assert_eq!(
@@ -2051,24 +1989,18 @@ fn test_text_for_range_with_diff_transform_boundary_inside_multibyte_character(c
 
 #[gpui::test]
 async fn test_repeatedly_expand_a_diff_hunk(cx: &mut TestAppContext) {
-    let text = indoc!(
-        "
-        one
-        TWO
-        THREE
-        four
-        FIVE
-        six
-        "
-    );
-    let base_text = indoc!(
-        "
-        one
-        four
-        five
-        six
-        "
-    );
+    let text = "one
+TWO
+THREE
+four
+FIVE
+six
+";
+    let base_text = "one
+four
+five
+six
+";
 
     let buffer = cx.new(|cx| Buffer::local(text, cx));
     let diff = cx
@@ -2094,17 +2026,14 @@ async fn test_repeatedly_expand_a_diff_hunk(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc!(
-            "
-              one
-            + TWO
-            + THREE
-              four
-            - five
-            + FIVE
-              six
-            "
-        ),
+        "  one
++ TWO
++ THREE
+  four
+- five
++ FIVE
+  six
+",
     );
 
     // Regression test: expanding diff hunks that are already expanded should not change anything.
@@ -2122,17 +2051,14 @@ async fn test_repeatedly_expand_a_diff_hunk(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc!(
-            "
-              one
-            + TWO
-            + THREE
-              four
-            - five
-            + FIVE
-              six
-            "
-        ),
+        "  one
++ TWO
++ THREE
+  four
+- five
++ FIVE
+  six
+",
     );
 
     // Now collapse all diff hunks
@@ -2145,16 +2071,13 @@ async fn test_repeatedly_expand_a_diff_hunk(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc!(
-            "
-            one
-            TWO
-            THREE
-            four
-            FIVE
-            six
-            "
-        ),
+        "one
+TWO
+THREE
+four
+FIVE
+six
+",
     );
 
     // Expand the hunks again, but this time provide two ranges that are both within the same hunk
@@ -2173,17 +2096,14 @@ async fn test_repeatedly_expand_a_diff_hunk(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc!(
-            "
-              one
-              TWO
-              THREE
-              four
-            - five
-            + FIVE
-              six
-            "
-        ),
+        "  one
+  TWO
+  THREE
+  four
+- five
++ FIVE
+  six
+",
     );
 }
 
@@ -2191,22 +2111,20 @@ async fn test_repeatedly_expand_a_diff_hunk(cx: &mut TestAppContext) {
 fn test_set_excerpts_for_buffer_ordering(cx: &mut TestAppContext) {
     let buf1 = cx.new(|cx| {
         Buffer::local(
-            indoc! {
             "zero
-            one
-            two
-            two.five
-            three
-            four
-            five
-            six
-            seven
-            eight
-            nine
-            ten
-            eleven
-            ",
-            },
+one
+two
+two.five
+three
+four
+five
+six
+seven
+eight
+nine
+ten
+eleven
+",
             cx,
         )
     });
@@ -2230,23 +2148,21 @@ fn test_set_excerpts_for_buffer_ordering(cx: &mut TestAppContext) {
     assert_excerpts_match(
         &multibuffer,
         cx,
-        indoc! {
-            "-----
-            zero
-            one
-            two
-            two.five
-            -----
-            four
-            five
-            six
-            seven
-            -----
-            nine
-            ten
-            eleven
-            "
-        },
+        "-----
+zero
+one
+two
+two.five
+-----
+four
+five
+six
+seven
+-----
+nine
+ten
+eleven
+",
     );
 
     buf1.update(cx, |buffer, cx| buffer.edit([(0..5, "")], None, cx));
@@ -2268,22 +2184,20 @@ fn test_set_excerpts_for_buffer_ordering(cx: &mut TestAppContext) {
     assert_excerpts_match(
         &multibuffer,
         cx,
-        indoc! {
-            "-----
-             one
-             two
-             two.five
-             three
-             four
-             five
-             six
-             seven
-             eight
-             nine
-             ten
-             eleven
-            "
-        },
+        "-----
+one
+two
+two.five
+three
+four
+five
+six
+seven
+eight
+nine
+ten
+eleven
+",
     );
 }
 
@@ -2291,36 +2205,32 @@ fn test_set_excerpts_for_buffer_ordering(cx: &mut TestAppContext) {
 fn test_set_excerpts_for_buffer(cx: &mut TestAppContext) {
     let buf1 = cx.new(|cx| {
         Buffer::local(
-            indoc! {
             "zero
-            one
-            two
-            three
-            four
-            five
-            six
-            seven
-            ",
-            },
+one
+two
+three
+four
+five
+six
+seven
+",
             cx,
         )
     });
     let path1: PathKey = PathKey::with_sort_prefix(0, rel_path("root").into_arc());
     let buf2 = cx.new(|cx| {
         Buffer::local(
-            indoc! {
             "000
-            111
-            222
-            333
-            444
-            555
-            666
-            777
-            888
-            999
-            "
-            },
+111
+222
+333
+444
+555
+666
+777
+888
+999
+",
             cx,
         )
     });
@@ -2340,14 +2250,12 @@ fn test_set_excerpts_for_buffer(cx: &mut TestAppContext) {
     assert_excerpts_match(
         &multibuffer,
         cx,
-        indoc! {
         "-----
-        zero
-        one
-        two
-        three
-        "
-        },
+zero
+one
+two
+three
+",
     );
 
     multibuffer.update(cx, |multibuffer, cx| {
@@ -2369,16 +2277,16 @@ fn test_set_excerpts_for_buffer(cx: &mut TestAppContext) {
     assert_excerpts_match(
         &multibuffer,
         cx,
-        indoc! {"-----
-                zero
-                one
-                two
-                three
-                -----
-                five
-                six
-                seven
-                "},
+        "-----
+zero
+one
+two
+three
+-----
+five
+six
+seven
+",
     );
 
     multibuffer.update(cx, |multibuffer, cx| {
@@ -2394,16 +2302,16 @@ fn test_set_excerpts_for_buffer(cx: &mut TestAppContext) {
     assert_excerpts_match(
         &multibuffer,
         cx,
-        indoc! {"-----
-                    zero
-                    one
-                    two
-                    three
-                    four
-                    five
-                    six
-                    seven
-                    "},
+        "-----
+zero
+one
+two
+three
+four
+five
+six
+seven
+",
     );
 
     multibuffer.update(cx, |multibuffer, cx| {
@@ -2419,23 +2327,23 @@ fn test_set_excerpts_for_buffer(cx: &mut TestAppContext) {
     assert_excerpts_match(
         &multibuffer,
         cx,
-        indoc! {"-----
-                zero
-                one
-                two
-                three
-                four
-                five
-                six
-                seven
-                -----
-                000
-                111
-                222
-                333
-                444
-                555
-                "},
+        "-----
+zero
+one
+two
+three
+four
+five
+six
+seven
+-----
+000
+111
+222
+333
+444
+555
+",
     );
 
     multibuffer.update(cx, |multibuffer, cx| {
@@ -2455,21 +2363,21 @@ fn test_set_excerpts_for_buffer(cx: &mut TestAppContext) {
     assert_excerpts_match(
         &multibuffer,
         cx,
-        indoc! {"-----
-                one
-                two
-                three
-                four
-                five
-                six
-                -----
-                000
-                111
-                222
-                333
-                444
-                555
-                "},
+        "-----
+one
+two
+three
+four
+five
+six
+-----
+000
+111
+222
+333
+444
+555
+",
     );
 
     multibuffer.update(cx, |multibuffer, cx| {
@@ -2487,23 +2395,22 @@ fn test_set_excerpts_for_buffer(cx: &mut TestAppContext) {
 fn test_update_excerpt_ranges_for_path(cx: &mut TestAppContext) {
     let buffer = cx.new(|cx| {
         Buffer::local(
-            indoc! {
             "row 0
-            row 1
-            row 2
-            row 3
-            row 4
-            row 5
-            row 6
-            row 7
-            row 8
-            row 9
-            row 10
-            row 11
-            row 12
-            row 13
-            row 14
-            "},
+row 1
+row 2
+row 3
+row 4
+row 5
+row 6
+row 7
+row 8
+row 9
+row 10
+row 11
+row 12
+row 13
+row 14
+",
             cx,
         )
     });
@@ -2522,15 +2429,15 @@ fn test_update_excerpt_ranges_for_path(cx: &mut TestAppContext) {
     assert_excerpts_match(
         &multibuffer,
         cx,
-        indoc! {"-----
-            row 2
-            row 3
-            row 4
-            -----
-            row 8
-            row 9
-            row 10
-            "},
+        "-----
+row 2
+row 3
+row 4
+-----
+row 8
+row 9
+row 10
+",
     );
 
     multibuffer.update(cx, |multibuffer, cx| {
@@ -2545,10 +2452,10 @@ fn test_update_excerpt_ranges_for_path(cx: &mut TestAppContext) {
     assert_excerpts_match(
         &multibuffer,
         cx,
-        indoc! {"-----
-            row 12
-            row 13
-            "},
+        "-----
+row 12
+row 13
+",
     );
 
     multibuffer.update(cx, |multibuffer, cx| {
@@ -2563,11 +2470,11 @@ fn test_update_excerpt_ranges_for_path(cx: &mut TestAppContext) {
     assert_excerpts_match(
         &multibuffer,
         cx,
-        indoc! {"-----
-            row 2
-            row 3
-            row 4
-            "},
+        "-----
+row 2
+row 3
+row 4
+",
     );
     multibuffer.update(cx, |multibuffer, cx| {
         multibuffer.update_excerpts_for_path(
@@ -2581,12 +2488,12 @@ fn test_update_excerpt_ranges_for_path(cx: &mut TestAppContext) {
     assert_excerpts_match(
         &multibuffer,
         cx,
-        indoc! {"-----
-            row 2
-            row 3
-            row 4
-            row 5
-            "},
+        "-----
+row 2
+row 3
+row 4
+row 5
+",
     );
 
     multibuffer.update(cx, |multibuffer, cx| {
@@ -2605,17 +2512,17 @@ fn test_update_excerpt_ranges_for_path(cx: &mut TestAppContext) {
     assert_excerpts_match(
         &multibuffer,
         cx,
-        indoc! {"-----
-            row 0
-            row 1
-            -----
-            row 6
-            row 7
-            row 8
-            -----
-            row 12
-            row 13
-            "},
+        "-----
+row 0
+row 1
+-----
+row 6
+row 7
+row 8
+-----
+row 12
+row 13
+",
     );
     multibuffer.update(cx, |multibuffer, cx| {
         multibuffer.update_excerpts_for_path(
@@ -2629,12 +2536,12 @@ fn test_update_excerpt_ranges_for_path(cx: &mut TestAppContext) {
     assert_excerpts_match(
         &multibuffer,
         cx,
-        indoc! {"-----
-            row 6
-            row 7
-            row 8
-            row 9
-            "},
+        "-----
+row 6
+row 7
+row 8
+row 9
+",
     );
 
     multibuffer.update(cx, |multibuffer, cx| {
@@ -2649,13 +2556,13 @@ fn test_update_excerpt_ranges_for_path(cx: &mut TestAppContext) {
     assert_excerpts_match(
         &multibuffer,
         cx,
-        indoc! {"-----
-            row 2
-            row 3
-            -----
-            row 6
-            row 7
-            "},
+        "-----
+row 2
+row 3
+-----
+row 6
+row 7
+",
     );
     multibuffer.update(cx, |multibuffer, cx| {
         multibuffer.update_excerpts_for_path(
@@ -2669,14 +2576,14 @@ fn test_update_excerpt_ranges_for_path(cx: &mut TestAppContext) {
     assert_excerpts_match(
         &multibuffer,
         cx,
-        indoc! {"-----
-            row 2
-            row 3
-            row 4
-            row 5
-            row 6
-            row 7
-            "},
+        "-----
+row 2
+row 3
+row 4
+row 5
+row 6
+row 7
+",
     );
 }
 
@@ -2684,30 +2591,26 @@ fn test_update_excerpt_ranges_for_path(cx: &mut TestAppContext) {
 fn test_set_excerpts_for_buffer_rename(cx: &mut TestAppContext) {
     let buf1 = cx.new(|cx| {
         Buffer::local(
-            indoc! {
             "zero
-            one
-            two
-            three
-            four
-            five
-            six
-            seven
-            ",
-            },
+one
+two
+three
+four
+five
+six
+seven
+",
             cx,
         )
     });
     let path: PathKey = PathKey::with_sort_prefix(0, rel_path("root").into_arc());
     let buf2 = cx.new(|cx| {
         Buffer::local(
-            indoc! {
             "000
-            111
-            222
-            333
-            "
-            },
+111
+222
+333
+",
             cx,
         )
     });
@@ -2726,17 +2629,15 @@ fn test_set_excerpts_for_buffer_rename(cx: &mut TestAppContext) {
     assert_excerpts_match(
         &multibuffer,
         cx,
-        indoc! {
         "-----
-        zero
-        one
-        two
-        three
-        four
-        five
-        six
-        "
-        },
+zero
+one
+two
+three
+four
+five
+six
+",
     );
 
     multibuffer.update(cx, |multibuffer, cx| {
@@ -2752,12 +2653,12 @@ fn test_set_excerpts_for_buffer_rename(cx: &mut TestAppContext) {
     assert_excerpts_match(
         &multibuffer,
         cx,
-        indoc! {"-----
-                000
-                111
-                222
-                333
-                "},
+        "-----
+000
+111
+222
+333
+",
     );
 }
 
@@ -2765,26 +2666,22 @@ fn test_set_excerpts_for_buffer_rename(cx: &mut TestAppContext) {
 fn test_set_excerpts_for_path_replaces_previous_buffer(cx: &mut TestAppContext) {
     let buffer_a = cx.new(|cx| {
         Buffer::local(
-            indoc! {
             "alpha
-            beta
-            gamma
-            delta
-            epsilon
-            ",
-            },
+beta
+gamma
+delta
+epsilon
+",
             cx,
         )
     });
     let buffer_b = cx.new(|cx| {
         Buffer::local(
-            indoc! {
             "one
-            two
-            three
-            four
-            ",
-            },
+two
+three
+four
+",
             cx,
         )
     });
@@ -2827,15 +2724,13 @@ fn test_set_excerpts_for_path_replaces_previous_buffer(cx: &mut TestAppContext) 
     assert_excerpts_match(
         &multibuffer,
         cx,
-        indoc! {
         "-----
-        alpha
-        beta
-        -----
-        delta
-        epsilon
-        "
-        },
+alpha
+beta
+-----
+delta
+epsilon
+",
     );
 
     let buffer_a_id = buffer_a.read_with(cx, |buffer, _| buffer.remote_id());
@@ -2897,14 +2792,12 @@ fn test_set_excerpts_for_path_replaces_previous_buffer(cx: &mut TestAppContext) 
     assert_excerpts_match(
         &multibuffer,
         cx,
-        indoc! {
         "-----
-        one
-        two
-        three
-        four
-        "
-        },
+one
+two
+three
+four
+",
     );
 
     multibuffer.read_with(cx, |multibuffer, cx| {
@@ -2993,37 +2886,31 @@ fn test_stale_anchor_after_buffer_removal_and_path_reuse(cx: &mut TestAppContext
 
 #[gpui::test]
 async fn test_map_excerpt_ranges(cx: &mut TestAppContext) {
-    let base_text = indoc!(
-        "
-        {
-          (aaa)
-          (bbb)
-          (ccc)
-        }
-        xxx
-        yyy
-        zzz
-        [
-          (ddd)
-          (EEE)
-        ]
-        "
-    );
-    let text = indoc!(
-        "
-        {
-          (aaa)
-          (CCC)
-        }
-        xxx
-        yyy
-        zzz
-        [
-          (ddd)
-          (EEE)
-        ]
-        "
-    );
+    let base_text = "{
+  (aaa)
+  (bbb)
+  (ccc)
+}
+xxx
+yyy
+zzz
+[
+  (ddd)
+  (EEE)
+]
+";
+    let text = "{
+  (aaa)
+  (CCC)
+}
+xxx
+yyy
+zzz
+[
+  (ddd)
+  (EEE)
+]
+";
 
     let buffer = cx.new(|cx| Buffer::local(text, cx));
     let diff = cx
@@ -3059,21 +2946,18 @@ async fn test_map_excerpt_ranges(cx: &mut TestAppContext) {
         &Default::default(),
         None,
     );
-    pretty_assertions::assert_eq!(
+    assert_eq!(
         actual_diff,
-        indoc!(
-            "
-              {
-                (aaa)
-            -   (bbb)
-            -   (ccc)
-            +   (CCC)
-              } [\u{2193}]
-              [ [\u{2191}]
-                (ddd)
-                (EEE)
-              ] [\u{2193}]"
-        )
+        "  {
+    (aaa)
+-   (bbb)
+-   (ccc)
++   (CCC)
+  } [\u{2193}]
+  [ [\u{2191}]
+    (ddd)
+    (EEE)
+  ] [\u{2193}]"
     );
 
     assert_eq!(
@@ -3162,44 +3046,32 @@ async fn test_map_excerpt_ranges(cx: &mut TestAppContext) {
 
 #[gpui::test]
 async fn test_diff_hunks_with_multiple_excerpts(cx: &mut TestAppContext) {
-    let base_text_1 = indoc!(
-        "
-        one
-        two
-            three
-        four
-        five
-        six
-        "
-    );
-    let text_1 = indoc!(
-        "
-        ZERO
-        one
-        TWO
-            three
-        six
-        "
-    );
-    let base_text_2 = indoc!(
-        "
-        seven
-          eight
-        nine
-        ten
-        eleven
-        twelve
-        "
-    );
-    let text_2 = indoc!(
-        "
-          eight
-        nine
-        eleven
-        THIRTEEN
-        FOURTEEN
-        "
-    );
+    let base_text_1 = "one
+two
+    three
+four
+five
+six
+";
+    let text_1 = "ZERO
+one
+TWO
+    three
+six
+";
+    let base_text_2 = "seven
+  eight
+nine
+ten
+eleven
+twelve
+";
+    let text_2 = "  eight
+nine
+eleven
+THIRTEEN
+FOURTEEN
+";
 
     let buffer_1 = cx.new(|cx| Buffer::local(text_1, cx));
     let buffer_2 = cx.new(|cx| Buffer::local(text_2, cx));
@@ -3237,21 +3109,18 @@ async fn test_diff_hunks_with_multiple_excerpts(cx: &mut TestAppContext) {
     });
     assert_eq!(
         snapshot.text(),
-        indoc!(
-            "
-            ZERO
-            one
-            TWO
-                three
-            six
+        "ZERO
+one
+TWO
+    three
+six
 
-              eight
-            nine
-            eleven
-            THIRTEEN
-            FOURTEEN
-            "
-        ),
+  eight
+nine
+eleven
+THIRTEEN
+FOURTEEN
+",
     );
 
     multibuffer.update(cx, |multibuffer, cx| {
@@ -3263,27 +3132,24 @@ async fn test_diff_hunks_with_multiple_excerpts(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc!(
-            "
-            + ZERO
-              one
-            - two
-            + TWO
-                  three
-            - four
-            - five
-              six
+        "+ ZERO
+  one
+- two
++ TWO
+      three
+- four
+- five
+  six
 
-            - seven
-                eight
-              nine
-            - ten
-              eleven
-            - twelve
-            + THIRTEEN
-            + FOURTEEN
-            "
-        ),
+- seven
+    eight
+  nine
+- ten
+  eleven
+- twelve
++ THIRTEEN
++ FOURTEEN
+",
     );
 
     let id_1 = buffer_1.read_with(cx, |buffer, _| buffer.remote_id());
@@ -3300,7 +3166,7 @@ async fn test_diff_hunks_with_multiple_excerpts(cx: &mut TestAppContext) {
             ))
         })
         .collect::<Vec<_>>();
-    pretty_assertions::assert_eq!(
+    assert_eq!(
         buffer_lines,
         [
             Some((id_1, "ZERO".into())),
@@ -3356,14 +3222,11 @@ async fn test_diff_hunks_with_multiple_excerpts(cx: &mut TestAppContext) {
 
     buffer_2.update(cx, |buffer, cx| {
         buffer.edit_via_marked_text(
-            indoc!(
-                "
-                  eight
-                «»eleven
-                THIRTEEN
-                FOURTEEN
-                "
-            ),
+            "  eight
+«»eleven
+THIRTEEN
+FOURTEEN
+",
             None,
             cx,
         );
@@ -3374,25 +3237,22 @@ async fn test_diff_hunks_with_multiple_excerpts(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc!(
-            "
-            + ZERO
-              one
-            - two
-            + TWO
-                  three
-            - four
-            - five
-              six
+        "+ ZERO
+  one
+- two
++ TWO
+      three
+- four
+- five
+  six
 
-            - seven
-                eight
-              eleven
-            - twelve
-            + THIRTEEN
-            + FOURTEEN
-            "
-        ),
+- seven
+    eight
+  eleven
+- twelve
++ THIRTEEN
++ FOURTEEN
+",
     );
 
     assert_line_indents(&snapshot);
@@ -4497,9 +4357,9 @@ fn check_multibuffer(
         "line count: {}",
         actual_text.split('\n').count()
     );
-    pretty_assertions::assert_eq!(actual_diff, expected_diff);
-    pretty_assertions::assert_eq!(actual_text, expected_text);
-    pretty_assertions::assert_eq!(actual_row_infos, expected_row_infos);
+    assert_eq!(actual_diff, expected_diff);
+    assert_eq!(actual_text, expected_text);
+    assert_eq!(actual_row_infos, expected_row_infos);
 
     for _ in 0..5 {
         let start_row = rng.random_range(0..=expected_row_infos.len());
@@ -4655,14 +4515,14 @@ fn check_multibuffer_edits(
             (edit.new.start.0..edit.new.start.0 + (edit.old.end.0 - edit.old.start.0)).clone(),
             &new_text,
         );
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             &text[0..edit.new.end.0],
             snapshot
                 .text_for_range(MultiBufferOffset(0)..edit.new.end)
                 .collect::<String>()
         );
     }
-    pretty_assertions::assert_eq!(text, snapshot.text());
+    assert_eq!(text, snapshot.text());
 }
 
 #[gpui::test]
@@ -4837,15 +4697,12 @@ async fn test_enclosing_indent(cx: &mut TestAppContext) {
 
     assert_eq!(
         enclosing_indent(
-            indoc!(
-                "
-                fn b() {
-                    if c {
-                        let d = 2;
-                    }
-                }
-                "
-            ),
+            "fn b() {
+    if c {
+        let d = 2;
+    }
+}
+",
             1,
             cx,
         )
@@ -4862,15 +4719,12 @@ async fn test_enclosing_indent(cx: &mut TestAppContext) {
 
     assert_eq!(
         enclosing_indent(
-            indoc!(
-                "
-                fn b() {
-                    if c {
-                        let d = 2;
-                    }
-                }
-                "
-            ),
+            "fn b() {
+    if c {
+        let d = 2;
+    }
+}
+",
             2,
             cx,
         )
@@ -4887,17 +4741,14 @@ async fn test_enclosing_indent(cx: &mut TestAppContext) {
 
     assert_eq!(
         enclosing_indent(
-            indoc!(
-                "
-                fn b() {
-                    if c {
-                        let d = 2;
+            "fn b() {
+    if c {
+        let d = 2;
 
-                        let e = 5;
-                    }
-                }
-                "
-            ),
+        let e = 5;
+    }
+}
+",
             3,
             cx,
         )
@@ -4915,26 +4766,14 @@ async fn test_enclosing_indent(cx: &mut TestAppContext) {
 
 #[gpui::test]
 async fn test_summaries_for_anchors(cx: &mut TestAppContext) {
-    let base_text_1 = indoc!(
-        "
-        bar
-        "
-    );
-    let text_1 = indoc!(
-        "
-        BAR
-        "
-    );
-    let base_text_2 = indoc!(
-        "
-        foo
-        "
-    );
-    let text_2 = indoc!(
-        "
-        FOO
-        "
-    );
+    let base_text_1 = "bar
+";
+    let text_1 = "BAR
+";
+    let base_text_2 = "foo
+";
+    let text_2 = "FOO
+";
 
     let buffer_1 = cx.new(|cx| Buffer::local(text_1, cx));
     let buffer_2 = cx.new(|cx| Buffer::local(text_2, cx));
@@ -4977,15 +4816,12 @@ async fn test_summaries_for_anchors(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc!(
-            "
-            - bar
-            + BAR
+        "- bar
++ BAR
 
-            - foo
-            + FOO
-            "
-        ),
+- foo
++ FOO
+",
     );
 
     let anchor_1 = multibuffer.read_with(cx, |multibuffer, cx| {
@@ -5041,12 +4877,9 @@ async fn test_trailing_deletion_without_newline(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc!(
-            "
-              one
-            - two
-            "
-        ),
+        "  one
+- two
+",
     );
 
     assert_eq!(snapshot.max_point(), Point::new(2, 0));
@@ -5083,14 +4916,11 @@ async fn test_trailing_deletion_without_newline(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc!(
-            "
-              one
-            - two
+        "  one
+- two
 
-              foo
-            "
-        ),
+  foo
+",
     );
 
     assert_eq!(
@@ -5197,25 +5027,19 @@ fn format_diff(
 
 #[gpui::test]
 async fn test_singleton_with_inverted_diff(cx: &mut TestAppContext) {
-    let text = indoc!(
-        "
-        ZERO
-        one
-        TWO
-        three
-        six
-        "
-    );
-    let base_text = indoc!(
-        "
-        one
-        two
-        three
-        four
-        five
-        six
-        "
-    );
+    let text = "ZERO
+one
+TWO
+three
+six
+";
+    let base_text = "one
+two
+three
+four
+five
+six
+";
 
     let buffer = cx.new(|cx| Buffer::local(text, cx));
     let diff = cx
@@ -5241,29 +5065,23 @@ async fn test_singleton_with_inverted_diff(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc!(
-            "
-              one
-            - two
-              three
-            - four
-            - five
-              six
-            "
-        ),
+        "  one
+- two
+  three
+- four
+- five
+  six
+",
     );
 
     buffer.update(cx, |buffer, cx| {
         buffer.edit_via_marked_text(
-            indoc!(
-                "
-                ZERO
-                one
-                «<inserted>»W«O
-                T»hree
-                six
-                "
-            ),
+            "ZERO
+one
+«<inserted>»W«O
+T»hree
+six
+",
             None,
             cx,
         );
@@ -5289,16 +5107,13 @@ async fn test_singleton_with_inverted_diff(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc! {
-            "
-              one
-            - two
-            - three
-            - four
-            - five
-              six
-            "
-        },
+        "  one
+- two
+- three
+- four
+- five
+  six
+",
     );
 
     buffer.update(cx, |buffer, cx| {
@@ -5325,16 +5140,13 @@ async fn test_singleton_with_inverted_diff(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc! {
-            "
-            - one
-            - two
-            - three
-            - four
-            - five
-            - six
-            "
-        },
+        "- one
+- two
+- three
+- four
+- five
+- six
+",
     );
 
     diff.update(cx, |diff, cx| {
@@ -5352,9 +5164,8 @@ async fn test_singleton_with_inverted_diff(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc! {"
-            - new base
-        "},
+        "- new base
+",
     );
 }
 
@@ -5386,13 +5197,10 @@ async fn test_inverted_diff_base_text_change(cx: &mut TestAppContext) {
         &mut snapshot,
         &mut subscription,
         cx,
-        indoc!(
-            "
-            - aaa
-            - bbb
-            - ccc
-            "
-        ),
+        "- aaa
+- bbb
+- ccc
+",
     );
 
     diff.update(cx, |diff, cx| {
@@ -5499,7 +5307,7 @@ fn assert_new_snapshot(
         .row_infos(MultiBufferRow(0))
         .collect::<Vec<_>>();
     let actual_diff = format_diff(&actual_text, &line_infos, &Default::default(), None);
-    pretty_assertions::assert_eq!(actual_diff, expected_diff);
+    assert_eq!(actual_diff, expected_diff);
     check_edits(
         snapshot,
         &new_snapshot,
@@ -5534,7 +5342,7 @@ fn check_edits(
         );
     }
 
-    pretty_assertions::assert_eq!(text, new_text, "invalid edits: {:?}", edits);
+    assert_eq!(text, new_text, "invalid edits: {:?}", edits);
 }
 
 #[track_caller]
@@ -5708,7 +5516,7 @@ fn assert_line_indents(snapshot: &MultiBufferSnapshot) {
         .line_indents_in_row_range(0..max_row + 1)
         .collect::<Vec<_>>();
     for start_row in 0..snapshot.max_point().row {
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             snapshot
                 .line_indents(MultiBufferRow(start_row), |_| true)
                 .map(|(row, indent, _)| (row.0, indent))
@@ -5719,7 +5527,7 @@ fn assert_line_indents(snapshot: &MultiBufferSnapshot) {
     }
 
     line_indents.reverse();
-    pretty_assertions::assert_eq!(
+    assert_eq!(
         snapshot
             .reversed_line_indents(MultiBufferRow(max_row), |_| true)
             .map(|(row, indent, _)| (row.0, indent))
@@ -6418,7 +6226,7 @@ fn test_range_to_buffer_ranges_zero_length_at_excerpt_boundary(cx: &mut App) {
         .range_to_buffer_ranges(excerpt_2_start..excerpt_2_start)
         .into_iter()
         .map(|tup| tup.1)
-        .collect_vec();
+        .collect::<Vec<_>>();
 
     assert_eq!(
         ranges, expected_ranges,
@@ -6428,35 +6236,29 @@ fn test_range_to_buffer_ranges_zero_length_at_excerpt_boundary(cx: &mut App) {
 
 #[gpui::test]
 async fn test_buffer_range_to_excerpt_ranges(cx: &mut TestAppContext) {
-    let base_text = indoc!(
-        "
-        aaa
-        bbb
-        ccc
-        ddd
-        eee
-        ppp
-        qqq
-        rrr
-        fff
-        ggg
-        hhh
-        "
-    );
-    let text = indoc!(
-        "
-        aaa
-        BBB
-        ddd
-        eee
-        ppp
-        qqq
-        rrr
-        FFF
-        ggg
-        hhh
-        "
-    );
+    let base_text = "aaa
+bbb
+ccc
+ddd
+eee
+ppp
+qqq
+rrr
+fff
+ggg
+hhh
+";
+    let text = "aaa
+BBB
+ddd
+eee
+ppp
+qqq
+rrr
+FFF
+ggg
+hhh
+";
 
     let buffer = cx.new(|cx| Buffer::local(text, cx));
     let diff = cx
@@ -6492,20 +6294,17 @@ async fn test_buffer_range_to_excerpt_ranges(cx: &mut TestAppContext) {
         &Default::default(),
         None,
     );
-    let expected_diff = indoc!(
-        "
-          aaa
-        - bbb
-        - ccc
-        + BBB
-          ddd
-          eee [\u{2193}]
-        - fff [\u{2191}]
-        + FFF
-          ggg
-          hhh [\u{2193}]"
-    );
-    pretty_assertions::assert_eq!(actual_diff, expected_diff);
+    let expected_diff = "  aaa
+- bbb
+- ccc
++ BBB
+  ddd
+  eee [\u{2193}]
+- fff [\u{2191}]
++ FFF
+  ggg
+  hhh [\u{2193}]";
+    assert_eq!(actual_diff, expected_diff);
 
     let buffer_snapshot = buffer.read_with(cx, |buffer, _| buffer.snapshot());
 
@@ -6628,31 +6427,29 @@ fn test_cannot_seek_backward_after_excerpt_replacement(cx: &mut TestAppContext) 
 
 #[gpui::test]
 fn test_resolving_max_anchor_for_buffer(cx: &mut TestAppContext) {
-    let dock_base_text = indoc! {"
-        0
-        1
-        2
-        3
-        4
-        5
-        6
-        7
-        8
-        9
-        10
-        11
-        12
-    "};
+    let dock_base_text = "0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+";
 
-    let dock_text = indoc! {"
-        0
-        4
-        5
-        6
-        10
-        11
-        12
-    "};
+    let dock_text = "0
+4
+5
+6
+10
+11
+12
+";
 
     let dock_buffer = cx.new(|cx| Buffer::local(dock_text, cx));
     let diff = cx.new(|cx| {
@@ -6700,19 +6497,18 @@ fn test_resolving_max_anchor_for_buffer(cx: &mut TestAppContext) {
     );
     assert_eq!(
         diff,
-        indoc! {"
-            0
-          - 1
-          - 2
-          - 3
-            4 [↓]
-            6 [↑]
-          - 7
-          - 8
-          - 9
-            10 [↓]
-            second buffer
-        "}
+        "  0
+- 1
+- 2
+- 3
+  4 [↓]
+  6 [↑]
+- 7
+- 8
+- 9
+  10 [↓]
+  second buffer
+"
     );
 
     multibuffer.update(cx, |multibuffer, cx| {

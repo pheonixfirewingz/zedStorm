@@ -22,7 +22,6 @@ chrono.workspace = true
 clock.workspace = true
 cloud_api_types.workspace = true
 collections.workspace = true
-derive_more.workspace = true
 feature_flags.workspace = true
 fs.workspace = true
 futures.workspace = true

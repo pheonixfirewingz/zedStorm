@@ -3303,8 +3303,6 @@ impl LocalSnapshot {
 
     #[cfg(feature = "test-support")]
     pub fn check_invariants(&self, git_state: bool) {
-        use pretty_assertions::assert_eq;
-
         assert_eq!(
             self.entries_by_path
                 .cursor::<()>(())

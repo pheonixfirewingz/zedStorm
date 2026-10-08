@@ -172,7 +172,6 @@ impl TryFrom<&ThemeColor> for gpui::Rgba {
 }
 
 /// Settings for rendering text in UI and text buffers.
-
 #[with_fallible_options]
 #[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize, JsonSchema, MergeFrom)]
 pub struct ThemeSettingsContent {
@@ -247,19 +246,18 @@ pub struct ThemeSettingsContent {
 
 /// A font size value in pixels, wrapping around `f32` for custom settings UI rendering.
 #[derive(
-    Clone,
-    Copy,
-    Debug,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    PartialEq,
-    PartialOrd,
-    derive_more::FromStr,
+    Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq, PartialOrd,
 )]
 #[serde(transparent)]
 pub struct FontSize(#[serde(serialize_with = "serialize_f32_with_two_decimal_places")] pub f32);
+
+impl std::str::FromStr for FontSize {
+    type Err = <f32 as std::str::FromStr>::Err;
+    #[inline]
+    fn from_str(input: &str) -> std::result::Result<Self, Self::Err> {
+        std::str::FromStr::from_str(input).map(Self)
+    }
+}
 
 impl Display for FontSize {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -274,19 +272,18 @@ impl From<f32> for FontSize {
 }
 
 #[derive(
-    Clone,
-    Copy,
-    Debug,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    PartialEq,
-    PartialOrd,
-    derive_more::FromStr,
+    Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq, PartialOrd,
 )]
 #[serde(transparent)]
 pub struct CodeFade(#[serde(serialize_with = "serialize_f32_with_two_decimal_places")] pub f32);
+
+impl std::str::FromStr for CodeFade {
+    type Err = <f32 as std::str::FromStr>::Err;
+    #[inline]
+    fn from_str(input: &str) -> std::result::Result<Self, Self::Err> {
+        std::str::FromStr::from_str(input).map(Self)
+    }
+}
 
 impl Display for CodeFade {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1374,19 +1371,17 @@ pub enum FontStyleContent {
     Oblique,
 }
 
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    PartialOrd,
-    Serialize,
-    Deserialize,
-    MergeFrom,
-    derive_more::FromStr,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Serialize, Deserialize, MergeFrom)]
 #[serde(transparent)]
 pub struct FontWeightContent(pub f32);
+
+impl std::str::FromStr for FontWeightContent {
+    type Err = <f32 as std::str::FromStr>::Err;
+    #[inline]
+    fn from_str(input: &str) -> std::result::Result<Self, Self::Err> {
+        std::str::FromStr::from_str(input).map(Self)
+    }
+}
 
 impl Display for FontWeightContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

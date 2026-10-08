@@ -1277,7 +1277,7 @@ fn snippet_completions(
                             ((snippet_ix, prefix_ix), prefix, word_count)
                         })
                 })
-                .collect_vec();
+                .collect::<Vec<_>>();
             sorted_snippet_candidates
                 .sort_unstable_by_key(|(_, _, word_count)| Reverse(*word_count));
 
@@ -1290,7 +1290,7 @@ fn snippet_completions(
                         .map(|(_, _, word_count)| *word_count)
                         .unwrap_or_default(),
                 )
-                .collect_vec();
+                .collect::<Vec<_>>();
 
             const MAX_RESULTS: usize = 100;
             // Each match also remembers how many characters from the buffer it consumed

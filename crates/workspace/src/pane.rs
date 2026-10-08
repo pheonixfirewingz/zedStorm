@@ -1,7 +1,6 @@
 use crate::{
-    CloseWindow, NewCenterTerminal, NewFile, NewTerminal, OpenInTerminal, OpenOptions,
-    OpenTerminal, OpenVisible, SplitDirection, ToggleFileFinder, ToggleProjectSymbols, ToggleZoom,
-    Workspace, WorkspaceItemBuilder, ZoomIn, ZoomOut,
+    CloseWindow, OpenInTerminal, OpenOptions, OpenTerminal, OpenVisible, SplitDirection,
+    ToggleZoom, Workspace, WorkspaceItemBuilder, ZoomIn, ZoomOut,
     focus_follows_mouse::FocusFollowsMouse as _,
     invalid_item_view::InvalidItemView,
     item::{
@@ -1876,7 +1875,11 @@ impl Pane {
                 continue;
             }
 
-            if let Some(true) = self.items.get(index).map(|item| item.is_dirty(cx)) {
+            if self
+                .items
+                .get(index)
+                .is_some_and(|item| !item.can_close(cx) || item.is_dirty(cx))
+            {
                 continue;
             }
 
@@ -1961,7 +1964,7 @@ impl Pane {
         // Find the items to close.
         let mut items_to_close = Vec::new();
         for item in &self.items {
-            if should_close(item.item_id()) {
+            if item.can_close(cx) && should_close(item.item_id()) {
                 items_to_close.push(item.boxed_clone());
             }
         }
@@ -2844,6 +2847,7 @@ impl Pane {
         window: &mut Window,
         cx: &mut Context<Pane>,
     ) -> impl IntoElement + use<> {
+        let can_close = item.can_close(cx);
         let is_active = ix == self.active_item_index;
         let is_preview = self
             .preview_item_id
@@ -2998,6 +3002,9 @@ impl Pane {
             }))
             .start_slot::<Indicator>(indicator)
             .map(|this| {
+                if !can_close && !is_pinned {
+                    return this;
+                }
                 let end_slot_action: &'static dyn Action;
                 let end_slot_tooltip_text: &'static str;
                 let end_slot = if is_pinned {
@@ -3107,6 +3114,7 @@ impl Pane {
                 let pane = pane.clone();
                 let menu_context = menu_context.clone();
                 let extra_actions = item_handle.tab_extra_context_menu_actions(window, cx);
+                let can_close = item_handle.can_close(cx);
                 ContextMenu::build(window, cx, move |mut menu, window, cx| {
                     let close_active_item_action = CloseActiveItem {
                         save_intent: None,
@@ -3135,14 +3143,20 @@ impl Pane {
                     };
                     if let Some(pane) = pane.upgrade() {
                         menu = menu
-                            .entry(
-                                "Close",
-                                Some(Box::new(close_active_item_action)),
-                                window.handler_for(&pane, move |pane, window, cx| {
-                                    pane.close_item_by_id(item_id, SaveIntent::Close, window, cx)
+                            .item(ContextMenuItem::Entry(
+                                ContextMenuEntry::new("Close")
+                                    .action(Box::new(close_active_item_action))
+                                    .disabled(!can_close)
+                                    .handler(window.handler_for(&pane, move |pane, window, cx| {
+                                        pane.close_item_by_id(
+                                            item_id,
+                                            SaveIntent::Close,
+                                            window,
+                                            cx,
+                                        )
                                         .detach_and_log_err(cx);
-                                }),
-                            )
+                                    })),
+                            ))
                             .item(ContextMenuItem::Entry(
                                 ContextMenuEntry::new("Close Others")
                                     .action(Box::new(close_inactive_items_action.clone()))
@@ -4327,30 +4341,6 @@ fn default_render_tab_bar_buttons(
         // Instead we need to replicate the spacing from the [TabBar]'s `end_slot` here.
         .gap(DynamicSpacing::Base04.rems(cx))
         .child(
-            PopoverMenu::new("pane-tab-bar-popover-menu")
-                .trigger_with_tooltip(
-                    IconButton::new("plus", IconName::Plus).icon_size(IconSize::Small),
-                    Tooltip::text("New…"),
-                )
-                .anchor(Anchor::TopRight)
-                .with_handle(pane.new_item_context_menu_handle.clone())
-                .menu(move |window, cx| {
-                    Some(ContextMenu::build(window, cx, |menu, _, _| {
-                        menu.action("New File", NewFile.boxed_clone())
-                            .action("Open File", ToggleFileFinder::default().boxed_clone())
-                            .separator()
-                            .action("Search Project", DeploySearch::default().boxed_clone())
-                            .action("Search Symbols", ToggleProjectSymbols.boxed_clone())
-                            .separator()
-                            .action("New Terminal", NewTerminal::default().boxed_clone())
-                            .action(
-                                "New Center Terminal",
-                                NewCenterTerminal::default().boxed_clone(),
-                            )
-                    }))
-                }),
-        )
-        .child(
             PopoverMenu::new("pane-tab-bar-split")
                 .trigger_with_tooltip(
                     IconButton::new("split", IconName::Split)
@@ -4378,23 +4368,6 @@ fn default_render_tab_bar_buttons(
                     .into()
                 }),
         )
-        .child({
-            let zoomed = pane.is_zoomed();
-            IconButton::new("toggle_zoom", IconName::Maximize)
-                .icon_size(IconSize::Small)
-                .toggle_state(zoomed)
-                .selected_icon(IconName::Minimize)
-                .on_click(cx.listener(|pane, _, window, cx| {
-                    pane.toggle_zoom(&crate::ToggleZoom, window, cx);
-                }))
-                .tooltip(move |_window, cx| {
-                    Tooltip::for_action(
-                        if zoomed { "Zoom Out" } else { "Zoom In" },
-                        &ToggleZoom,
-                        cx,
-                    )
-                })
-        })
         .into_any_element()
         .into();
     (None, right_children)
@@ -7147,7 +7120,7 @@ mod tests {
         let new_file_dispatched = Rc::new(Cell::new(false));
         cx.update(|_, cx| {
             let new_file_dispatched = new_file_dispatched.clone();
-            cx.on_action(move |_: &NewFile, _cx| {
+            cx.on_action(move |_: &crate::NewFile, _cx| {
                 new_file_dispatched.set(true);
             });
         });

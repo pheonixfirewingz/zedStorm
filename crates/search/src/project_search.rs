@@ -1139,10 +1139,6 @@ impl Item for ProjectSearchView {
             .update(cx, |editor, cx| editor.deactivated(window, cx));
     }
 
-    fn tab_icon(&self, _window: &Window, _cx: &App) -> Option<Icon> {
-        Some(Icon::new(IconName::MagnifyingGlass))
-    }
-
     fn tab_content_text(&self, _detail: usize, cx: &App) -> SharedString {
         let last_query: Option<SharedString> = self
             .entity
@@ -3516,7 +3512,7 @@ pub mod tests {
     use editor::{DisplayPoint, ToPoint, display_map::DisplayRow};
     use gpui::{Action, TestAppContext, VisualTestContext, WindowHandle};
     use language::{FakeLspAdapter, Point as BufferPoint, rust_lang};
-    use pretty_assertions::assert_eq;
+
     use project::{FakeFs, Fs};
     use serde_json::json;
     use settings::{

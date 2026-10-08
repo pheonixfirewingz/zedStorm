@@ -29,7 +29,5 @@ urlencoding.workspace = true
 util.workspace = true
 
 [dev-dependencies]
-indoc.workspace = true
 serde_json.workspace = true
-pretty_assertions.workspace = true
 git = { workspace = true, features = ["test-support"] }

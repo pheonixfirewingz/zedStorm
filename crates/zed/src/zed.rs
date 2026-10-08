@@ -89,13 +89,13 @@ use util::{ResultExt, asset_str, maybe};
 use uuid::Uuid;
 use workspace::notifications::{NotificationId, dismiss_app_notification, show_app_notification};
 
+use workspace::Pane;
 use workspace::{
-    AppState, MultiWorkspace, NewFile, NewWindow, OpenLog, Toast, Workspace, WorkspaceSettings,
+    AppState, MultiWorkspace, NewFile, NewWindow, OpenLog, Workspace, WorkspaceSettings,
     create_and_open_local_file, notifications::simple_message_notification::MessageNotification,
     open_new,
 };
 use workspace::{CloseProject, CloseWindow, with_active_or_new_workspace};
-use workspace::{Pane, notifications::DetachAndPromptErr};
 use zed_actions::{
     About, GetMerch, OpenBrowser, OpenDocs, OpenProjectTasks, OpenServerSettings, OpenSettingsFile,
     OpenStatusPage, OpenZedUrl, Quit,
@@ -581,11 +581,10 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
 fn initialize_file_watcher(fs: &dyn Fs, window: &mut Window, cx: &mut Context<Workspace>) {
     if let Err(e) = fs.start_native_watcher() {
         let message = format!(
-            db::indoc! {r#"
-            inotify_init returned {}
+            r#"inotify_init returned {}
 
-            This may be due to system-wide limits on inotify instances. For troubleshooting see: https://zed.dev/docs/linux
-            "#},
+This may be due to system-wide limits on inotify instances. For troubleshooting see: https://zed.dev/docs/linux
+"#,
             e
         );
         let prompt = window.prompt(
@@ -612,11 +611,10 @@ fn initialize_file_watcher(fs: &dyn Fs, window: &mut Window, cx: &mut Context<Wo
 fn initialize_file_watcher(fs: &dyn Fs, window: &mut Window, cx: &mut Context<Workspace>) {
     if let Err(e) = fs.start_native_watcher() {
         let message = format!(
-            db::indoc! {r#"
-            ReadDirectoryChangesW initialization failed: {}
+            r#"ReadDirectoryChangesW initialization failed: {}
 
-            This may occur on network filesystems and WSL paths. For troubleshooting see: https://zed.dev/docs/windows
-            "#},
+This may occur on network filesystems and WSL paths. For troubleshooting see: https://zed.dev/docs/windows
+"#,
             e
         );
         let prompt = window.prompt(
@@ -658,15 +656,14 @@ fn show_software_emulation_warning_if_needed(
             )
         };
         let message = format!(
-            db::indoc! {r#"
-            Zed uses {} for rendering and requires a compatible GPU.
+            r#"Zed uses {} for rendering and requires a compatible GPU.
 
-            Currently you are using a software emulated GPU ({}) which
-            will result in awful performance.
+Currently you are using a software emulated GPU ({}) which
+will result in awful performance.
 
-            For troubleshooting see: {}
-            Set ZED_ALLOW_EMULATED_GPU=1 env var to permanently override.
-            "#},
+For troubleshooting see: {}
+Set ZED_ALLOW_EMULATED_GPU=1 env var to permanently override.
+"#,
             graphics_api, specs.device_name, docs_url
         );
         let prompt = window.prompt(
@@ -1071,32 +1068,6 @@ fn register_actions(
                 }
             }
         })
-        .register_action(|_, _: &install_cli::RegisterZedScheme, window, cx| {
-            cx.spawn_in(window, async move |workspace, cx| {
-                install_cli::register_zed_scheme(cx).await?;
-                workspace.update_in(cx, |workspace, _, cx| {
-                    struct RegisterZedScheme;
-
-                    workspace.show_toast(
-                        Toast::new(
-                            NotificationId::unique::<RegisterZedScheme>(),
-                            format!(
-                                "zed:// links will now open in {}.",
-                                ReleaseChannel::global(cx).display_name()
-                            ),
-                        ),
-                        cx,
-                    )
-                })?;
-                Ok(())
-            })
-            .detach_and_prompt_err(
-                "Error registering zed:// scheme",
-                window,
-                cx,
-                |_, _, _| None,
-            );
-        })
         .register_action(open_project_settings_file)
         .register_action(open_project_tasks_file)
         .register_action(open_worktree_setup_tasks_file)
@@ -1170,9 +1141,6 @@ fn register_actions(
                 .detach_and_log_err(cx);
             }
         });
-
-    #[cfg(not(target_os = "windows"))]
-    workspace.register_action(install_cli);
 
     if workspace.project().read(cx).is_via_remote_server() {
         workspace.register_action({
@@ -1502,7 +1470,7 @@ fn open_about_window(cx: &mut App) {
     cx.open_window(
         WindowOptions {
             titlebar: Some(TitlebarOptions {
-                title: Some("About Zed".into()),
+                title: Some("About ZedStorm".into()),
                 appears_transparent: true,
                 traffic_light_position: Some(point(px(12.), px(12.))),
             }),
@@ -1522,16 +1490,6 @@ fn open_about_window(cx: &mut App) {
         },
     )
     .log_err();
-}
-
-#[cfg(not(target_os = "windows"))]
-fn install_cli(
-    _: &mut Workspace,
-    _: &install_cli::InstallCliBinary,
-    window: &mut Window,
-    cx: &mut Context<Workspace>,
-) {
-    install_cli::install_cli_binary(window, cx)
 }
 
 static WAITING_QUIT_CONFIRMATION: AtomicBool = AtomicBool::new(false);
@@ -2526,7 +2484,7 @@ mod tests {
     use language::LanguageRegistry;
     use languages::{markdown_lang, rust_lang};
     use node_runtime::NodeRuntime;
-    use pretty_assertions::{assert_eq, assert_ne};
+
     use project::{Project, ProjectPath};
     use semver::Version;
     use serde_json::json;

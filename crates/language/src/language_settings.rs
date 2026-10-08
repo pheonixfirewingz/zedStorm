@@ -599,10 +599,6 @@ pub struct DisabledGlob {
 
 #[derive(Clone, Debug, Default)]
 pub struct CopilotEditPredictionSettings {
-    /// HTTP/HTTPS proxy to use for Copilot.
-    pub proxy: Option<String>,
-    /// Disable certificate verification for proxy (not recommended).
-    pub proxy_no_verify: Option<bool>,
     /// Whether the Copilot Next Edit Suggestions feature is enabled.
     pub enable_next_edit_suggestions: Option<bool>,
     /// Automatic prediction debounce delay.
@@ -954,8 +950,6 @@ impl settings::Settings for AllLanguageSettings {
 
         let copilot = edit_predictions.copilot.unwrap();
         let copilot_settings = CopilotEditPredictionSettings {
-            proxy: copilot.proxy,
-            proxy_no_verify: copilot.proxy_no_verify,
             enable_next_edit_suggestions: copilot.enable_next_edit_suggestions,
             prediction_debounce: copilot.prediction_debounce.unwrap(),
         };

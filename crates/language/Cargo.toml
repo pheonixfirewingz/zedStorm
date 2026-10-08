@@ -85,9 +85,7 @@ collections = { workspace = true, features = ["test-support"] }
 ctor.workspace = true
 grammars.workspace = true
 gpui = { workspace = true, features = ["test-support"] }
-indoc.workspace = true
 lsp = { workspace = true, features = ["test-support"] }
-pretty_assertions.workspace = true
 rand.workspace = true
 settings = { workspace = true, features = ["test-support"] }
 text = { workspace = true, features = ["test-support"] }
@@ -104,7 +102,6 @@ tree-sitter-c.workspace = true
 tree-sitter-rust.workspace = true
 tree-sitter-typescript.workspace = true
 toml.workspace = true
-unindent.workspace = true
 util = { workspace = true, features = ["test-support"] }
 zlog.workspace = true
 criterion.workspace = true

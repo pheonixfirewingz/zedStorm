@@ -263,7 +263,7 @@ impl BackgroundExecutor {
         if let Some(test) = self.dispatcher.as_test() {
             return test.num_cpus_override().unwrap_or(4);
         }
-        num_cpus::get()
+        std::thread::available_parallelism().map_or(1, |count| count.get())
     }
 
     /// Override the number of CPUs reported by this executor in tests.

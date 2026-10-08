@@ -3609,47 +3609,6 @@ Positive `integer` values or `null` for unlimited tabs
 - `path`: Custom path to Node.js binary
 - `npm_path`: Custom path to npm binary
 
-## Network Proxy
-
-- Description: Configure a network proxy for Zed.
-- Setting: `proxy`
-- Default: `null`
-
-**Options**
-
-The proxy setting must contain a URL to the proxy.
-
-The following URI schemes are supported:
-
-- `http`
-- `https`
-- `socks4` - SOCKS4 proxy with local DNS
-- `socks4a` - SOCKS4 proxy with remote DNS
-- `socks5` - SOCKS5 proxy with local DNS
-- `socks5h` - SOCKS5 proxy with remote DNS
-
-`http` will be used when no scheme is specified.
-
-By default no proxy will be used, or Zed will attempt to retrieve proxy settings from environment variables, such as `http_proxy`, `HTTP_PROXY`, `https_proxy`, `HTTPS_PROXY`, `all_proxy`, `ALL_PROXY`, `no_proxy` and `NO_PROXY`.
-
-For example, to set an `http` proxy, add the following to your settings:
-
-```json [settings]
-{
-  "proxy": "http://127.0.0.1:10809"
-}
-```
-
-Or to set a `socks5` proxy:
-
-```json [settings]
-{
-  "proxy": "socks5h://localhost:10808"
-}
-```
-
-If you wish to exclude certain hosts from using the proxy, set the `NO_PROXY` environment variable. This accepts a comma-separated list of hostnames, host suffixes, IPv4/IPv6 addresses or blocks that should not use the proxy. For example if your environment included `NO_PROXY="google.com, 192.168.1.0/24"` all hosts in `192.168.1.*`, `google.com` and `*.google.com` would bypass the proxy. See [reqwest NoProxy docs](https://docs.rs/reqwest/latest/reqwest/struct.NoProxy.html#method.from_string) for more.
-
 ## On Last Window Closed
 
 - Description: What to do when the last window is closed
@@ -5570,7 +5529,7 @@ Available variables:
     "dock": "right",
     "entry_spacing": "comfortable",
     "file_icons": true,
-    "folder_indicator": "icon",
+    "folder_indicator": "both",
     "git_status": true,
     "indent_size": 20,
     "auto_reveal_entries": true,
@@ -5971,7 +5930,6 @@ Visit [AI Quick Start](../ai/quick-start.md) under the AI section to learn more 
 
 `boolean` values
 
-
 ## Debugger
 
 - Description: Configuration for debugger panel and settings
@@ -6005,10 +5963,10 @@ See the [debugger page](../debugger.md) for more information about debugging sup
     "default_width": 360,
     "status_style": "icon",
     "file_icons": false,
-    "folder_indicator": "icon",
+    "folder_indicator": "both",
     "fallback_branch_name": "main",
     "sort_by": "path",
-    "group_by": "status",
+    "group_by": "staging",
     "collapse_untracked_diff": false,
     "tree_view": false,
     "scrollbar": {
@@ -6033,7 +5991,7 @@ See the [debugger page](../debugger.md) for more information about debugging sup
 - `folder_indicator`: What to show for directories in the git panel. Can be `icon`, `chevron`, or `both`
 - `fallback_branch_name`: What branch name to use if `init.defaultBranch` is not set
 - `sort_by`: How to sort entries in the git panel. Can be `path` or `name`
-- `group_by`: How to group entries in the git panel. Can be `none` or `status`
+- `group_by`: How to group entries in the git panel. Can be `none`, `status`, or `staging` (the default)
 - `collapse_untracked_diff`: Whether to collapse untracked files in the diff panel
 - `tree_view`: Whether to show entries in tree or flat view in the panel
 - `scrollbar`: When to show the scrollbar in the git panel
@@ -6111,7 +6069,7 @@ You can define these in user or project settings; project settings are merged on
     "default_width": 300,
     "dock": "right",
     "file_icons": true,
-    "folder_indicator": "icon",
+    "folder_indicator": "both",
     "git_status": true,
     "indent_size": 20,
     "auto_reveal_entries": true,
@@ -6126,7 +6084,6 @@ You can define these in user or project settings; project settings are merged on
   }
 }
 ```
-
 
 ## Colorize Brackets
 

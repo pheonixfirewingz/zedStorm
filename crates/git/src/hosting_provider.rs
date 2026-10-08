@@ -2,7 +2,7 @@ use std::{ops::Range, sync::Arc};
 
 use anyhow::Result;
 use async_trait::async_trait;
-use derive_more::{Deref, DerefMut};
+
 use gpui::{App, Global, SharedString};
 use http_client::HttpClient;
 use itertools::Itertools;
@@ -147,8 +147,23 @@ pub trait GitHostingProvider {
     }
 }
 
-#[derive(Default, Deref, DerefMut)]
+#[derive(Default)]
 struct GlobalGitHostingProviderRegistry(Arc<GitHostingProviderRegistry>);
+
+impl std::ops::Deref for GlobalGitHostingProviderRegistry {
+    type Target = Arc<GitHostingProviderRegistry>;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for GlobalGitHostingProviderRegistry {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 impl Global for GlobalGitHostingProviderRegistry {}
 

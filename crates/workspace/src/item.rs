@@ -208,6 +208,11 @@ pub trait Item: Focusable + EventEmitter<Self::Event> + Render + Sized {
 
     fn to_item_events(_event: &Self::Event, _f: &mut dyn FnMut(ItemEvent)) {}
 
+    /// Controls user-initiated tab closure; owners can still remove the item directly.
+    fn can_close(&self) -> bool {
+        true
+    }
+
     fn deactivated(&mut self, _window: &mut Window, _: &mut Context<Self>) {}
     fn discarded(&self, _project: Entity<Project>, _window: &mut Window, _cx: &mut Context<Self>) {}
     fn on_removed(&self, _cx: &mut Context<Self>) {}
@@ -514,6 +519,7 @@ pub trait ItemHandle: 'static + Send {
         window: &mut Window,
         cx: &mut Context<Workspace>,
     );
+    fn can_close(&self, cx: &App) -> bool;
     fn deactivated(&self, window: &mut Window, cx: &mut App);
     fn on_removed(&self, cx: &mut App);
     fn workspace_deactivated(&self, window: &mut Window, cx: &mut App);
@@ -939,6 +945,10 @@ impl<T: Item> ItemHandle for Entity<T> {
         cx.defer_in(window, |workspace, window, cx| {
             workspace.serialize_workspace(window, cx);
         });
+    }
+
+    fn can_close(&self, cx: &App) -> bool {
+        self.read(cx).can_close()
     }
 
     fn deactivated(&self, window: &mut Window, cx: &mut App) {

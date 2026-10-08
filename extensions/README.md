@@ -15,3 +15,22 @@ You can find the other officially maintained extensions in the [zed-extensions o
 ## Dev Extensions
 
 See the docs for [Developing an Extension Locally](https://zed.dev/docs/extensions/developing-extensions#developing-an-extension-locally) for how to work with one of these extensions.
+
+## Building extensions independently
+
+Each Rust extension has its own Cargo workspace and lockfile and is excluded
+from the core ZedStorm workspace. Core builds do not resolve or compile these
+extension packages or their private dependencies. Package settings and lint
+settings are local to each extension.
+
+Build an extension from the repository root by selecting its manifest:
+
+```sh
+cargo build --manifest-path extensions/glsl/Cargo.toml --target wasm32-wasip2 --locked
+```
+
+Use `extensions/html/Cargo.toml`, `extensions/proto/Cargo.toml`,
+`extensions/mermaid/Cargo.toml`, or `extensions/test-extension/Cargo.toml` for
+those extensions. The test extension uses the local extension SDK and remains
+available to the extension host's tests and compilation benchmark. The
+`workflows` directory contains shared CI configuration and is not a Rust crate.

@@ -4,7 +4,7 @@
 
 use gpui::{BorrowAppContext, Entity, TestAppContext, VisualTestContext};
 use picker::{MultiSelectNext, Picker, PickerDelegate as _};
-use pretty_assertions::assert_eq;
+
 use project::Project;
 use serde_json::json;
 use settings::SettingsStore;

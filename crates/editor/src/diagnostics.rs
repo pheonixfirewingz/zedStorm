@@ -609,7 +609,7 @@ mod tests {
         test::editor_test_context::EditorTestContext,
     };
     use gpui::{Action, TestAppContext, UpdateGlobal};
-    use indoc::indoc;
+
     use language::DiagnosticSourceKind;
     use lsp::LanguageServerId;
     use settings::{DelayMs, SettingsStore};
@@ -634,10 +634,11 @@ mod tests {
             });
         });
 
-        cx.set_state(indoc! {"
-            fn func(abc dˇef: i32) -> u32 {
-            }
-        "});
+        cx.set_state(
+            "fn func(abc dˇef: i32) -> u32 {
+}
+",
+        );
 
         let lsp_store =
             cx.update_editor(|editor, _, cx| editor.project().unwrap().read(cx).lsp_store());

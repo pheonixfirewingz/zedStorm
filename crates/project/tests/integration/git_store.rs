@@ -12,7 +12,7 @@ mod conflict_set_tests {
     use project::git_store::*;
     use serde_json::json;
     use text::{Buffer, BufferId, OffsetRangeExt, Point, ReplicaId, ToOffset as _};
-    use unindent::Unindent as _;
+    use util::Unindent as _;
     use util::{path, rel_path::rel_path};
 
     #[test]
@@ -769,7 +769,7 @@ mod git_traversal {
         let entries = traversal
             .map(|entry| (entry.path.clone(), entry.git_summary))
             .collect::<Vec<_>>();
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             entries,
             [
                 (rel_path("x/x1.txt").into(), GitSummary::UNCHANGED),
@@ -1220,7 +1220,7 @@ mod git_traversal {
                 (path, git_entry.git_summary)
             })
             .collect::<Vec<_>>();
-        pretty_assertions::assert_eq!(found_statuses, expected_statuses);
+        assert_eq!(found_statuses, expected_statuses);
     }
 }
 

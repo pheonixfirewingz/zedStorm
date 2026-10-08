@@ -223,20 +223,19 @@ async fn test_save_debug_scenario_to_file(executor: BackgroundExecutor, cx: &mut
         .collect::<Vec<_>>()
         .join("\n");
 
-    let expected_content = indoc::indoc! {r#"
-        [
-          {
-            "adapter": "fake-adapter",
-            "label": "main (fake-adapter)",
-            "request": "launch",
-            "program": "/project/main",
-            "cwd": "/project",
-            "args": [],
-            "env": {}
-          }
-        ]"#};
+    let expected_content = r#"[
+  {
+    "adapter": "fake-adapter",
+    "label": "main (fake-adapter)",
+    "request": "launch",
+    "program": "/project/main",
+    "cwd": "/project",
+    "args": [],
+    "env": {}
+  }
+]"#;
 
-    pretty_assertions::assert_eq!(expected_content, debug_json_content);
+    assert_eq!(expected_content, debug_json_content);
 
     editor.update(cx, |editor, cx| {
         assert_eq!(
@@ -255,27 +254,26 @@ async fn test_save_debug_scenario_to_file(executor: BackgroundExecutor, cx: &mut
 
     cx.executor().run_until_parked();
 
-    let expected_content = indoc::indoc! {r#"
-        [
-          {
-            "adapter": "fake-adapter",
-            "label": "main (fake-adapter)",
-            "request": "launch",
-            "program": "/project/main",
-            "cwd": "/project",
-            "args": [],
-            "env": {}
-          },
-          {
-            "adapter": "fake-adapter",
-            "label": "other (fake-adapter)",
-            "request": "launch",
-            "program": "/project/other",
-            "cwd": "/project",
-            "args": [],
-            "env": {}
-          }
-        ]"#};
+    let expected_content = r#"[
+  {
+    "adapter": "fake-adapter",
+    "label": "main (fake-adapter)",
+    "request": "launch",
+    "program": "/project/main",
+    "cwd": "/project",
+    "args": [],
+    "env": {}
+  },
+  {
+    "adapter": "fake-adapter",
+    "label": "other (fake-adapter)",
+    "request": "launch",
+    "program": "/project/other",
+    "cwd": "/project",
+    "args": [],
+    "env": {}
+  }
+]"#;
 
     let debug_json_content = fs
         .load(path!("/project/.zed/debug.json").as_ref())
@@ -285,7 +283,7 @@ async fn test_save_debug_scenario_to_file(executor: BackgroundExecutor, cx: &mut
         .filter(|line| !line.starts_with("//"))
         .collect::<Vec<_>>()
         .join("\n");
-    pretty_assertions::assert_eq!(expected_content, debug_json_content);
+    assert_eq!(expected_content, debug_json_content);
 }
 
 #[gpui::test]

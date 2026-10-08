@@ -1223,19 +1223,18 @@ mod tests {
                 .line_height_in_pixels(window.rem_size())
         });
 
-        let buffer = indoc::indoc! {"
-                ˇfn foo() {
-                    let abc = 123;
-                }
-                struct Bar;
-                impl Bar {
-                    fn new() -> Self {
-                        Self
-                    }
-                }
-                fn baz() {
-                }
-            "};
+        let buffer = "ˇfn foo() {
+    let abc = 123;
+}
+struct Bar;
+impl Bar {
+    fn new() -> Self {
+        Self
+    }
+}
+fn baz() {
+}
+";
         cx.set_state(&buffer);
 
         let text_origin_x = cx.update_editor(|editor, _, _| {

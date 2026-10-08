@@ -196,7 +196,7 @@ mod tests {
     use language::{AutoindentMode, Buffer};
     use settings::SettingsStore;
     use std::num::NonZeroU32;
-    use unindent::Unindent;
+    use util::Unindent;
     use util::test::marked_text_offsets;
 
     #[gpui::test]
@@ -330,7 +330,7 @@ mod tests {
                 "#
             .unindent();
 
-            pretty_assertions::assert_eq!(buffer.text(), expected);
+            assert_eq!(buffer.text(), expected);
 
             buffer
         });

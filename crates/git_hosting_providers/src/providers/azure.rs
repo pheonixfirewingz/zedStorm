@@ -187,7 +187,6 @@ impl GitHostingProvider for Azure {
 #[cfg(test)]
 mod tests {
     use git::repository::repo_path;
-    use pretty_assertions::assert_eq;
 
     use super::*;
 
@@ -351,8 +350,6 @@ mod tests {
 
     #[test]
     fn test_azure_extract_pull_request() {
-        use indoc::indoc;
-
         let remote = ParsedGitRemote {
             owner: "myorg/myproject".into(),
             repo: "myrepo".into(),
@@ -361,11 +358,10 @@ mod tests {
         let message = "This does not contain a pull request";
         assert!(Azure.extract_pull_request(&remote, message).is_none());
 
-        let message = indoc! {r#"
-            Merged PR 123: Add new feature
+        let message = r#"Merged PR 123: Add new feature
 
-            This PR adds a new feature to the application.
-        "#};
+This PR adds a new feature to the application.
+"#;
 
         let pull_request = Azure.extract_pull_request(&remote, message).unwrap();
         assert_eq!(pull_request.number, 123);

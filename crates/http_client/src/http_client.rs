@@ -122,8 +122,6 @@ impl RequestBuilderExt for http::request::Builder {
 pub trait HttpClient: 'static + Send + Sync {
     fn user_agent(&self) -> Option<&HeaderValue>;
 
-    fn proxy(&self) -> Option<&Url>;
-
     fn send(
         &self,
         req: http::Request<AsyncBody>,
@@ -173,88 +171,15 @@ pub trait HttpClient: 'static + Send + Sync {
     }
 }
 
-/// An [`HttpClient`] that may have a proxy.
-pub struct HttpClientWithProxy {
-    client: Arc<dyn HttpClient>,
-    proxy: Option<Url>,
-}
-
-impl HttpClientWithProxy {
-    /// Returns a new [`HttpClientWithProxy`] with the given proxy URL.
-    pub fn new(client: Arc<dyn HttpClient>, proxy_url: Option<String>) -> Self {
-        let proxy_url = proxy_url
-            .and_then(|proxy| proxy.parse().ok())
-            .or_else(read_proxy_from_env);
-
-        Self::new_url(client, proxy_url)
-    }
-    pub fn new_url(client: Arc<dyn HttpClient>, proxy_url: Option<Url>) -> Self {
-        Self {
-            client,
-            proxy: proxy_url,
-        }
-    }
-}
-
-impl Deref for HttpClientWithProxy {
-    type Target = Arc<dyn HttpClient>;
-
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.client
-    }
-}
-
-impl HttpClient for HttpClientWithProxy {
-    fn send(
-        &self,
-        req: Request<AsyncBody>,
-    ) -> BoxFuture<'static, anyhow::Result<Response<AsyncBody>>> {
-        self.client.send(req)
-    }
-
-    fn user_agent(&self) -> Option<&HeaderValue> {
-        self.client.user_agent()
-    }
-
-    fn proxy(&self) -> Option<&Url> {
-        self.proxy.as_ref()
-    }
-
-    #[cfg(feature = "test-support")]
-    fn as_fake(&self) -> &FakeHttpClient {
-        self.client.as_fake()
-    }
-}
-
 /// An [`HttpClient`] that has a base URL.
 pub struct HttpClientWithUrl {
     base_url: Mutex<String>,
-    client: HttpClientWithProxy,
+    client: Arc<dyn HttpClient>,
 }
 
 impl HttpClientWithUrl {
     /// Returns a new [`HttpClientWithUrl`] with the given base URL.
-    pub fn new(
-        client: Arc<dyn HttpClient>,
-        base_url: impl Into<String>,
-        proxy_url: Option<String>,
-    ) -> Self {
-        let client = HttpClientWithProxy::new(client, proxy_url);
-
-        Self {
-            base_url: Mutex::new(base_url.into()),
-            client,
-        }
-    }
-
-    pub fn new_url(
-        client: Arc<dyn HttpClient>,
-        base_url: impl Into<String>,
-        proxy_url: Option<Url>,
-    ) -> Self {
-        let client = HttpClientWithProxy::new_url(client, proxy_url);
-
+    pub fn new(client: Arc<dyn HttpClient>, base_url: impl Into<String>) -> Self {
         Self {
             base_url: Mutex::new(base_url.into()),
             client,
@@ -337,7 +262,7 @@ impl HttpClientWithUrl {
 }
 
 impl Deref for HttpClientWithUrl {
-    type Target = HttpClientWithProxy;
+    type Target = Arc<dyn HttpClient>;
 
     #[inline]
     fn deref(&self) -> &Self::Target {
@@ -357,36 +282,10 @@ impl HttpClient for HttpClientWithUrl {
         self.client.user_agent()
     }
 
-    fn proxy(&self) -> Option<&Url> {
-        self.client.proxy.as_ref()
-    }
-
     #[cfg(feature = "test-support")]
     fn as_fake(&self) -> &FakeHttpClient {
         self.client.as_fake()
     }
-}
-
-pub fn read_proxy_from_env() -> Option<Url> {
-    const ENV_VARS: &[&str] = &[
-        "ALL_PROXY",
-        "all_proxy",
-        "HTTPS_PROXY",
-        "https_proxy",
-        "HTTP_PROXY",
-        "http_proxy",
-    ];
-
-    ENV_VARS
-        .iter()
-        .find_map(|var| std::env::var(var).ok())
-        .and_then(|env| env.parse().ok())
-}
-
-pub fn read_no_proxy_from_env() -> Option<String> {
-    const ENV_VARS: &[&str] = &["NO_PROXY", "no_proxy"];
-
-    ENV_VARS.iter().find_map(|var| std::env::var(var).ok())
 }
 
 pub struct BlockedHttpClient;
@@ -412,10 +311,6 @@ impl HttpClient for BlockedHttpClient {
     }
 
     fn user_agent(&self) -> Option<&HeaderValue> {
-        None
-    }
-
-    fn proxy(&self) -> Option<&Url> {
         None
     }
 
@@ -448,13 +343,10 @@ impl FakeHttpClient {
     {
         Arc::new(HttpClientWithUrl {
             base_url: Mutex::new("http://test.example".into()),
-            client: HttpClientWithProxy {
-                client: Arc::new(Self {
-                    handler: Mutex::new(Some(Arc::new(move |req| Box::pin(handler(req))))),
-                    user_agent: HeaderValue::from_static(type_name::<Self>()),
-                }),
-                proxy: None,
-            },
+            client: Arc::new(Self {
+                handler: Mutex::new(Some(Arc::new(move |req| Box::pin(handler(req))))),
+                user_agent: HeaderValue::from_static(type_name::<Self>()),
+            }),
         })
     }
 
@@ -509,10 +401,6 @@ impl HttpClient for FakeHttpClient {
 
     fn user_agent(&self) -> Option<&HeaderValue> {
         Some(&self.user_agent)
-    }
-
-    fn proxy(&self) -> Option<&Url> {
-        None
     }
 
     fn as_fake(&self) -> &FakeHttpClient {

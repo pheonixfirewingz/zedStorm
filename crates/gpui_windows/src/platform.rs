@@ -13,7 +13,6 @@ use std::{
 use anyhow::{Context as _, Result, anyhow};
 use futures::channel::oneshot::Receiver;
 use gpui_util::{ResultExt, get_powershell, new_std_command};
-use itertools::Itertools;
 use parking_lot::RwLock;
 use smallvec::SmallVec;
 use windows::{
@@ -1028,11 +1027,11 @@ impl Platform for WindowsPlatform {
             )));
         }
         let password = password.to_vec();
-        let mut username = username.encode_utf16().chain(Some(0)).collect_vec();
+        let mut username = username.encode_utf16().chain(Some(0)).collect::<Vec<_>>();
         let mut target_name = windows_credentials_target_name(url)
             .encode_utf16()
             .chain(Some(0))
-            .collect_vec();
+            .collect::<Vec<_>>();
         self.background_executor().spawn(async move {
             let credentials = CREDENTIALW {
                 LastWritten: unsafe { GetSystemTimeAsFileTime() },
@@ -1061,7 +1060,7 @@ impl Platform for WindowsPlatform {
         let target_name = windows_credentials_target_name(url)
             .encode_utf16()
             .chain(Some(0))
-            .collect_vec();
+            .collect::<Vec<_>>();
         self.background_executor().spawn(async move {
             let mut credentials: *mut CREDENTIALW = std::ptr::null_mut();
             let result = unsafe {
@@ -1097,7 +1096,7 @@ impl Platform for WindowsPlatform {
         let target_name = windows_credentials_target_name(url)
             .encode_utf16()
             .chain(Some(0))
-            .collect_vec();
+            .collect::<Vec<_>>();
         self.background_executor().spawn(async move {
             unsafe {
                 CredDeleteW(

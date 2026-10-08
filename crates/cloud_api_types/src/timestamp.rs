@@ -49,7 +49,6 @@ impl<'de> Deserialize<'de> for Timestamp {
 #[cfg(test)]
 mod tests {
     use chrono::NaiveDate;
-    use pretty_assertions::assert_eq;
 
     use super::*;
 

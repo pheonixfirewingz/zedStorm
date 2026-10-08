@@ -6,8 +6,7 @@ use futures::FutureExt as _;
 use futures_lite::future::yield_now;
 use gpui::{App, AppContext as _, BorrowAppContext, Entity};
 use gpui::{HighlightStyle, TestAppContext};
-use indoc::indoc;
-use pretty_assertions::assert_eq;
+
 use proto::deserialize_operation;
 use rand::prelude::*;
 use regex::RegexBuilder;
@@ -25,7 +24,7 @@ use text::network::Network;
 use text::{BufferId, LineEnding};
 use text::{Point, ToPoint};
 use theme::ActiveTheme;
-use unindent::Unindent as _;
+use util::Unindent as _;
 use util::rel_path::rel_path;
 use util::test::marked_text_offsets;
 use util::{RandomCharIter, assert_set_eq, post_inc, test::marked_text_ranges};
@@ -1172,16 +1171,15 @@ async fn test_outline_with_extra_context(cx: &mut gpui::TestAppContext) {
 
 #[gpui::test]
 async fn test_outline_selection_range_for_multiline_c_signature(cx: &mut gpui::TestAppContext) {
-    let text = indoc! {"
-        void
-        evdev_post_scroll(struct evdev_device *device,
-                  usec_t time,
-                  enum libinput_pointer_axis_source source,
-                  const struct normalized_coords *delta)
-        {
-            return;
-        }
-    "};
+    let text = "void
+evdev_post_scroll(struct evdev_device *device,
+          usec_t time,
+          enum libinput_pointer_axis_source source,
+          const struct normalized_coords *delta)
+{
+    return;
+}
+";
 
     let buffer = cx.new(|cx| Buffer::local(text, cx).with_language(c_lang(), cx));
     let snapshot = buffer.update(cx, |buffer, _| buffer.snapshot());
@@ -1354,11 +1352,9 @@ async fn test_symbols_containing(cx: &mut gpui::TestAppContext) {
 #[gpui::test]
 fn test_text_objects(cx: &mut App) {
     let (text, ranges) = marked_text_ranges(
-        indoc! {r#"
-            impl Hello {
-                fn say() -> u8 { return /* ˇhi */ 1 }
-            }"#
-        },
+        r#"impl Hello {
+    fn say() -> u8 { return /* ˇhi */ 1 }
+}"#,
         false,
     );
 
@@ -1410,22 +1406,21 @@ fn test_text_objects_with_has_parent_predicate(cx: &mut App) {
         Some(tree_sitter_rust::LANGUAGE.into()),
     )
     .with_queries(LanguageQueries {
-        text_objects: Some(Cow::from(indoc! {r#"
-            ; Only match closures that are arguments to function calls
-            (closure_expression) @function.around
-              (#has-parent? @function.around arguments)
-        "#})),
+        text_objects: Some(Cow::from(
+            r#"; Only match closures that are arguments to function calls
+(closure_expression) @function.around
+  (#has-parent? @function.around arguments)
+"#,
+        )),
         ..Default::default()
     })
     .expect("Could not parse queries");
 
     let (text, ranges) = marked_text_ranges(
-        indoc! {r#"
-            fn main() {
-                let standalone = |x| x + 1;
-                let result = foo(|y| y * ˇ2);
-            }"#
-        },
+        r#"fn main() {
+    let standalone = |x| x + 1;
+    let result = foo(|y| y * ˇ2);
+}"#,
         false,
     );
 
@@ -1460,22 +1455,21 @@ fn test_text_objects_with_not_has_parent_predicate(cx: &mut App) {
         Some(tree_sitter_rust::LANGUAGE.into()),
     )
     .with_queries(LanguageQueries {
-        text_objects: Some(Cow::from(indoc! {r#"
-            ; Only match closures that are NOT arguments to function calls
-            (closure_expression) @function.around
-              (#not-has-parent? @function.around arguments)
-        "#})),
+        text_objects: Some(Cow::from(
+            r#"; Only match closures that are NOT arguments to function calls
+(closure_expression) @function.around
+  (#not-has-parent? @function.around arguments)
+"#,
+        )),
         ..Default::default()
     })
     .expect("Could not parse queries");
 
     let (text, ranges) = marked_text_ranges(
-        indoc! {r#"
-            fn main() {
-                let standalone = |x| x +ˇ 1;
-                let result = foo(|y| y * 2);
-            }"#
-        },
+        r#"fn main() {
+    let standalone = |x| x +ˇ 1;
+    let result = foo(|y| y * 2);
+}"#,
         false,
     );
 
@@ -1499,116 +1493,108 @@ fn test_enclosing_bracket_ranges(cx: &mut App) {
     }
 
     assert(
-        indoc! {"
-            mod x {
-                moˇd y {
+        "mod x {
+    moˇd y {
 
-                }
-            }
-            let foo = 1;"},
-        vec![indoc! {"
-            mod x «{»
-                mod y {
-
-                }
-            «}»
-            let foo = 1;"}],
-        cx,
-    );
-
-    assert(
-        indoc! {"
-            mod x {
-                mod y ˇ{
-
-                }
-            }
-            let foo = 1;"},
+    }
+}
+let foo = 1;",
         vec![
-            indoc! {"
-                mod x «{»
-                    mod y {
+            "mod x «{»
+    mod y {
 
-                    }
-                «}»
-                let foo = 1;"},
-            indoc! {"
-                mod x {
-                    mod y «{»
-
-                    «}»
-                }
-                let foo = 1;"},
+    }
+«}»
+let foo = 1;",
         ],
         cx,
     );
 
     assert(
-        indoc! {"
-            mod x {
-                mod y {
+        "mod x {
+    mod y ˇ{
 
-                }ˇ
-            }
-            let foo = 1;"},
+    }
+}
+let foo = 1;",
         vec![
-            indoc! {"
-                mod x «{»
-                    mod y {
+            "mod x «{»
+    mod y {
 
-                    }
-                «}»
-                let foo = 1;"},
-            indoc! {"
-                mod x {
-                    mod y «{»
+    }
+«}»
+let foo = 1;",
+            "mod x {
+    mod y «{»
 
-                    «}»
-                }
-                let foo = 1;"},
+    «}»
+}
+let foo = 1;",
         ],
         cx,
     );
 
     assert(
-        indoc! {"
-            mod x {
-                mod y {
+        "mod x {
+    mod y {
 
-                }
-            ˇ}
-            let foo = 1;"},
-        vec![indoc! {"
-            mod x «{»
-                mod y {
+    }ˇ
+}
+let foo = 1;",
+        vec![
+            "mod x «{»
+    mod y {
 
-                }
-            «}»
-            let foo = 1;"}],
+    }
+«}»
+let foo = 1;",
+            "mod x {
+    mod y «{»
+
+    «}»
+}
+let foo = 1;",
+        ],
         cx,
     );
 
     assert(
-        indoc! {"
-            mod x {
-                mod y {
+        "mod x {
+    mod y {
 
-                }
-            }
-            let fˇoo = 1;"},
+    }
+ˇ}
+let foo = 1;",
+        vec![
+            "mod x «{»
+    mod y {
+
+    }
+«}»
+let foo = 1;",
+        ],
+        cx,
+    );
+
+    assert(
+        "mod x {
+    mod y {
+
+    }
+}
+let fˇoo = 1;",
         Vec::new(),
         cx,
     );
 
     // Regression test: avoid crash when querying at the end of the buffer.
     assert(
-        indoc! {"
-            mod x {
-                mod y {
+        "mod x {
+    mod y {
 
-                }
-            }
-            let foo = 1;ˇ"},
+    }
+}
+let foo = 1;ˇ",
         Vec::new(),
         cx,
     );
@@ -1661,23 +1647,22 @@ fn test_bracket_colorization_indices_remain_stable_across_row_chunks(cx: &mut Ap
 
 #[gpui::test]
 fn test_c_bracket_ranges_in_error_nodes(cx: &mut App) {
-    let text = indoc! {r#"
-        CLAY(CLAY_ID("MenuContainer"),
-             CLAY_RECTANGLE({.color = {43, 41, 51, 255}}),
-             CLAY_LAYOUT({.layoutDirection = CLAY_LEFT_TO_RIGHT,
-                          .sizing = {.width = CLAY_SIZING_FIT()},
-                          .padding = {16, 16},
-                          .childGap = 16})) {
-          CLAY(CLAY_ID("StartStopButton"), CLAY_LAYOUT({.padding = {16, 8}}),
-               CLAY_RECTANGLE({.color = {140, 140, 140, 255}, .cornerRadius = 5}),
-               Clay_OnHover(HandleStartButtonInteraction, 1)) {
-            CLAY_TEXT(CLAY_STRING("Start/Stop"),
-                      CLAY_TEXT_CONFIG({.fontId = FONT_ID_BODY_16,
-                                        .fontSize = 16,
-                                        .textColor = {255, 255, 255, 255}}));
-          }
-        }
-    "#};
+    let text = r#"CLAY(CLAY_ID("MenuContainer"),
+     CLAY_RECTANGLE({.color = {43, 41, 51, 255}}),
+     CLAY_LAYOUT({.layoutDirection = CLAY_LEFT_TO_RIGHT,
+                  .sizing = {.width = CLAY_SIZING_FIT()},
+                  .padding = {16, 16},
+                  .childGap = 16})) {
+  CLAY(CLAY_ID("StartStopButton"), CLAY_LAYOUT({.padding = {16, 8}}),
+       CLAY_RECTANGLE({.color = {140, 140, 140, 255}, .cornerRadius = 5}),
+       Clay_OnHover(HandleStartButtonInteraction, 1)) {
+    CLAY_TEXT(CLAY_STRING("Start/Stop"),
+              CLAY_TEXT_CONFIG({.fontId = FONT_ID_BODY_16,
+                                .fontSize = 16,
+                                .textColor = {255, 255, 255, 255}}));
+  }
+}
+"#;
     let buffer = cx.new(|cx| Buffer::local(text, cx).with_language(c_lang(), cx));
     let snapshot = buffer.read(cx).snapshot();
     assert_has_syntax_errors(&snapshot);
@@ -1699,14 +1684,13 @@ fn test_c_bracket_ranges_in_error_nodes(cx: &mut App) {
 #[gpui::test]
 fn test_bracket_ranges_do_not_repair_unbalanced_error_nodes(cx: &mut App) {
     let (text, ranges) = marked_text_ranges(
-        indoc! {r#"
-            CLAY«(»CLAY_ID("MenuContainer"),
-                 CLAY_LAYOUT({.layoutDirection = CLAY_LEFT_TO_RIGHT,
-                              .sizing = {.width = CLAY_SIZING_FIT()},
-                              .padding = {16, 16},
-                              .childGap = 16}) {
-            }
-        "#},
+        r#"CLAY«(»CLAY_ID("MenuContainer"),
+     CLAY_LAYOUT({.layoutDirection = CLAY_LEFT_TO_RIGHT,
+                  .sizing = {.width = CLAY_SIZING_FIT()},
+                  .padding = {16, 16},
+                  .childGap = 16}) {
+}
+"#,
         false,
     );
     let buffer = cx.new(|cx| Buffer::local(text.clone(), cx).with_language(c_lang(), cx));
@@ -1857,15 +1841,14 @@ async fn test_bracket_ranges_keep_pairs_straddling_a_chunk_boundary_amid_errors(
 
 #[gpui::test]
 async fn test_bracket_ranges_deduplicate_overlapping_patterns(cx: &mut TestAppContext) {
-    let text = indoc! {r#"
-        CLAY(CLAY_ID("MenuContainer"),
-             CLAY_RECTANGLE({.color = {43, 41, 51, 255}}),
-             CLAY_LAYOUT({.layoutDirection = CLAY_LEFT_TO_RIGHT,
-                          .sizing = {.width = CLAY_SIZING_FIT()},
-                          .padding = {16, 16},
-                          .childGap = 16})) {
-        }
-    "#};
+    let text = r#"CLAY(CLAY_ID("MenuContainer"),
+     CLAY_RECTANGLE({.color = {43, 41, 51, 255}}),
+     CLAY_LAYOUT({.layoutDirection = CLAY_LEFT_TO_RIGHT,
+                  .sizing = {.width = CLAY_SIZING_FIT()},
+                  .padding = {16, 16},
+                  .childGap = 16})) {
+}
+"#;
     let language = Arc::new(
         Language::new(
             LanguageConfig {
@@ -1990,28 +1973,28 @@ fn test_enclosing_bracket_ranges_where_brackets_are_not_outermost_children(cx: &
     };
 
     assert(
-        indoc! {"
-        for (const a in b)ˇ {
-            // a comment that's longer than the for-loop header
-        }"},
-        vec![indoc! {"
-        for «(»const a in b«)» {
-            // a comment that's longer than the for-loop header
-        }"}],
+        "for (const a in b)ˇ {
+    // a comment that's longer than the for-loop header
+}",
+        vec![
+            "for «(»const a in b«)» {
+    // a comment that's longer than the for-loop header
+}",
+        ],
     );
 
     // Regression test: even though the parent node of the parentheses (the for loop) does
     // intersect the given range, the parentheses themselves do not contain the range, so
     // they should not be returned. Only the curly braces contain the range.
     assert(
-        indoc! {"
-        for (const a in b) {ˇ
-            // a comment that's longer than the for-loop header
-        }"},
-        vec![indoc! {"
-        for (const a in b) «{»
-            // a comment that's longer than the for-loop header
-        «}»"}],
+        "for (const a in b) {ˇ
+    // a comment that's longer than the for-loop header
+}",
+        vec![
+            "for (const a in b) «{»
+    // a comment that's longer than the for-loop header
+«}»",
+        ],
     );
 }
 
@@ -2876,11 +2859,10 @@ fn test_replacing_line_content_keeps_manual_indent(cx: &mut App) {
     cx.new(|cx| {
         let (text, ranges_to_replace) = marked_text_ranges(
             // 8 spaces here to represent the additional manual indentation
-            indoc! {r#"
-                fn main() {
-                        «println!("hello");»
-                }
-            "#},
+            r#"fn main() {
+        «println!("hello");»
+}
+"#,
             false,
         );
 
@@ -2894,11 +2876,10 @@ fn test_replacing_line_content_keeps_manual_indent(cx: &mut App) {
 
         assert_eq!(
             buffer.text(),
-            indoc! {r#"
-                fn main() {
-                        let x = 1;
-                }
-            "#}
+            r#"fn main() {
+        let x = 1;
+}
+"#
         );
 
         buffer
@@ -4145,11 +4126,9 @@ async fn test_preview_edits(cx: &mut TestAppContext) {
 
     // no edits
     assert_preview_edits(
-        indoc! {"
-        fn test_empty() -> bool {
-            false
-        }"
-        },
+        "fn test_empty() -> bool {
+    false
+}",
         vec![],
         true,
         cx,
@@ -4162,11 +4141,9 @@ async fn test_preview_edits(cx: &mut TestAppContext) {
 
     // only insertions
     assert_preview_edits(
-        indoc! {"
-        fn calculate_area(: f64) -> f64 {
-            std::f64::consts::PI * .powi(2)
-        }"
-        },
+        "fn calculate_area(: f64) -> f64 {
+    std::f64::consts::PI * .powi(2)
+}",
         vec![
             (Point::new(0, 18)..Point::new(0, 18), "radius"),
             (Point::new(1, 27)..Point::new(1, 27), "radius"),
@@ -4176,10 +4153,8 @@ async fn test_preview_edits(cx: &mut TestAppContext) {
         |hl| {
             assert_eq!(
                 hl.text,
-                indoc! {"
-                fn calculate_area(radius: f64) -> f64 {
-                    std::f64::consts::PI * radius.powi(2)"
-                }
+                "fn calculate_area(radius: f64) -> f64 {
+    std::f64::consts::PI * radius.powi(2)"
             );
 
             assert_eq!(hl.highlights.len(), 2);
@@ -4191,17 +4166,15 @@ async fn test_preview_edits(cx: &mut TestAppContext) {
 
     // insertions & deletions
     assert_preview_edits(
-        indoc! {"
-        struct Person {
-            first_name: String,
-        }
+        "struct Person {
+    first_name: String,
+}
 
-        impl Person {
-            fn first_name(&self) -> &String {
-                &self.first_name
-            }
-        }"
-        },
+impl Person {
+    fn first_name(&self) -> &String {
+        &self.first_name
+    }
+}",
         vec![
             (Point::new(1, 4)..Point::new(1, 9), "last"),
             (Point::new(5, 7)..Point::new(5, 12), "last"),
@@ -4212,14 +4185,12 @@ async fn test_preview_edits(cx: &mut TestAppContext) {
         |hl| {
             assert_eq!(
                 hl.text,
-                indoc! {"
-                        firstlast_name: String,
-                    }
+                "    firstlast_name: String,
+}
 
-                    impl Person {
-                        fn firstlast_name(&self) -> &String {
-                            &self.firstlast_name"
-                }
+impl Person {
+    fn firstlast_name(&self) -> &String {
+        &self.firstlast_name"
             );
 
             assert_eq!(hl.highlights.len(), 6);

@@ -15,7 +15,7 @@ use gpui::{
     VisualTestContext, Window, font, size,
 };
 use multi_buffer::MultiBufferOffset;
-use pretty_assertions::assert_eq;
+
 use project::{Project, project_settings::DiagnosticSeverity};
 use ui::{App, BorrowAppContext, IntoElement, px};
 use util::test::{generate_marked_text, marked_text_offsets, marked_text_ranges};

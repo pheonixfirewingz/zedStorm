@@ -266,7 +266,7 @@ mod tests {
     }
 
     #[gpui::test]
-    fn test_folder_indicator_default_is_icon(cx: &mut gpui::TestAppContext) {
+    fn test_folder_indicator_default_is_both(cx: &mut gpui::TestAppContext) {
         cx.update(|cx| {
             theme::init(theme::LoadThemes::JustBase, cx);
         });
@@ -278,8 +278,8 @@ mod tests {
                 FileIcons::get_folder_indicators(FolderIndicator::default(), false, &path, cx);
             assert_eq!(
                 default,
-                FileIcons::get_folder_indicators(FolderIndicator::Icon, false, &path, cx),
-                "the default must stay `icon` so existing users see no change"
+                FileIcons::get_folder_indicators(FolderIndicator::Both, false, &path, cx),
+                "the default is `both` to show open and close arrows on directories",
             );
         });
     }

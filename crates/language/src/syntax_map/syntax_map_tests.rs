@@ -4,14 +4,13 @@ use crate::{
     buffer_tests::markdown_inline_lang, markdown_lang, rust_lang,
 };
 use gpui::App;
-use indoc::indoc;
-use pretty_assertions::assert_eq;
+
 use rand::rngs::StdRng;
 use std::borrow::Cow;
 use std::{env, ops::Range, sync::Arc};
 use text::{Buffer, BufferId, ReplicaId};
 use tree_sitter::Node;
-use unindent::Unindent as _;
+use util::Unindent as _;
 use util::test::marked_text_ranges;
 
 #[test]
@@ -1057,47 +1056,42 @@ fn test_injection_grouped_by_host(cx: &mut App) {
     // fragment of the string.
     let cases: &[(&str, &[&[&str]])] = &[
         (
-            indoc! {r#"
-                # sql
-                cmd = "SELECT col1, col2 FROM tbl"
-            "#},
+            r#"# sql
+cmd = "SELECT col1, col2 FROM tbl"
+"#,
             &[&["SELECT col1, col2 FROM tbl"]],
         ),
         (
-            indoc! {r#"
-                # sql
-                cmd = f"SELECT col1 FROM tbl WHERE col2 = '{my_var}'"
-            "#},
+            r#"# sql
+cmd = f"SELECT col1 FROM tbl WHERE col2 = '{my_var}'"
+"#,
             &[&["SELECT col1 FROM tbl WHERE col2 = '", "'"]],
         ),
         (
-            indoc! {r#"
-                # sql
-                cmd = f"SELECT {col1}, {col2} FROM {tbl}"
-            "#},
+            r#"# sql
+cmd = f"SELECT {col1}, {col2} FROM {tbl}"
+"#,
             &[&["SELECT ", ", ", " FROM "]],
         ),
         (
-            indoc! {r#"
-                cursor.execute(
-                    # sql
-                    f"SELECT col1 FROM tbl WHERE col2 = '{my_var}'"
-                )
-            "#},
+            r#"cursor.execute(
+    # sql
+    f"SELECT col1 FROM tbl WHERE col2 = '{my_var}'"
+)
+"#,
             &[&["SELECT col1 FROM tbl WHERE col2 = '", "'"]],
         ),
         (
-            indoc! {r#"
-                cursor.execute(
-                    # sql
-                    f"SELECT col1 FROM tbl WHERE col2 = '{my_var}'"
-                )
+            r#"cursor.execute(
+    # sql
+    f"SELECT col1 FROM tbl WHERE col2 = '{my_var}'"
+)
 
-                cursor.execute(
-                    # sql
-                    f"INSERT INTO tbl VALUES ('{val1}')"
-                )
-            "#},
+cursor.execute(
+    # sql
+    f"INSERT INTO tbl VALUES ('{val1}')"
+)
+"#,
             &[
                 &["SELECT col1 FROM tbl WHERE col2 = '", "'"],
                 &["INSERT INTO tbl VALUES ('", "')"],

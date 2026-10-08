@@ -1,12 +1,15 @@
 {
   "$schema": "zed://schemas/settings",
+  "ai": {
+    "vibe": {
+      "enabled": false
+    }
+  },
   // ZedStorm uses the compiled Islands Dark palette.
   "theme": "Islands Dark",
   "icon_theme": "Zed (Default)",
   // The name of a font to use for rendering text in the editor
-  // ".ZedMono" currently aliases to Lilex
-  // but this may change in the future.
-  "buffer_font_family": ".ZedMono",
+  "buffer_font_family": "JetBrains Mono",
   // Set the buffer text's font fallbacks, this will be merged with
   // the platform's default fallbacks.
   "buffer_font_fallbacks": null,
@@ -16,7 +19,7 @@
     // "calt": false
   },
   // The default font size for text in the editor
-  "buffer_font_size": 15,
+  "buffer_font_size": 13,
   // The weight of the editor font in standard CSS units from 100 to 900.
   "buffer_font_weight": 400,
   // Set the buffer's line height.
@@ -29,7 +32,7 @@
   //         "buffer_line_height": {
   //           "custom": 2
   //         },
-  "buffer_line_height": "comfortable",
+  "buffer_line_height": { "custom": 1.2 },
   // The name of a font to use for rendering text in the UI
   // You can set this to ".SystemUIFont" to use the system font
   // ".ZedSans" currently aliases to "IBM Plex Sans", but this may
@@ -846,7 +849,7 @@
     //   "chevron"
     // 3. A disclosure chevron followed by a folder icon:
     //   "both"
-    "folder_indicator": "icon",
+    "folder_indicator": "both",
     // Whether to show the git status in the project panel.
     "git_status": true,
     // Amount of indentation for nested items.
@@ -968,7 +971,7 @@
     //   "chevron"
     // 3. A disclosure chevron followed by a folder icon:
     //   "both"
-    "folder_indicator": "icon",
+    "folder_indicator": "both",
     // Whether to show the git status in the outline panel.
     "git_status": true,
     // Amount of indentation for nested items.
@@ -1042,8 +1045,8 @@
     // 3. A disclosure chevron followed by a folder icon:
     //   "both"
     //
-    // Default: icon
-    "folder_indicator": "icon",
+    // Default: both
+    "folder_indicator": "both",
     // What branch name to use if `init.defaultBranch` is not set
     //
     // Default: main
@@ -1054,8 +1057,8 @@
     "sort_by": "path",
     // How to group entries in the git panel.
     //
-    // Default: status
-    "group_by": "status",
+    // Default: staging
+    "group_by": "staging",
     // Whether to collapse untracked files in the diff panel.
     //
     // Default: false
@@ -1617,16 +1620,12 @@
     "mode": "eager",
     // Copilot-specific settings
     // "copilot": {
-    //   "proxy": "",
-    //   "proxy_no_verify": false,
     //   "enable_next_edit_suggestions": true,
     //   // The debounce delay in milliseconds before automatically requesting a prediction.
     //   // Set to 0 to request predictions immediately.
     //   "prediction_debounce": 75
     // },
     "copilot": {
-      "proxy": null,
-      "proxy_no_verify": null,
       "enable_next_edit_suggestions": true,
       "prediction_debounce": 75,
     },
@@ -1860,10 +1859,10 @@
     },
     // Set the terminal's font size. If this option is not included,
     // the terminal will default to matching the buffer's font size.
-    // "font_size": 15,
+    // "font_size": 13,
     // Set the terminal's font family. If this option is not included,
     // the terminal will default to matching the buffer's font family.
-    // "font_family": ".ZedMono",
+    // "font_family": "JetBrains Mono",
     // Set the terminal's font fallbacks. If this option is not included,
     // the terminal will default to matching the buffer's font fallbacks.
     // This will be merged with the platform's default font fallbacks
@@ -2541,19 +2540,6 @@
   //   - `long`: "2 selections, 15 lines, 32 characters"
   // Default: long
   "line_indicator_format": "long",
-  // Set a proxy to use. The proxy protocol is specified by the URI scheme.
-  //
-  // Supported URI scheme: `http`, `https`, `socks4`, `socks4a`, `socks5`,
-  // `socks5h`. `http` will be used when no scheme is specified.
-  //
-  // By default no proxy will be used, or Zed will try get proxy settings from
-  // environment variables. If certain hosts should not be proxied,
-  // set the `no_proxy` environment variable and provide a comma-separated list.
-  //
-  // Examples:
-  //   - "proxy": "socks5h://localhost:10808"
-  //   - "proxy": "http://127.0.0.1:10809"
-  "proxy": "",
   // Set to configure aliases for the command palette.
   // When typing a query which is a key of this object, the value will be used instead.
   //

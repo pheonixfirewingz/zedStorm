@@ -1890,7 +1890,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     use project::Project;
     use settings::{SearchSettingsContent, SettingsStore};
-    use unindent::Unindent as _;
+    use util::Unindent as _;
     use util_macros::perf;
     #[cfg(target_os = "macos")]
     use workspace::{AppState, MultiWorkspace, Workspace};

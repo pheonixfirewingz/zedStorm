@@ -1535,7 +1535,7 @@ fn stash_matches_index(sha: &str, stash_index: usize, repo: &Repository) -> bool
 mod tests {
     use super::*;
     use gpui::{EmptyView, TestAppContext};
-    use indoc::indoc;
+
     use language::{Language, LanguageConfig, LanguageMatcher, markdown_lang};
     use settings::SettingsStore;
 
@@ -1555,11 +1555,10 @@ mod tests {
             .update(cx, |_, window, cx| window.to_async(cx))
             .expect("window should be open");
 
-        let text = indoc! {"
-            # Title
+        let text = "# Title
 
-            Some *emphasized* text.
-        "}
+Some *emphasized* text.
+"
         .to_string();
         let blob = Arc::new(GitBlob {
             path: RepoPath::new("notes.md").unwrap(),

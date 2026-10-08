@@ -193,8 +193,6 @@ impl GitHostingProvider for Chromium {
 #[cfg(test)]
 mod tests {
     use git::repository::repo_path;
-    use indoc::indoc;
-    use pretty_assertions::assert_eq;
 
     use super::*;
 
@@ -278,19 +276,17 @@ mod tests {
         assert!(Chromium.extract_pull_request(&remote, message).is_none());
 
         // Pull request number at end of "Reviewed-on:" line
-        let message = indoc! {r#"
-                Test commit header
+        let message = r#"Test commit header
 
-                Test commit description with multiple
-                lines.
+Test commit description with multiple
+lines.
 
-                Bug: 1193775, 1270302
-                Change-Id: Id15e9b4d75cce43ebd5fe34f0fb37d5e1e811b66
-                Reviewed-on: https://chromium-review.googlesource.com/c/chromium/src/+/3310961
-                Reviewed-by: Test reviewer <test@example.com>
-                Cr-Commit-Position: refs/heads/main@{#1054973}
-                "#
-        };
+Bug: 1193775, 1270302
+Change-Id: Id15e9b4d75cce43ebd5fe34f0fb37d5e1e811b66
+Reviewed-on: https://chromium-review.googlesource.com/c/chromium/src/+/3310961
+Reviewed-by: Test reviewer <test@example.com>
+Cr-Commit-Position: refs/heads/main@{#1054973}
+"#;
 
         assert_eq!(
             Chromium

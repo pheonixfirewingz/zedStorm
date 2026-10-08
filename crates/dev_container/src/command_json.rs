@@ -146,21 +146,20 @@ mod tests {
 
     #[test]
     fn test_deserialize_yaml_docker_compose_config() {
-        let yaml = indoc::indoc! {"
-            name: my-project
-            services:
-              app:
-                image: node:18
-                command:
-                  - sleep
-                  - infinity
-                build:
-                  context: .
-                  dockerfile: Dockerfile
-              db:
-                image: postgres:15
-            volumes: {}
-        "};
+        let yaml = "name: my-project
+services:
+  app:
+    image: node:18
+    command:
+      - sleep
+      - infinity
+    build:
+      context: .
+      dockerfile: Dockerfile
+  db:
+    image: postgres:15
+volumes: {}
+";
         let output = success_output(yaml);
         let result: DockerComposeConfig = deserialize_yaml_output(output)
             .expect("deserialization should succeed")

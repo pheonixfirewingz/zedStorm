@@ -720,7 +720,7 @@ mod tests {
     use collections::HashSet;
     use futures::StreamExt;
     use gpui::TestAppContext;
-    use indoc::indoc;
+
     use settings::CodeLens;
     use util::path;
 
@@ -796,13 +796,12 @@ mod tests {
             );
             assert_eq!(
                 code_lens_assertion_text(editor, cx),
-                indoc! {r#"
-                    Lenses: 2 references
-                    Line 1: function hello() {}
+                r#"Lenses: 2 references
+Line 1: function hello() {}
 
-                    Lenses: 0 references
-                    Line 2: function world() {}
-                "#},
+Lenses: 0 references
+Line 2: function world() {}
+"#,
                 "both lenses should render their server-provided titles"
             );
         });
@@ -863,10 +862,9 @@ mod tests {
         cx.editor(|editor, _, cx| {
             assert_eq!(
                 code_lens_assertion_text(editor, cx),
-                indoc! {r#"
-                    Lenses: Initial lens
-                    Line 1: function hello() {}
-                "#},
+                r#"Lenses: Initial lens
+Line 1: function hello() {}
+"#,
                 "initial fetch should render the server title"
             );
         });
@@ -883,10 +881,9 @@ mod tests {
         cx.editor(|editor, _, cx| {
             assert_eq!(
                 code_lens_assertion_text(editor, cx),
-                indoc! {r#"
-                    Lenses: Refreshed lens
-                    Line 1: function hello() {}
-                "#},
+                r#"Lenses: Refreshed lens
+Line 1: function hello() {}
+"#,
                 "refresh should update the displayed lens to the new server title"
             );
         });
@@ -966,10 +963,9 @@ mod tests {
         cx.editor(|editor, _, cx| {
             assert_eq!(
                 code_lens_assertion_text(editor, cx),
-                indoc! {r#"
-                    Lenses: Dynamic lens
-                    Line 1: function hello() {}
-                "#},
+                r#"Lenses: Dynamic lens
+Line 1: function hello() {}
+"#,
                 "dynamic textDocument/codeLens registration should re-query and display lenses for the open document"
             );
         });
@@ -1021,10 +1017,9 @@ mod tests {
         let initial_block_ids = cx.editor(|editor, _, cx| {
             assert_eq!(
                 code_lens_assertion_text(editor, cx),
-                indoc! {r#"
-                    Lenses: 1 reference
-                    Line 1: function hello() {}
-                "#},
+                r#"Lenses: 1 reference
+Line 1: function hello() {}
+"#,
                 "initial fetch should render the server title"
             );
             editor
@@ -1055,10 +1050,9 @@ mod tests {
         let refreshed_block_ids = cx.editor(|editor, _, cx| {
             assert_eq!(
                 code_lens_assertion_text(editor, cx),
-                indoc! {r#"
-                    Lenses: 1 reference
-                    Line 1: function hello() {}
-                "#},
+                r#"Lenses: 1 reference
+Line 1: function hello() {}
+"#,
                 "refreshed block should keep rendering the same title"
             );
             editor
@@ -1134,10 +1128,9 @@ mod tests {
         let initial = cx.editor(|editor, _, cx| {
             assert_eq!(
                 code_lens_assertion_text(editor, cx),
-                indoc! {r#"
-                    Lenses: 1 reference
-                    Line 1: function hello() {}
-                "#},
+                r#"Lenses: 1 reference
+Line 1: function hello() {}
+"#,
                 "resolve should fill the placeholder with the server title"
             );
             editor
@@ -1169,10 +1162,9 @@ mod tests {
             let after = cx.editor(|editor, _, cx| {
                 assert_eq!(
                     code_lens_assertion_text(editor, cx),
-                    indoc! {r#"
-                        Lenses: 1 reference
-                        Line 1: function hello() {}
-                    "#},
+                    r#"Lenses: 1 reference
+Line 1: function hello() {}
+"#,
                     "refresh+resolve cycle should keep rendering the same title"
                 );
                 editor
@@ -1254,10 +1246,9 @@ mod tests {
         cx.editor(|editor, _, cx| {
             assert_eq!(
                 code_lens_assertion_text(editor, cx),
-                indoc! {r#"
-                    Lenses: <placeholder>
-                    Line 1: function hello() {}
-                "#},
+                r#"Lenses: <placeholder>
+Line 1: function hello() {}
+"#,
                 "placeholder spacer should be reserved with no rendered text before resolve"
             );
         });
@@ -1268,10 +1259,9 @@ mod tests {
         cx.editor(|editor, _, cx| {
             assert_eq!(
                 code_lens_assertion_text(editor, cx),
-                indoc! {r#"
-                    Lenses: 1 reference
-                    Line 1: function hello() {}
-                "#},
+                r#"Lenses: 1 reference
+Line 1: function hello() {}
+"#,
                 "after resolve the placeholder should display the server title"
             );
         });
@@ -1331,10 +1321,9 @@ mod tests {
         cx.editor(|editor, _, cx| {
             assert_eq!(
                 code_lens_assertion_text(editor, cx),
-                indoc! {r#"
-                    Lenses: 0 references
-                    Line 1: function hello() {}
-                "#},
+                r#"Lenses: 0 references
+Line 1: function hello() {}
+"#,
                 "lens resolved to an empty title should fall back to the synthetic label"
             );
         });
@@ -1429,10 +1418,9 @@ mod tests {
         cx.editor(|editor, _, cx| {
             assert_eq!(
                 code_lens_assertion_text(editor, cx),
-                indoc! {r#"
-                    Lenses: 2 references | 1 implementation
-                    Line 1: function hello() {}
-                "#},
+                r#"Lenses: 2 references | 1 implementation
+Line 1: function hello() {}
+"#,
                 "both same-range lenses should render their resolved titles"
             );
         });
@@ -1486,10 +1474,9 @@ mod tests {
         cx.editor(|editor, _, cx| {
             assert_eq!(
                 code_lens_assertion_text(editor, cx),
-                indoc! {r#"
-                    Lenses: 0 references
-                    Line 1: function hello() {}
-                "#},
+                r#"Lenses: 0 references
+Line 1: function hello() {}
+"#,
                 "lens resolved without a command should fall back to the synthetic label"
             );
         });

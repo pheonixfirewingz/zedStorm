@@ -252,8 +252,7 @@ impl MemoryView {
         stack_frame_id: Option<u64>,
         cx: &mut Context<Self>,
     ) {
-        use parse_int::parse;
-        let Ok(as_address) = parse::<u64>(memory_reference) else {
+        let Ok(as_address) = parse_memory_address(memory_reference) else {
             return;
         };
         let access_size = evaluate_name
@@ -506,7 +505,7 @@ impl MemoryView {
                 self.session.update(cx, |this, cx| {
                     let range = drag.memory_range();
 
-                    if let Ok(as_hex) = hex::decode(text) {
+                    if let Some(as_hex) = decode_memory_hex(&text) {
                         this.write_memory(*range.start(), &as_hex, cx);
                     }
                 });
@@ -524,10 +523,9 @@ impl MemoryView {
     }
 
     fn jump_to_query_bar_address(&mut self, cx: &mut Context<Self>) {
-        use parse_int::parse;
         let text = self.query_editor.read(cx).text(cx);
 
-        let Ok(as_address) = parse::<u64>(&text) else {
+        let Ok(as_address) = parse_memory_address(&text) else {
             return self.jump_to_expression(text, cx);
         };
         self.jump_to_address(as_address, cx);
@@ -930,5 +928,94 @@ impl Render for MemoryView {
                         cx,
                     ),
             )
+    }
+}
+
+fn parse_memory_address(input: &str) -> Result<u64, std::num::ParseIntError> {
+    let input = input.trim();
+    if input.starts_with('_') || input.starts_with('-') {
+        return input.parse();
+    }
+    let (digits, radix) = if let Some(digits) = input
+        .strip_prefix("0x")
+        .or_else(|| input.strip_prefix("0X"))
+    {
+        (digits, 16)
+    } else if let Some(digits) = input
+        .strip_prefix("0b")
+        .or_else(|| input.strip_prefix("0B"))
+    {
+        (digits, 2)
+    } else if let Some(digits) = input
+        .strip_prefix("0o")
+        .or_else(|| input.strip_prefix("0O"))
+    {
+        (digits, 8)
+    } else {
+        (input, 10)
+    };
+    let digits = digits
+        .chars()
+        .filter(|character| *character != '_')
+        .collect::<String>();
+    u64::from_str_radix(&digits, radix)
+}
+
+fn decode_memory_hex(input: &str) -> Option<Vec<u8>> {
+    let mut pairs = input.as_bytes().chunks_exact(2);
+    let decoded = pairs
+        .by_ref()
+        .map(|pair| {
+            let [high, low] = pair else {
+                return None;
+            };
+            Some((char::from(*high).to_digit(16)? * 16 + char::from(*low).to_digit(16)?) as u8)
+        })
+        .collect::<Option<Vec<_>>>()?;
+    pairs.remainder().is_empty().then_some(decoded)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{decode_memory_hex, parse_memory_address};
+
+    #[test]
+    fn memory_addresses_preserve_radices_and_separators() {
+        for (input, expected) in [
+            ("42", 42),
+            (" +4_2 ", 42),
+            ("0x2_a", 42),
+            ("0X_2A", 42),
+            ("0o52", 42),
+            ("0O52", 42),
+            ("0b10_1010", 42),
+            ("0B101010", 42),
+            ("042", 42),
+            ("18446744073709551615", u64::MAX),
+        ] {
+            assert_eq!(parse_memory_address(input), Ok(expected));
+        }
+        for input in [
+            "",
+            "_42",
+            "+0x2a",
+            "0_x2a",
+            "0x",
+            "0b2",
+            "1 2",
+            "18446744073709551616",
+            "-42",
+        ] {
+            assert!(parse_memory_address(input).is_err(), "{input}");
+        }
+    }
+
+    #[test]
+    fn memory_hex_preserves_empty_and_mixed_case_input() {
+        assert_eq!(decode_memory_hex(""), Some(Vec::new()));
+        assert_eq!(decode_memory_hex("00aAFF"), Some(vec![0, 170, 255]));
+        for input in ["a", "aaa", "gg", "aa bb", "0xAA", "é"] {
+            assert_eq!(decode_memory_hex(input), None, "{input}");
+        }
     }
 }

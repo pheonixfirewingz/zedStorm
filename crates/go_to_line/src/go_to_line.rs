@@ -354,7 +354,7 @@ mod tests {
     use cursor_position::{CursorPosition, SelectionStats, UserCaretPosition};
     use editor::actions::{MoveRight, MoveToBeginning, SelectAll};
     use gpui::{TestAppContext, VisualTestContext};
-    use indoc::indoc;
+
     use language::Capability;
     use multi_buffer::{MultiBuffer, PathKey};
     use project::{FakeFs, Project};
@@ -370,21 +370,20 @@ mod tests {
         fs.insert_tree(
             path!("/dir"),
             json!({
-                "a.rs": indoc!{"
-                    struct SingleLine; // display line 0
-                                       // display line 1
-                    struct MultiLine { // display line 2
-                        field_1: i32,  // display line 3
-                        field_2: i32,  // display line 4
-                    }                  // display line 5
-                                       // display line 6
-                    struct Another {   // display line 7
-                        field_1: i32,  // display line 8
-                        field_2: i32,  // display line 9
-                        field_3: i32,  // display line 10
-                        field_4: i32,  // display line 11
-                    }                  // display line 12
-                "}
+                "a.rs": "struct SingleLine; // display line 0
+                   // display line 1
+struct MultiLine { // display line 2
+    field_1: i32,  // display line 3
+    field_2: i32,  // display line 4
+}                  // display line 5
+                   // display line 6
+struct Another {   // display line 7
+    field_1: i32,  // display line 8
+    field_2: i32,  // display line 9
+    field_3: i32,  // display line 10
+    field_4: i32,  // display line 11
+}                  // display line 12
+"
             }),
         )
         .await;

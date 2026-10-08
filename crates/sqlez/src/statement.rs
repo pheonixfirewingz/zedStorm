@@ -392,7 +392,6 @@ impl Drop for Statement<'_> {
 
 #[cfg(test)]
 mod test {
-    use indoc::indoc;
 
     use crate::{
         connection::Connection,
@@ -405,18 +404,18 @@ mod test {
             Connection::open_memory(Some("binding_multiple_statements_with_parameter_gaps"));
 
         connection
-            .exec(indoc! {"
-            CREATE TABLE test (
-                col INTEGER
-            )"})
+            .exec(
+                "CREATE TABLE test (
+    col INTEGER
+)",
+            )
             .unwrap()()
         .unwrap();
 
         let statement = Statement::prepare(
             &connection,
-            indoc! {"
-                INSERT INTO test(col) VALUES (?3);
-                SELECT * FROM test WHERE col = ?1"},
+            "INSERT INTO test(col) VALUES (?3);
+SELECT * FROM test WHERE col = ?1",
         )
         .unwrap();
 
@@ -435,10 +434,11 @@ mod test {
     fn blob_round_trips() {
         let connection1 = Connection::open_memory(Some("blob_round_trips"));
         connection1
-            .exec(indoc! {"
-                CREATE TABLE blobs (
-                    data BLOB
-                )"})
+            .exec(
+                "CREATE TABLE blobs (
+    data BLOB
+)",
+            )
             .unwrap()()
         .unwrap();
 
@@ -466,10 +466,11 @@ mod test {
     pub fn maybe_returns_options() {
         let connection = Connection::open_memory(Some("maybe_returns_options"));
         connection
-            .exec(indoc! {"
-                CREATE TABLE texts (
-                    text TEXT
-                )"})
+            .exec(
+                "CREATE TABLE texts (
+    text TEXT
+)",
+            )
             .unwrap()()
         .unwrap();
 

@@ -3484,7 +3484,7 @@ mod test {
     use fs::{FakeFs, Fs};
     use gpui::{AppContext, TestAppContext};
     use http_client::{AsyncBody, FakeHttpClient, HttpClient};
-    use indoc::indoc;
+
     use project::{
         ProjectEnvironment,
         worktree_store::{WorktreeIdCounter, WorktreeStore},
@@ -5941,15 +5941,14 @@ RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
             .fs
             .atomic_write(
                 PathBuf::from(TEST_PROJECT_PATH).join(".devcontainer/docker-compose.yml"),
-                indoc! {r#"
-                    services:
-                        app:
-                            image: test_image:latest
-                        devcontainer:
-                            image: test_image:latest
-                        db:
-                            image: postgres:18.4
-                "# }
+                r#"services:
+    app:
+        image: test_image:latest
+    devcontainer:
+        image: test_image:latest
+    db:
+        image: postgres:18.4
+"#
                 .to_string(),
             )
             .await

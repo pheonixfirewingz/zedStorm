@@ -995,7 +995,6 @@ pub(crate) fn render_send_review_to_agent_button(
 #[cfg(test)]
 mod tests {
     use buffer_diff::DiffHunkSecondaryStatus;
-    use db::indoc;
     use editor::test::editor_test_context::{EditorTestContext, assert_state_with_diff};
     use gpui::{TestAppContext, VisualTestContext};
     use multi_buffer::PathKey;
@@ -1003,7 +1002,7 @@ mod tests {
     use serde_json::json;
     use settings::{DiffViewStyle, GitPanelGroupBy, GitPanelSortBy, SettingsStore};
     use std::path::Path;
-    use unindent::Unindent as _;
+    use util::Unindent as _;
     use util::{path, rel_path::rel_path};
 
     use workspace::MultiWorkspace;
@@ -1746,16 +1745,15 @@ mod tests {
 
         let mut cx = EditorTestContext::for_editor_in(editor, cx).await;
 
-        cx.set_selections_state(indoc!(
-            "
-            before
-            really changed
+        cx.set_selections_state(
+            "before
+really changed
 
-            deleted
+deleted
 
-            ˇcreated
-        "
-        ));
+ˇcreated
+",
+        );
         assert_eq!(
             project.read_with(&cx.cx, |project, _| project.active_entry()),
             Some(created_entry_id)
@@ -1763,17 +1761,16 @@ mod tests {
 
         cx.dispatch_action(editor::actions::GoToPreviousHunk);
 
-        cx.assert_excerpts_with_selections(indoc!(
-            "
-            [EXCERPT]
-            before
-            really changed
-            [EXCERPT]
-            ˇ[FOLDED]
-            [EXCERPT]
-            created
-        "
-        ));
+        cx.assert_excerpts_with_selections(
+            "[EXCERPT]
+before
+really changed
+[EXCERPT]
+ˇ[FOLDED]
+[EXCERPT]
+created
+",
+        );
         assert_eq!(
             project.read_with(&cx.cx, |project, _| project.active_entry()),
             None
@@ -1781,17 +1778,16 @@ mod tests {
 
         cx.dispatch_action(editor::actions::GoToPreviousHunk);
 
-        cx.assert_excerpts_with_selections(indoc!(
-            "
-            [EXCERPT]
-            ˇbefore
-            really changed
-            [EXCERPT]
-            [FOLDED]
-            [EXCERPT]
-            created
-        "
-        ));
+        cx.assert_excerpts_with_selections(
+            "[EXCERPT]
+ˇbefore
+really changed
+[EXCERPT]
+[FOLDED]
+[EXCERPT]
+created
+",
+        );
         assert_eq!(
             project.read_with(&cx.cx, |project, _| project.active_entry()),
             Some(changed_entry_id)
@@ -2317,38 +2313,36 @@ mod tests {
     async fn test_excerpts_splitting_after_restoring_the_middle_excerpt(cx: &mut TestAppContext) {
         init_test(cx);
 
-        let git_contents = indoc! {r#"
-            #[rustfmt::skip]
-            fn main() {
-                let x = 0.0; // this line will be removed
-                // 1
-                // 2
-                // 3
-                let y = 0.0; // this line will be removed
-                // 1
-                // 2
-                // 3
-                let arr = [
-                    0.0, // this line will be removed
-                    0.0, // this line will be removed
-                    0.0, // this line will be removed
-                    0.0, // this line will be removed
-                ];
-            }
-        "#};
-        let buffer_contents = indoc! {"
-            #[rustfmt::skip]
-            fn main() {
-                // 1
-                // 2
-                // 3
-                // 1
-                // 2
-                // 3
-                let arr = [
-                ];
-            }
-        "};
+        let git_contents = r#"#[rustfmt::skip]
+fn main() {
+    let x = 0.0; // this line will be removed
+    // 1
+    // 2
+    // 3
+    let y = 0.0; // this line will be removed
+    // 1
+    // 2
+    // 3
+    let arr = [
+        0.0, // this line will be removed
+        0.0, // this line will be removed
+        0.0, // this line will be removed
+        0.0, // this line will be removed
+    ];
+}
+"#;
+        let buffer_contents = "#[rustfmt::skip]
+fn main() {
+    // 1
+    // 2
+    // 3
+    // 1
+    // 2
+    // 3
+    let arr = [
+    ];
+}
+";
 
         let fs = FakeFs::new(cx.executor());
         fs.insert_tree(

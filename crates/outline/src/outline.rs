@@ -492,7 +492,7 @@ mod tests {
     use super::*;
     use futures::stream::StreamExt as _;
     use gpui::{TestAppContext, UpdateGlobal, VisualTestContext};
-    use indoc::indoc;
+
     use language::FakeLspAdapter;
     use project::{FakeFs, Project};
     use serde_json::json;
@@ -507,15 +507,14 @@ mod tests {
         fs.insert_tree(
             path!("/dir"),
             json!({
-                "a.rs": indoc!{"
-                                       // display line 0
-                    struct SingleLine; // display line 1
-                                       // display line 2
-                    struct MultiLine { // display line 3
-                        field_1: i32,  // display line 4
-                        field_2: i32,  // display line 5
-                    }                  // display line 6
-                "}
+                "a.rs": "                   // display line 0
+struct SingleLine; // display line 1
+                   // display line 2
+struct MultiLine { // display line 3
+    field_1: i32,  // display line 4
+    field_2: i32,  // display line 5
+}                  // display line 6
+"
             }),
         )
         .await;
@@ -642,16 +641,15 @@ mod tests {
         fs.insert_tree(
             path!("/dir"),
             json!({
-                "a.rs": indoc! {"
-                                       // display line 0
-                    struct Outer {     // display line 1
-                        fn top(&self) {// display line 2
-                            let _x = 1;// display line 3
-                        }              // display line 4
-                    }                  // display line 5
+                "a.rs": "                   // display line 0
+struct Outer {     // display line 1
+    fn top(&self) {// display line 2
+        let _x = 1;// display line 3
+    }              // display line 4
+}                  // display line 5
 
-                    struct Another;    // display line 7
-                "}
+struct Another;    // display line 7
+"
             }),
         )
         .await;
@@ -814,25 +812,24 @@ mod tests {
         fs.insert_tree(
             path!("/dir"),
             json!({
-                "a.rs": indoc! {"
-                    struct A;
-                    impl A {
-                        fn f(&self) {}
-                        fn g(&self) {}
-                    }
+                "a.rs": "struct A;
+impl A {
+    fn f(&self) {}
+    fn g(&self) {}
+}
 
-                    struct B;
-                    impl B {
-                        fn f(&self) {}
-                        fn g(&self) {}
-                    }
+struct B;
+impl B {
+    fn f(&self) {}
+    fn g(&self) {}
+}
 
-                    struct C;
-                    impl C {
-                        fn f(&self) {}
-                        fn g(&self) {}
-                    }
-                "}
+struct C;
+impl C {
+    fn f(&self) {}
+    fn g(&self) {}
+}
+"
             }),
         )
         .await;
@@ -1014,12 +1011,11 @@ mod tests {
         fs.insert_tree(
             path!("/dir"),
             json!({
-                "a.rs": indoc!{"
-                    struct Foo {
-                        bar: u32,
-                        baz: String,
-                    }
-                "}
+                "a.rs": "struct Foo {
+    bar: u32,
+    baz: String,
+}
+"
             }),
         )
         .await;

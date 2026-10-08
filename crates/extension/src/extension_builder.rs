@@ -810,7 +810,6 @@ mod tests {
     };
 
     use gpui::TestAppContext;
-    use indoc::indoc;
 
     use crate::{
         ExtensionManifest, ExtensionSnippets,
@@ -886,15 +885,13 @@ mod tests {
         fs.insert_tree(
             extension_path,
             serde_json::json!({
-                "extension.toml": indoc! {r#"
-                    id = "test-manifest"
-                    name = "Test Manifest"
-                    version = "0.0.1"
-                    schema_version = 1
+                "extension.toml": r#"id = "test-manifest"
+name = "Test Manifest"
+version = "0.0.1"
+schema_version = 1
 
-                    snippets = "./snippets/snippets.json"
-                    "#
-                },
+snippets = "./snippets/snippets.json"
+"#,
                 "snippets.json": "",
             }),
         )
@@ -924,14 +921,12 @@ mod tests {
         fs.insert_tree(
             extension_path,
             serde_json::json!({
-                "extension.toml": indoc! {r#"
-                    id = "test-manifest"
-                    name = "Test Manifest"
-                    version = "0.0.1"
-                    schema_version = 1
+                "extension.toml": r#"id = "test-manifest"
+name = "Test Manifest"
+version = "0.0.1"
+schema_version = 1
 
-                    "#
-                },
+"#,
                 "snippets.json": "",
             }),
         )

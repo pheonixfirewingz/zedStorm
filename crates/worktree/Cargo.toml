@@ -23,7 +23,6 @@ test-support = [
     "gpui/test-support",
 
     "language/test-support",
-    "pretty_assertions",
     "settings/test-support",
     "text/test-support",
     "util/test-support",
@@ -49,7 +48,6 @@ log.workspace = true
 parking_lot.workspace = true
 paths.workspace = true
 postage.workspace = true
-pretty_assertions = { workspace = true, optional = true }
 rpc = { workspace = true, features = ["gpui"] }
 settings.workspace = true
 smallvec.workspace = true

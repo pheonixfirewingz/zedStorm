@@ -314,7 +314,6 @@ mod sum_tree_impl {
 
 #[cfg(test)]
 mod tests {
-    use itertools::Itertools as _;
 
     use crate::{FocusHandle, FocusId, FocusMap, TabStopMap};
     use std::sync::Arc;
@@ -490,7 +489,7 @@ mod tests {
         }
 
         fn assert(self) {
-            let mut expected = self.expected.iter().map(|(_, id)| *id).collect_vec();
+            let mut expected = self.expected.iter().map(|(_, id)| *id).collect::<Vec<_>>();
 
             // Check next order
             let forward_found = self.traverse_tab_map(|tab_map, prev| tab_map.next(prev));

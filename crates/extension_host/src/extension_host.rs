@@ -15,8 +15,8 @@ use collections::{BTreeMap, BTreeSet, FxHashSet, HashMap, HashSet, btree_map};
 pub use extension::ExtensionManifest;
 use extension::extension_builder::{CompileExtensionOptions, ExtensionBuilder};
 use extension::{
-    ExtensionContextServerProxy, ExtensionDebugAdapterProviderProxy, ExtensionEvents,
-    ExtensionGrammarProxy, ExtensionHostProxy, ExtensionLanguageProxy,
+    Extension as _, ExtensionContextServerProxy, ExtensionDebugAdapterProviderProxy,
+    ExtensionEvents, ExtensionGrammarProxy, ExtensionHostProxy, ExtensionLanguageProxy,
     ExtensionLanguageServerProxy, ExtensionSnippetProxy, ExtensionThemeProxy,
 };
 use fs::{Fs, RemoveOptions, RenameOptions};
@@ -1397,6 +1397,7 @@ impl ExtensionStore {
         let mut grammars_to_remove = Vec::new();
         let mut server_removal_tasks = Vec::with_capacity(extensions_to_unload.len());
         for extension_id in &extensions_to_unload {
+            extension::DiagramRendererRegistry::unregister(extension_id, cx);
             let Some(extension) = old_index.extensions.get(extension_id) else {
                 continue;
             };
@@ -1677,6 +1678,28 @@ impl ExtensionStore {
 
                 for (manifest, wasm_extension) in &wasm_extensions {
                     let extension = Arc::new(wasm_extension.clone());
+
+                    for renderer_id in &manifest.diagram_renderers {
+                        let renderer_id = renderer_id.clone();
+                        let renderer = Arc::new({
+                            let extension = extension.clone();
+                            let renderer_id = renderer_id.clone();
+                            move |source, theme| {
+                                let extension = extension.clone();
+                                let renderer_id = renderer_id.clone();
+                                async move {
+                                    extension.render_diagram(renderer_id, source, theme).await
+                                }
+                                .boxed()
+                            }
+                        });
+                        extension::DiagramRendererRegistry::register(
+                            manifest.id.clone(),
+                            renderer_id,
+                            renderer,
+                            cx,
+                        );
+                    }
 
                     for (language_server_id, language_server_config) in &manifest.language_servers {
                         for language in language_server_config.languages() {

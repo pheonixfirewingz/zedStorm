@@ -42,13 +42,13 @@ Zed uses Metal for GPU-accelerated rendering, which is available on all supporte
 
 ## Installing the CLI
 
-Zed includes a command-line tool for opening files and projects from Terminal. To install it:
+Zed includes a command-line tool for opening files and projects from Terminal. To use it, create a symlink to `/usr/local/bin/zed` or add an alias to your shell configuration pointing to the bundled CLI binary:
 
-1. Open Zed
-2. Open the command palette with `Cmd+Shift+P`
-3. Run {#action cli::InstallCliBinary}
+```sh
+sudo ln -sf /Applications/Zed.app/Contents/MacOS/cli /usr/local/bin/zed
+```
 
-This creates a `zed` command in `/usr/local/bin`. You can then open files and folders:
+You can then open files and folders:
 
 ```sh
 zed .                    # Open current folder
@@ -101,14 +101,10 @@ xattr -cr /Applications/Zed.app
 If the `zed` command isn't available after installation:
 
 1. Check that `/usr/local/bin` is in your PATH
-2. Try reinstalling the CLI via {#action cli::InstallCliBinary} in the command palette
+2. Check that the symlink or alias points to the `cli` binary bundled inside the app
 3. Open a new terminal window to reload your PATH
 
-### Can't install CLI {#cant-install-cli}
-
-{#action cli::InstallCliBinary} writes a `zed` symlink to `/usr/local/bin`, which requires administrator privileges. If your macOS account isn't in the `admin` group, Zed can't create that symlink and will report that it can't install the CLI automatically.
-
-Instead, you can add an alias pointing to the `cli` binary bundled inside the app. The path depends on where Zed is installed:
+You can add an alias pointing to the `cli` binary bundled inside the app. The path depends on where Zed is installed:
 
 ```sh
 # Default install (Zed in /Applications)

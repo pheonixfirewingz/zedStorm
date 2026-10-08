@@ -6,7 +6,7 @@ pub use anyhow;
 use anyhow::Context as _;
 pub use gpui;
 use gpui::{App, AppContext, Global};
-pub use indoc::indoc;
+
 pub use inventory;
 pub use paths::database_dir;
 pub use sqlez;

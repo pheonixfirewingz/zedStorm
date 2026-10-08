@@ -331,7 +331,7 @@ async fn test_escape_code_processing(executor: BackgroundExecutor, cx: &mut Test
                 text_highlights.sort_by_key(|hl| hl.start);
                 text_highlights
             });
-            pretty_assertions::assert_eq!(
+            assert_eq!(
                 text_highlights,
                 [
                     DisplayPoint::new(DisplayRow(1), 3)..DisplayPoint::new(DisplayRow(1), 21),
@@ -347,7 +347,7 @@ async fn test_escape_code_processing(executor: BackgroundExecutor, cx: &mut Test
             let background_highlights = editor.update(cx, |editor, cx| {
                 editor.all_text_background_highlights(window, cx).into_iter().map(|(range, _)| range).collect::<Vec<_>>()
             });
-            pretty_assertions::assert_eq!(
+            assert_eq!(
                 background_highlights,
                 [
                     DisplayPoint::new(DisplayRow(8), 0)..DisplayPoint::new(DisplayRow(9), 0),

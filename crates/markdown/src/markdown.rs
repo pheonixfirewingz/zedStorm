@@ -503,6 +503,7 @@ pub struct Markdown {
     options: MarkdownOptions,
     mermaid_state: MermaidState,
     _mermaid_theme_subscription: Option<Subscription>,
+    _mermaid_renderer_subscription: Option<Subscription>,
     /// Per-diagram view state (current tab, zoom, scroll position, and pending
     /// debounced re-raster) keyed by source offset. Distinct from
     /// [`MermaidState`], which caches the rendered diagrams themselves keyed by
@@ -675,6 +676,12 @@ impl Markdown {
     ) -> Self {
         let focus_handle = cx.focus_handle();
 
+        cx.default_global::<extension::DiagramRendererRegistry>();
+        let renderer_subscription = options.render_mermaid_diagrams.then(|| {
+            cx.observe_global::<extension::DiagramRendererRegistry>(|this: &mut Self, cx| {
+                this.invalidate_mermaid_cache(cx);
+            })
+        });
         let theme_subscription = if options.render_mermaid_diagrams {
             Some(
                 cx.observe_global::<theme::GlobalTheme>(|this: &mut Self, cx| {
@@ -703,6 +710,7 @@ impl Markdown {
             options,
             mermaid_state: MermaidState::default(),
             _mermaid_theme_subscription: theme_subscription,
+            _mermaid_renderer_subscription: renderer_subscription,
             mermaid_views: HashMap::default(),
             copied_code_blocks: HashSet::default(),
             wrapped_code_blocks: HashSet::default(),
@@ -2755,6 +2763,8 @@ impl Element for MarkdownElement {
                         }
                         MarkdownTag::CodeBlock { kind, .. } => {
                             if render_mermaid_diagrams
+                                && extension::DiagramRendererRegistry::renderer("mermaid", cx)
+                                    .is_some()
                                 && let Some(mermaid_diagram) =
                                     parsed_markdown.mermaid_diagrams.get(&range.start)
                             {
@@ -5350,17 +5360,16 @@ mod tests {
         }
 
         ensure_theme_initialized(cx);
-        let source = indoc::indoc! {r#"
-            ```txt
-            one_extremely_long_code_line_that_overflows_the_viewport_and_keeps_going_and_going
-            ```
+        let source = r#"```txt
+one_extremely_long_code_line_that_overflows_the_viewport_and_keeps_going_and_going
+```
 
-            first paragraph
+first paragraph
 
-            second paragraph
+second paragraph
 
-            last paragraph
-        "#};
+last paragraph
+"#;
         let markdown = cx.new(|cx| Markdown::new(source.into(), None, None, cx));
         cx.run_until_parked();
         let rendered_text = Rc::new(RefCell::new(None));
@@ -5747,11 +5756,10 @@ mod tests {
         let language_registry = Arc::new(LanguageRegistry::test(cx.executor()));
         language_registry.add(language.clone());
 
-        let source = indoc::indoc! {"
-            ```
-            fn main() {}
-            ```
-        "};
+        let source = "```
+fn main() {}
+```
+";
         let markdown = cx.new(|cx| {
             Markdown::new(
                 source.into(),
@@ -5785,11 +5793,10 @@ mod tests {
         let language_registry = Arc::new(LanguageRegistry::test(cx.executor()));
         language_registry.add(language.clone());
 
-        let source = indoc::indoc! {"
-            ```rust
-            fn main() {}
-            ```
-        "};
+        let source = "```rust
+fn main() {}
+```
+";
         let markdown = cx.new(|cx| {
             Markdown::new(
                 source.into(),
@@ -7457,11 +7464,10 @@ mod tests {
     #[gpui::test]
     fn test_wide_table_scrolls_horizontally(cx: &mut TestAppContext) {
         ensure_theme_initialized(cx);
-        let source = indoc::indoc! {r#"
-            | left | right |
-            | --- | --- |
-            | value | far_right_cell_content_that_is_much_wider_than_the_viewport |
-        "#};
+        let source = r#"| left | right |
+| --- | --- |
+| value | far_right_cell_content_that_is_much_wider_than_the_viewport |
+"#;
         let left_cell_start = source.find("left").expect("left cell should be present");
         let left_cell_range = left_cell_start..left_cell_start + "left".len();
         let right_cell = "far_right_cell_content_that_is_much_wider_than_the_viewport";
@@ -7533,11 +7539,10 @@ mod tests {
     #[gpui::test]
     fn test_highlights_are_clipped_to_scrollable_code_block(cx: &mut TestAppContext) {
         ensure_theme_initialized(cx);
-        let source = indoc::indoc! {r#"
-            ```txt
-            one_extremely_long_code_line_that_overflows_the_viewport_and_keeps_going_and_going
-            ```
-        "#};
+        let source = r#"```txt
+one_extremely_long_code_line_that_overflows_the_viewport_and_keeps_going_and_going
+```
+"#;
         let code_line =
             "one_extremely_long_code_line_that_overflows_the_viewport_and_keeps_going_and_going";
         let code_start = source.find(code_line).expect("code line should be present");

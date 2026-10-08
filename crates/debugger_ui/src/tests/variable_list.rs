@@ -22,7 +22,7 @@ use menu::{SelectFirst, SelectNext, SelectPrevious};
 use project::{FakeFs, Project};
 use serde_json::json;
 use ui::SharedString;
-use unindent::Unindent as _;
+use util::Unindent as _;
 use util::path;
 
 /// This only tests fetching one scope and 2 variables for a single stackframe

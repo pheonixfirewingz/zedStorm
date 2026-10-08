@@ -953,7 +953,7 @@ mod tests {
     use gpui::{AppContext, Hsla, TestAppContext};
     use task::TaskContext;
     use theme::SyntaxTheme;
-    use unindent::Unindent as _;
+    use util::Unindent as _;
 
     fn go_language() -> Arc<Language> {
         let language = language("go", tree_sitter_go::LANGUAGE.into());

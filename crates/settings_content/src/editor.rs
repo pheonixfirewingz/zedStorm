@@ -1111,21 +1111,20 @@ pub enum DisplayIn {
 /// Valid range: 0.0 to 106.0
 /// Default: 45.0
 #[derive(
-    Clone,
-    Copy,
-    Debug,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    PartialEq,
-    PartialOrd,
-    derive_more::FromStr,
+    Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq, PartialOrd,
 )]
 #[serde(transparent)]
 pub struct MinimumContrast(
     #[serde(serialize_with = "crate::serialize_f32_with_two_decimal_places")] pub f32,
 );
+
+impl std::str::FromStr for MinimumContrast {
+    type Err = <f32 as std::str::FromStr>::Err;
+    #[inline]
+    fn from_str(input: &str) -> std::result::Result<Self, Self::Err> {
+        std::str::FromStr::from_str(input).map(Self)
+    }
+}
 
 impl Display for MinimumContrast {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1144,21 +1143,20 @@ impl From<f32> for MinimumContrast {
 /// Valid range: 0.0 to 1.0
 /// Default: 1.0
 #[derive(
-    Clone,
-    Copy,
-    Debug,
-    Serialize,
-    Deserialize,
-    JsonSchema,
-    MergeFrom,
-    PartialEq,
-    PartialOrd,
-    derive_more::FromStr,
+    Clone, Copy, Debug, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq, PartialOrd,
 )]
 #[serde(transparent)]
 pub struct InactiveOpacity(
     #[serde(serialize_with = "serialize_f32_with_two_decimal_places")] pub f32,
 );
+
+impl std::str::FromStr for InactiveOpacity {
+    type Err = <f32 as std::str::FromStr>::Err;
+    #[inline]
+    fn from_str(input: &str) -> std::result::Result<Self, Self::Err> {
+        std::str::FromStr::from_str(input).map(Self)
+    }
+}
 
 impl Display for InactiveOpacity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1176,21 +1174,19 @@ impl From<f32> for InactiveOpacity {
 ///
 /// Valid range: 0.0 to 0.4
 /// Default: 2.0
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    Serialize,
-    Deserialize,
-    MergeFrom,
-    PartialEq,
-    PartialOrd,
-    derive_more::FromStr,
-)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, MergeFrom, PartialEq, PartialOrd)]
 #[serde(transparent)]
 pub struct CenteredPaddingSettings(
     #[serde(serialize_with = "serialize_f32_with_two_decimal_places")] pub f32,
 );
+
+impl std::str::FromStr for CenteredPaddingSettings {
+    type Err = <f32 as std::str::FromStr>::Err;
+    #[inline]
+    fn from_str(input: &str) -> std::result::Result<Self, Self::Err> {
+        std::str::FromStr::from_str(input).map(Self)
+    }
+}
 
 impl CenteredPaddingSettings {
     pub const MIN_PADDING: f32 = 0.0;

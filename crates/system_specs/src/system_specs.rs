@@ -1,6 +1,5 @@
 pub use gpui::GpuSpecs;
 use gpui::{App, AppContext as _, Task, Window, actions};
-use human_bytes::human_bytes;
 use release_channel::{AppCommitSha, AppVersion, ReleaseChannel};
 use semver::Version;
 use serde::Serialize;
@@ -128,7 +127,7 @@ impl Display for SystemSpecs {
         let system_specs = [
             app_version_information,
             os_information,
-            format!("Memory: {}", human_bytes(self.memory as f64)),
+            format!("Memory: {}", format_memory_size(self.memory)),
             format!("Architecture: {}", self.architecture),
         ]
         .into_iter()
@@ -142,6 +141,17 @@ impl Display for SystemSpecs {
 
         write!(f, "{system_specs}")
     }
+}
+
+fn format_memory_size(bytes: u64) -> String {
+    const UNITS: [&str; 7] = ["B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"];
+    if bytes == 0 {
+        return "0 B".to_owned();
+    }
+    let scale = (bytes as f64).log10() / 1024.0_f64.log10();
+    let unit = UNITS.get(scale.floor() as usize).unwrap_or(&"EiB");
+    let value = format!("{:.1}", 1024.0_f64.powf(scale - scale.floor()));
+    format!("{} {unit}", value.trim_end_matches(".0"))
 }
 
 fn try_determine_available_gpus() -> Option<String> {
@@ -294,4 +304,25 @@ fn bundle_type() -> Option<String> {
     option_env!("ZED_BUNDLE_TYPE")
         .map(|bundle_type| bundle_type.to_string())
         .or_else(|| env::var("ZED_BUNDLE_TYPE").ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_memory_size;
+
+    #[test]
+    fn memory_size_preserves_units_and_rounding() {
+        for (bytes, expected) in [
+            (0, "0 B"),
+            (1, "1 B"),
+            (1023, "1023 B"),
+            (1024, "1 KiB"),
+            (1536, "1.5 KiB"),
+            (1024 * 1024 - 1, "1024 KiB"),
+            (1024 * 1024, "1 MiB"),
+            (u64::MAX, "16 EiB"),
+        ] {
+            assert_eq!(format_memory_size(bytes), expected);
+        }
+    }
 }

@@ -77,6 +77,24 @@ impl Drop for WasmExtension {
 
 #[async_trait]
 impl extension::Extension for WasmExtension {
+    async fn render_diagram(
+        &self,
+        renderer_id: Arc<str>,
+        source: String,
+        theme: String,
+    ) -> Result<String> {
+        self.call(move |extension, store| {
+            async move {
+                extension
+                    .call_render_diagram(store, &renderer_id, &source, &theme)
+                    .await?
+                    .map_err(|error| store.data().extension_error(error))
+            }
+            .boxed()
+        })
+        .await?
+    }
+
     fn manifest(&self) -> Arc<ExtensionManifest> {
         self.manifest.clone()
     }

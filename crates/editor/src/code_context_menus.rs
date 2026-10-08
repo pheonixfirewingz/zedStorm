@@ -1385,7 +1385,7 @@ impl CompletionsMenu {
                     };
                     (query_for_batch, candidates)
                 })
-                .collect_vec();
+                .collect::<Vec<_>>();
 
             let mut filter_match_results = vec![];
             let mut label_match_results =
@@ -1419,7 +1419,7 @@ impl CompletionsMenu {
                             label_match_candidates.get(filter_match.candidate_id)?;
                         (filter_match.string != label_candidate.string).then_some(label_candidate)
                     })
-                    .collect_vec();
+                    .collect::<Vec<_>>();
                 if matching_label_candidates.is_empty() {
                     filter_match_results.extend(filter_matches);
                     continue;

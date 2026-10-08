@@ -58,6 +58,5 @@ settings = { workspace = true, features = ["test-support"] }
 task.workspace = true
 theme.workspace = true
 theme_settings.workspace = true
-unindent.workspace = true
 workspace = { workspace = true, features = ["test-support"] }
 zlog.workspace = true

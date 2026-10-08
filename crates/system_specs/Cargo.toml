@@ -19,7 +19,6 @@ default = []
 [dependencies]
 anyhow.workspace = true
 gpui.workspace = true
-human_bytes.workspace = true
 release_channel.workspace = true
 semver.workspace = true
 serde.workspace = true

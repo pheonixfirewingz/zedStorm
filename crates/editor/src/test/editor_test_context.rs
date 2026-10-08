@@ -608,7 +608,7 @@ impl EditorTestContext {
     #[track_caller]
     pub fn assert_editor_state(&mut self, marked_text: &str) {
         let (expected_text, expected_selections) = marked_text_ranges(marked_text, true);
-        pretty_assertions::assert_eq!(self.buffer_text(), expected_text, "unexpected buffer text");
+        assert_eq!(self.buffer_text(), expected_text, "unexpected buffer text");
         self.assert_selections(expected_selections, marked_text.to_string())
     }
 
@@ -619,7 +619,7 @@ impl EditorTestContext {
     #[track_caller]
     pub fn assert_display_state(&mut self, marked_text: &str) {
         let (expected_text, expected_selections) = marked_text_ranges(marked_text, true);
-        pretty_assertions::assert_eq!(self.display_text(), expected_text, "unexpected buffer text");
+        assert_eq!(self.display_text(), expected_text, "unexpected buffer text");
         self.assert_selections(expected_selections, marked_text.to_string())
     }
 
@@ -699,7 +699,7 @@ impl EditorTestContext {
             generate_marked_text(&self.buffer_text(), &actual_selections, true)
                 .replace(" \n", "•\n");
         if expected_selections != actual_selections {
-            pretty_assertions::assert_eq!(
+            assert_eq!(
                 actual_marked_text,
                 expected_marked_text,
                 "{}Editor has unexpected selections",
@@ -825,7 +825,7 @@ pub fn assert_state_with_diff(
         .collect::<Vec<_>>()
         .join("\n");
 
-    pretty_assertions::assert_eq!(actual_diff, expected_diff_text, "unexpected diff state");
+    assert_eq!(actual_diff, expected_diff_text, "unexpected diff state");
 }
 
 impl Deref for EditorTestContext {

@@ -20,6 +20,7 @@ pub mod debugger_panel;
 mod dropdown_menus;
 mod new_process_modal;
 mod persistence;
+pub mod run_configurations;
 pub(crate) mod session;
 
 #[cfg(any(test, feature = "test-support"))]
@@ -109,6 +110,7 @@ actions!(
 );
 
 pub fn init(cx: &mut App) {
+    run_configurations::init(cx);
     workspace::FollowableViewRegistry::register::<DebugSession>(cx);
 
     cx.observe_new(|workspace: &mut Workspace, _, _| {

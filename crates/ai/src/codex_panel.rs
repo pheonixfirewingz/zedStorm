@@ -6,6 +6,7 @@ use gpui::{
 };
 use markdown::{Markdown, MarkdownElement, MarkdownFont, MarkdownStyle};
 use serde_json::{Value, json};
+use settings::{Settings as _, SettingsStore};
 use smol::channel;
 use std::{
     collections::HashMap,
@@ -29,6 +30,9 @@ struct QuestionInput {
 }
 
 pub struct CodexPanel {
+    backend: super::Backend,
+    inactive_session: Option<Session>,
+    mistral_conversation: super::mistral_api::SharedConversation,
     workspace: WeakEntity<Workspace>,
     focus_handle: FocusHandle,
     prompt: Entity<Editor>,
@@ -55,7 +59,25 @@ impl CodexPanel {
             editor
         });
         let subscription = cx.observe(&prompt, |_, _, cx| cx.notify());
+        let settings_subscription = cx.observe_global::<SettingsStore>(|panel, cx| {
+            if !super::VibeSettings::get_global(cx).enabled
+                && panel.backend == super::Backend::Mistral
+            {
+                panel.session.disconnected("Vibe is disabled".into());
+                panel.switch_backend(super::Backend::Codex, cx);
+            }
+            cx.notify();
+        });
+        let credentials_subscription =
+            cx.observe_global::<super::VibeCredentialsChanged>(|panel, cx| {
+                if panel.backend == super::Backend::Mistral {
+                    panel.connect(cx);
+                }
+            });
         Self {
+            backend: super::Backend::Codex,
+            inactive_session: None,
+            mistral_conversation: Default::default(),
             workspace: workspace.weak_handle(),
             focus_handle: cx.focus_handle(),
             prompt,
@@ -69,7 +91,11 @@ impl CodexPanel {
             questions: Vec::new(),
             position: DockPosition::Right,
             remote: workspace.project().read(cx).is_remote(),
-            _subscriptions: vec![subscription],
+            _subscriptions: vec![
+                subscription,
+                settings_subscription,
+                credentials_subscription,
+            ],
             last_markdown_sync: Instant::now(),
             markdown_sync_task: None,
         }
@@ -77,7 +103,10 @@ impl CodexPanel {
 
     fn connect(&mut self, cx: &mut Context<Self>) {
         if self.remote {
-            self.session.error = Some("Codex chat currently supports local projects. Open this project locally to use chat.".into());
+            self.session.error = Some(
+                "Chat currently supports local projects. Open this project locally to use chat."
+                    .into(),
+            );
             cx.notify();
             return;
         }
@@ -95,8 +124,17 @@ impl CodexPanel {
         let initialize = self.session.initialize();
         self.transmit(initialize);
         let directory = self.session.directory.clone();
+        let credentials = if self.backend == super::Backend::Mistral {
+            Some(cx.read_credentials(super::VIBE_CREDENTIAL_KEY))
+        } else {
+            None
+        };
         self.connection_task = Some(cx.background_spawn(codex_protocol::run_server(
+            self.backend,
+            cx.http_client(),
+            self.mistral_conversation.clone(),
             directory,
+            credentials,
             outgoing_receiver,
             incoming_sender,
         )));
@@ -149,11 +187,13 @@ impl CodexPanel {
         let result = self
             .outgoing
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Codex is disconnected"))
+            .ok_or_else(|| anyhow::anyhow!("Chat is disconnected"))
             .and_then(|outgoing| outgoing.try_send(message).map_err(anyhow::Error::from));
         if let Err(error) = result {
-            self.session
-                .disconnected(format!("Could not send to Codex: {error}"));
+            self.session.disconnected(format!(
+                "Could not send to {}: {error}",
+                self.backend.name()
+            ));
             self.outgoing = None;
         }
     }
@@ -237,6 +277,9 @@ impl CodexPanel {
         self.event_task.take();
         self.markdown_sync_task.take();
         self.outgoing = None;
+        if self.backend == super::Backend::Mistral {
+            self.mistral_conversation = Default::default();
+        }
         let settings = self.session.settings.clone();
         self.session = Session::new(self.session.directory.clone());
         self.session.settings = settings;
@@ -249,10 +292,10 @@ impl CodexPanel {
 
     fn render_settings(&self, window: &mut Window, cx: &mut Context<Self>) -> gpui::Div {
         let panel = cx.entity().downgrade();
-        let model_menu = ContextMenu::build(window, cx, |menu, _, _| {
+        let model_menu = ContextMenu::build(window, cx, |menu, _, cx| {
             let default_panel = panel.clone();
             let mut menu = menu.toggleable_entry(
-                "Configured model",
+                format!("{} — configured model", self.backend.name()),
                 self.session.settings.model.is_none(),
                 IconPosition::Start,
                 None,
@@ -285,6 +328,26 @@ impl CodexPanel {
                                     cx.notify();
                                 }
                             })
+                            .log_err();
+                    },
+                );
+            }
+            for backend in [super::Backend::Codex, super::Backend::Mistral] {
+                if backend == self.backend
+                    || (backend == super::Backend::Mistral
+                        && !super::VibeSettings::get_global(cx).enabled)
+                {
+                    continue;
+                }
+                let panel = panel.clone();
+                menu = menu.toggleable_entry(
+                    backend.name(),
+                    false,
+                    IconPosition::Start,
+                    None,
+                    move |_, cx| {
+                        panel
+                            .update(cx, |panel, cx| panel.switch_backend(backend, cx))
                             .log_err();
                     },
                 );
@@ -413,7 +476,7 @@ impl CodexPanel {
                 .tab_index(0)
                 .aria_label("Reasoning level")
                 .aria_value(reasoning_label)
-                .disabled(self.session.busy || model.is_none())
+                .disabled(self.session.busy || model.is_none_or(|model| model.supported_reasoning_efforts.is_empty()))
                 .trigger_tooltip(Tooltip::text("Choose the reasoning level for your next message")))
             .child(DropdownMenu::new_with_element("codex-access-selector", trigger(access_label, Some(IconName::Lock)), access_menu)
                 .no_chevron()
@@ -423,7 +486,30 @@ impl CodexPanel {
                 .aria_label("Access")
                 .aria_value(access_label)
                 .disabled(self.session.busy)
-                .trigger_tooltip(Tooltip::text("Read-only: no edits or network. Workspace write: project edits, approval for elevated access. Full access: unrestricted files and network, no approvals.")))
+                .trigger_tooltip(Tooltip::text(if self.backend == super::Backend::Mistral { "Read-only: project reads. Default and Workspace write: approve modifying tools. Full access: automatically approve project tools. Mistral API requires network in every mode." } else { "Read-only: no edits or network. Workspace write: project edits, approval for elevated access. Full access: unrestricted files and network, no approvals." })))
+    }
+
+    fn switch_backend(&mut self, backend: super::Backend, cx: &mut Context<Self>) {
+        if self.session.busy
+            || self.backend == backend
+            || (backend == super::Backend::Mistral && !super::VibeSettings::get_global(cx).enabled)
+        {
+            return;
+        }
+        self.connection_task.take();
+        self.event_task.take();
+        self.markdown_sync_task.take();
+        self.outgoing = None;
+        let session = self
+            .inactive_session
+            .take()
+            .unwrap_or_else(|| Session::new(self.session.directory.clone()));
+        self.inactive_session = Some(std::mem::replace(&mut self.session, session));
+        self.backend = backend;
+        self.markdown.clear();
+        self.questions.clear();
+        self.question_request_id = None;
+        self.connect(cx);
     }
 
     fn login(&mut self, cx: &mut Context<Self>) {
@@ -541,7 +627,10 @@ impl CodexPanel {
                     .p_3()
                     .border_t_1()
                     .border_color(cx.theme().colors().border)
-                    .child(Label::new("Codex needs your input"))
+                    .child(Label::new(format!(
+                        "{} needs your input",
+                        self.backend.name()
+                    )))
                     .children(inputs)
                     .child(
                         Button::new("codex-submit-answers", "Submit Answers").on_click(
@@ -709,7 +798,10 @@ impl Render for CodexPanel {
         } else if !self.session.requests.is_empty() {
             "Waiting for your response"
         } else if self.session.busy {
-            "Codex is working…"
+            match self.backend {
+                super::Backend::Codex => "Codex is working…",
+                super::Backend::Mistral => "Mistral is working…",
+            }
         } else if self.session.stopped {
             "Stopped"
         } else {
@@ -745,7 +837,7 @@ impl Render for CodexPanel {
             .map(|(index, message)| {
                 let label = match message.kind {
                     MessageKind::User => "You",
-                    MessageKind::Assistant => "Codex",
+                    MessageKind::Assistant => self.backend.name(),
                     MessageKind::Activity => "Activity",
                 };
                 let body = if let Some(markdown) = self.markdown.get(&message.id) {
@@ -797,7 +889,7 @@ impl Render for CodexPanel {
                         h_flex()
                             .min_w_0()
                             .gap_2()
-                            .child(Label::new("Codex"))
+                            .child(Label::new(self.backend.name()))
                             .child(
                                 div()
                                     .id("codex-status")

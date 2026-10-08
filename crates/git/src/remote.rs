@@ -1,13 +1,20 @@
 use std::str::FromStr;
 use std::sync::LazyLock;
 
-use derive_more::Deref;
 use regex::Regex;
 use url::Url;
 
 /// The URL to a Git remote.
-#[derive(Debug, PartialEq, Eq, Clone, Deref)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct RemoteUrl(Url);
+
+impl std::ops::Deref for RemoteUrl {
+    type Target = Url;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 // Detect the `user@` prefix of an SCP-like remote (e.g. `git@host:path`). The
 // username may contain anything but the `@`/`:`/`/` that delimit the user,
@@ -32,7 +39,6 @@ impl FromStr for RemoteUrl {
 
 #[cfg(test)]
 mod tests {
-    use pretty_assertions::assert_eq;
 
     use super::*;
 

@@ -10,7 +10,7 @@ use language::{
 };
 use project::{FakeFs, Project};
 use serde_json::json;
-use unindent::Unindent as _;
+use util::Unindent as _;
 use util::{path, rel_path::rel_path};
 
 use crate::{
@@ -248,7 +248,7 @@ fn main() {
     cx.run_until_parked();
 
     editor.update_in(cx, |editor, window, cx| {
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             r#"
     static mut GLOBAL: usize = 1;
 
@@ -305,7 +305,7 @@ fn main() {
     cx.run_until_parked();
 
     editor.update_in(cx, |editor, window, cx| {
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             r#"
     static mut GLOBAL: usize = 1;
 
@@ -362,7 +362,7 @@ fn main() {
     cx.run_until_parked();
 
     editor.update_in(cx, |editor, window, cx| {
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             r#"
     static mut GLOBAL: usize = 1;
 
@@ -419,7 +419,7 @@ fn main() {
     cx.run_until_parked();
 
     editor.update_in(cx, |editor, window, cx| {
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             r#"
     static mut GLOBAL: usize = 1;
 
@@ -476,7 +476,7 @@ fn main() {
     cx.run_until_parked();
 
     editor.update_in(cx, |editor, window, cx| {
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             r#"
     static mut GLOBAL: usize = 1;
 
@@ -583,7 +583,7 @@ fn main() {
     cx.run_until_parked();
 
     editor.update_in(cx, |editor, window, cx| {
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             r#"
     static mut GLOBAL: usize = 1;
 
@@ -690,7 +690,7 @@ fn main() {
     cx.run_until_parked();
 
     editor.update_in(cx, |editor, window, cx| {
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             r#"
     static mut GLOBAL: usize = 1;
 
@@ -809,7 +809,7 @@ fn main() {
     cx.run_until_parked();
 
     editor.update_in(cx, |editor, window, cx| {
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             r#"
     static mut GLOBAL: usize = 1;
 
@@ -928,7 +928,7 @@ fn main() {
     cx.run_until_parked();
 
     editor.update_in(cx, |editor, window, cx| {
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             r#"
     static mut GLOBAL: usize = 1;
 
@@ -1060,7 +1060,7 @@ fn main() {
     cx.run_until_parked();
 
     editor.update_in(cx, |editor, window, cx| {
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             r#"
     static mut GLOBAL: usize = 1;
 
@@ -1117,7 +1117,7 @@ fn main() {
     cx.run_until_parked();
 
     editor.update_in(cx, |editor, window, cx| {
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             r#"
     static mut GLOBAL: usize = 1;
 
@@ -1195,7 +1195,7 @@ fn main() {
     cx.run_until_parked();
 
     editor.update_in(cx, |editor, window, cx| {
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             r#"
     static mut GLOBAL: usize = 1;
 
@@ -1340,7 +1340,7 @@ fn main() {
     cx.run_until_parked();
 
     editor.update_in(cx, |editor, window, cx| {
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             r#"
     static mut GLOBAL: usize = 1;
 
@@ -1485,7 +1485,7 @@ fn main() {
     cx.run_until_parked();
 
     editor.update_in(cx, |editor, window, cx| {
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             r#"
     static mut GLOBAL: usize = 1;
 
@@ -1803,7 +1803,7 @@ def process_data(untyped_param, typed_param: int, another_typed: str):
     cx.run_until_parked();
 
     editor.update_in(cx, |editor, window, cx| {
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             r#"
         def process_data(untyped_param: test_value, typed_param: 42: int, another_typed: world: str):
             # Local variables
@@ -2102,7 +2102,7 @@ async fn test_inline_values_util(
     cx.run_until_parked();
 
     editor.update_in(cx, |editor, window, cx| {
-        pretty_assertions::assert_eq!(after, editor.snapshot(window, cx).text());
+        assert_eq!(after, editor.snapshot(window, cx).text());
     });
 }
 

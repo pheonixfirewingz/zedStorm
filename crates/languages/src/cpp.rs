@@ -14,7 +14,7 @@ mod tests {
     use language::{AutoindentMode, Buffer};
     use settings::SettingsStore;
     use std::num::NonZeroU32;
-    use unindent::Unindent;
+    use util::Unindent;
 
     #[gpui::test]
     async fn test_cpp_autoindent_switch_case(cx: &mut TestAppContext) {

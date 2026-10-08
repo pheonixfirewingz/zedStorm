@@ -369,7 +369,6 @@ mod tests {
             editor_lsp_test_context::EditorLspTestContext, editor_test_context::EditorTestContext,
         },
     };
-    use indoc::indoc;
 
     #[gpui::test]
     async fn test_mouse_context_menu(cx: &mut gpui::TestAppContext) {
@@ -384,16 +383,18 @@ mod tests {
         )
         .await;
 
-        cx.set_state(indoc! {"
-            fn teˇst() {
-                do_work();
-            }
-        "});
-        let point = cx.display_point(indoc! {"
-            fn test() {
-                do_wˇork();
-            }
-        "});
+        cx.set_state(
+            "fn teˇst() {
+    do_work();
+}
+",
+        );
+        let point = cx.display_point(
+            "fn test() {
+    do_wˇork();
+}
+",
+        );
         cx.editor(|editor, _window, _app| assert!(editor.mouse_context_menu.is_none()));
 
         cx.update_editor(|editor, window, cx| {
@@ -409,11 +410,12 @@ mod tests {
             assert!(editor.focus_handle.contains_focused(window, cx));
         });
 
-        cx.assert_editor_state(indoc! {"
-            fn test() {
-                do_wˇork();
-            }
-        "});
+        cx.assert_editor_state(
+            "fn test() {
+    do_wˇork();
+}
+",
+        );
         cx.editor(|editor, _window, _app| assert!(editor.mouse_context_menu.is_some()));
     }
 

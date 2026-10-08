@@ -6792,34 +6792,11 @@ impl Workspace {
         self._serialize_workspace_task.take();
         self.bounds_save_task_queued.take();
 
-        let serializable_items = self
-            .panes
-            .iter()
-            .flat_map(|pane| pane.read(cx).items())
-            .filter_map(|item| item.to_serializable_item_handle(cx))
-            .fold(HashMap::default(), |mut items, item| {
-                items.entry(item.item_id()).or_insert(item);
-                items
-            });
-        let item_tasks = serializable_items
-            .into_values()
-            .filter_map(|item| {
-                let item_id = item.item_id();
-                let task = item.serialize(self, false, cx)?;
-                Some(async move {
-                    task.await
-                        .with_context(|| format!("flushing serialization of item {item_id:?}"))
-                })
-            })
-            .collect::<Vec<_>>();
         let bounds_task = self.save_window_bounds(window, cx);
         let serialize_task = self.serialize_workspace_internal(window, cx);
         cx.background_spawn(async move {
             bounds_task.await;
             serialize_task.await;
-            for result in futures::future::join_all(item_tasks).await {
-                result.log_err();
-            }
         })
     }
 
@@ -6893,9 +6870,20 @@ impl Workspace {
         }
     }
 
-    fn serialize_workspace_internal(&self, window: &mut Window, cx: &mut App) -> Task<()> {
+    fn serialize_workspace_internal(&mut self, window: &mut Window, cx: &mut App) -> Task<()> {
+        let task = self.serialize_workspace_snapshot(window, cx);
+        cx.background_spawn(async move {
+            task.await.log_err();
+        })
+    }
+
+    fn serialize_workspace_snapshot(
+        &mut self,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Task<Result<()>> {
         let Some(database_id) = self.database_id() else {
-            return Task::ready(());
+            return Task::ready(Ok(()));
         };
 
         fn build_serialized_pane_group(
@@ -6952,6 +6940,27 @@ impl Workspace {
                     .user_toolchains(cx)
                     .unwrap_or_default();
 
+                let serializable_items = self
+                    .panes
+                    .iter()
+                    .flat_map(|pane| pane.read(cx).items())
+                    .filter_map(|item| item.to_serializable_item_handle(cx))
+                    .fold(HashMap::default(), |mut items, item| {
+                        items.entry(item.item_id()).or_insert(item);
+                        items
+                    });
+                let item_tasks = serializable_items
+                    .into_values()
+                    .filter_map(|item| {
+                        let item_id = item.item_id();
+                        let task = item.serialize(self, false, cx)?;
+                        Some(async move {
+                            task.await
+                                .with_context(|| format!("serializing item {item_id:?}"))
+                        })
+                    })
+                    .collect::<Vec<_>>();
+
                 let center_group = build_serialized_pane_group(&self.center.root, window, cx);
                 let docks = build_serialized_docks(self, window, cx);
                 let default_docks = (paths.is_empty()
@@ -6982,12 +6991,17 @@ impl Workspace {
                 let db = WorkspaceDb::global(cx);
                 let kvp = db::kvp::KeyValueStore::global(cx);
                 cx.background_spawn(async move {
+                    // A saved layout must never reference item records that are still being written.
+                    for result in futures::future::join_all(item_tasks).await {
+                        result?;
+                    }
                     if let Some(docks) = default_docks {
                         persistence::write_default_dock_state(&kvp, docks)
                             .await
                             .log_err();
                     }
                     db.save_workspace(serialized_workspace).await;
+                    Ok(())
                 })
             }
             WorkspaceLocation::None => {
@@ -6995,9 +7009,8 @@ impl Workspace {
                 let docks = build_serialized_docks(self, window, cx);
                 let kvp = db::kvp::KeyValueStore::global(cx);
                 cx.background_spawn(async move {
-                    persistence::write_default_dock_state(&kvp, docks)
-                        .await
-                        .log_err();
+                    persistence::write_default_dock_state(&kvp, docks).await?;
+                    Ok(())
                 })
             }
         }
@@ -7184,6 +7197,14 @@ impl Workspace {
                         })
                 })
                 .await;
+
+            // Restored items have new IDs. Save their records and the new layout before
+            // deleting the old records, including when the app exits during restoration.
+            workspace
+                .update_in(cx, |workspace, window, cx| {
+                    workspace.serialize_workspace_snapshot(window, cx)
+                })?
+                .await?;
 
             // Clean up all the items that have _not_ been loaded. Our ItemIds aren't stable. That means
             // after loading the items, we might have different items and in order to avoid
@@ -11080,7 +11101,7 @@ mod tests {
             file_stem: Some("main".to_string()),
             remote_name: Some("nickname".to_string()),
             remote_host: Some("example.com".to_string()),
-            app_name: "Zed",
+            app_name: "ZedStorm",
             branch: Some("main".to_string()),
         };
 
@@ -11136,7 +11157,7 @@ mod tests {
             file_stem: Some("main".to_string()),
             remote_name: None,
             remote_host: None,
-            app_name: "Zed",
+            app_name: "ZedStorm",
             branch: None,
         };
 
@@ -11158,14 +11179,14 @@ mod tests {
     fn test_render_window_title_format_renders_new_variables() {
         let context = WindowTitleContext {
             project_name: "project".to_string(),
-            app_name: "Zed",
+            app_name: "ZedStorm",
             branch: Some("feature/foo".to_string()),
             ..Default::default()
         };
 
         assert_eq!(
             render_window_title_format("${projectName}${separator}${appName}", " — ", &context),
-            "project — Zed"
+            "project — ZedStorm"
         );
         assert_eq!(
             render_window_title_format("${projectName}${separator}${branch}", " — ", &context),
@@ -11567,7 +11588,7 @@ mod tests {
             });
         });
         cx.executor().run_until_parked();
-        assert_eq!(cx.window_title().as_deref(), Some("Zed — root1, root2"));
+        assert_eq!(cx.window_title().as_deref(), Some("ZedStorm — root1, root2"));
 
         let item = cx.new(|cx| {
             TestItem::new(cx).with_project_items(&[TestProjectItem::new_in_worktree(
@@ -11584,7 +11605,7 @@ mod tests {
         let expected_file_path = path!("/root1/src/one.txt");
         assert_eq!(
             cx.window_title().as_deref(),
-            Some(format!("Zed — root1, root2 — one — {expected_file_path}").as_str())
+            Some(format!("ZedStorm — root1, root2 — one — {expected_file_path}").as_str())
         );
     }
 
@@ -16903,6 +16924,103 @@ mod tests {
             assert_eq!(pane.active_item_index(), 1);
             assert_eq!(pane.preview_item_id(), None);
         });
+    }
+
+    #[gpui::test]
+    async fn test_workspace_layout_waits_for_item_serialization(cx: &mut TestAppContext) {
+        init_test(cx);
+        cx.update(register_serializable_item::<TestItem>);
+        let fs = FakeFs::new(cx.executor());
+        fs.insert_tree("/root", json!({ "test.txt": "" })).await;
+        let project = Project::test(fs, ["root".as_ref()], cx).await;
+        let (workspace, cx) =
+            cx.add_window_view(|window, cx| Workspace::test_new(project, window, cx));
+        let database = cx.update(|_, cx| WorkspaceDb::global(cx));
+        let workspace_id = database.next_id().await.expect("workspace ID");
+        workspace.update(cx, |workspace, _| workspace.set_database_id(workspace_id));
+        workspace
+            .update_in(cx, |workspace, window, cx| {
+                workspace.serialize_workspace_snapshot(window, cx)
+            })
+            .await
+            .expect("initial workspace snapshot");
+
+        let (release, waiting) = futures::channel::oneshot::channel::<()>();
+        let waiting = futures::FutureExt::shared(waiting);
+        let executor = cx.background_executor.clone();
+        let item = cx.new(|cx| {
+            TestItem::new(cx).with_serialize(move || {
+                let waiting = waiting.clone();
+                Some(executor.spawn(async move {
+                    match waiting.await {
+                        Ok(()) | Err(_) => Ok(()),
+                    }
+                }))
+            })
+        });
+        workspace.update_in(cx, |workspace, window, cx| {
+            workspace.add_item_to_active_pane(Box::new(item), None, true, window, cx);
+        });
+        let flush = workspace.update_in(cx, |workspace, window, cx| {
+            workspace.flush_serialization(window, cx)
+        });
+        cx.run_until_parked();
+        let saved = database
+            .workspace_for_id(workspace_id)
+            .expect("saved workspace");
+        assert!(
+            matches!(saved.center_group, SerializedPaneGroup::Pane(pane) if pane.children.is_empty())
+        );
+
+        release
+            .send(())
+            .expect("release pending item serialization");
+        flush.await;
+        let saved = database
+            .workspace_for_id(workspace_id)
+            .expect("saved workspace");
+        assert!(
+            matches!(saved.center_group, SerializedPaneGroup::Pane(pane) if pane.children.len() == 1)
+        );
+    }
+
+    #[gpui::test]
+    async fn test_workspace_layout_keeps_previous_snapshot_when_item_save_fails(
+        cx: &mut TestAppContext,
+    ) {
+        init_test(cx);
+        cx.update(register_serializable_item::<TestItem>);
+        let fs = FakeFs::new(cx.executor());
+        fs.insert_tree("/root", json!({ "test.txt": "" })).await;
+        let project = Project::test(fs, ["root".as_ref()], cx).await;
+        let (workspace, cx) =
+            cx.add_window_view(|window, cx| Workspace::test_new(project, window, cx));
+        let database = cx.update(|_, cx| WorkspaceDb::global(cx));
+        let workspace_id = database.next_id().await.expect("workspace ID");
+        workspace.update(cx, |workspace, _| workspace.set_database_id(workspace_id));
+        workspace
+            .update_in(cx, |workspace, window, cx| {
+                workspace.serialize_workspace_snapshot(window, cx)
+            })
+            .await
+            .expect("initial workspace snapshot");
+        let item = cx.new(|cx| {
+            TestItem::new(cx)
+                .with_serialize(|| Some(Task::ready(Err(anyhow::anyhow!("item save failed")))))
+        });
+        let result = workspace
+            .update_in(cx, |workspace, window, cx| {
+                workspace.add_item_to_active_pane(Box::new(item), None, true, window, cx);
+                workspace.serialize_workspace_snapshot(window, cx)
+            })
+            .await;
+        assert!(result.is_err());
+        let saved = database
+            .workspace_for_id(workspace_id)
+            .expect("saved workspace");
+        assert!(
+            matches!(saved.center_group, SerializedPaneGroup::Pane(pane) if pane.children.is_empty())
+        );
     }
 
     #[gpui::test]

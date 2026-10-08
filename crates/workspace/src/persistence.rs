@@ -2824,7 +2824,7 @@ mod tests {
     use gpui::TaskExt;
 
     use gpui::AppContext as _;
-    use pretty_assertions::assert_eq;
+
     use project::Project;
     use remote::SshConnectionOptions;
     use serde_json::json;

@@ -419,7 +419,7 @@ mod tests {
     use language::{AutoindentMode, Buffer};
     use settings::SettingsStore;
     use std::num::NonZeroU32;
-    use unindent::Unindent;
+    use util::Unindent;
 
     #[gpui::test]
     async fn test_c_autoindent_basic(cx: &mut TestAppContext) {

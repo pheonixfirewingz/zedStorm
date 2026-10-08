@@ -1106,71 +1106,71 @@ impl ExtensionsPage {
     fn render_feature_upsells(&self) -> impl IntoElement {
         v_flex().children(self.upsells.iter().map(|feature| match feature {
             Feature::AgentClaude => self.render_feature_upsell_banner(
-                "Claude Agent support is built-in to Zed!",
+                "Claude Agent support is built-in to ZedStorm!",
                 "https://zed.dev/docs/ai/external-agents#claude-agent",
             ),
             Feature::AgentCodex => self.render_feature_upsell_banner(
-                "Codex CLI support is built-in to Zed!",
+                "Codex CLI support is built-in to ZedStorm!",
                 "https://zed.dev/docs/ai/external-agents#codex-cli",
             ),
             Feature::AgentGemini => self.render_feature_upsell_banner(
-                "Gemini CLI support is built-in to Zed!",
+                "Gemini CLI support is built-in to ZedStorm!",
                 "https://zed.dev/docs/ai/external-agents#gemini-cli",
             ),
             Feature::ExtensionBasedpyright => self.render_feature_upsell_banner(
-                "Basedpyright (Python language server) support is built-in to Zed!",
+                "Basedpyright (Python language server) support is built-in to ZedStorm!",
                 "https://zed.dev/docs/languages/python#basedpyright",
             ),
             Feature::ExtensionRuff => self.render_feature_upsell_banner(
-                "Ruff (linter for Python) support is built-in to Zed!",
+                "Ruff (linter for Python) support is built-in to ZedStorm!",
                 "https://zed.dev/docs/languages/python#code-formatting--linting",
             ),
             Feature::ExtensionTailwind => self.render_feature_upsell_banner(
-                "Tailwind CSS support is built-in to Zed!",
+                "Tailwind CSS support is built-in to ZedStorm!",
                 "https://zed.dev/docs/languages/tailwindcss",
             ),
             Feature::ExtensionTy => self.render_feature_upsell_banner(
-                "Ty (Python language server) support is built-in to Zed!",
+                "Ty (Python language server) support is built-in to ZedStorm!",
                 "https://zed.dev/docs/languages/python",
             ),
             Feature::Git => self.render_feature_upsell_banner(
-                "Zed comes with basic Git support—more features are coming in the future.",
+                "ZedStorm comes with basic Git support—more features are coming in the future.",
                 "https://zed.dev/docs/git",
             ),
             Feature::LanguageBash => self.render_feature_upsell_banner(
-                "Shell support is built-in to Zed!",
+                "Shell support is built-in to ZedStorm!",
                 "https://zed.dev/docs/languages/bash",
             ),
             Feature::LanguageC => self.render_feature_upsell_banner(
-                "C support is built-in to Zed!",
+                "C support is built-in to ZedStorm!",
                 "https://zed.dev/docs/languages/c",
             ),
             Feature::LanguageCpp => self.render_feature_upsell_banner(
-                "C++ support is built-in to Zed!",
+                "C++ support is built-in to ZedStorm!",
                 "https://zed.dev/docs/languages/cpp",
             ),
             Feature::LanguageGo => self.render_feature_upsell_banner(
-                "Go support is built-in to Zed!",
+                "Go support is built-in to ZedStorm!",
                 "https://zed.dev/docs/languages/go",
             ),
             Feature::LanguagePython => self.render_feature_upsell_banner(
-                "Python support is built-in to Zed!",
+                "Python support is built-in to ZedStorm!",
                 "https://zed.dev/docs/languages/python",
             ),
             Feature::LanguageReact => self.render_feature_upsell_banner(
-                "React support is built-in to Zed!",
+                "React support is built-in to ZedStorm!",
                 "https://zed.dev/docs/languages/typescript",
             ),
             Feature::LanguageRust => self.render_feature_upsell_banner(
-                "Rust support is built-in to Zed!",
+                "Rust support is built-in to ZedStorm!",
                 "https://zed.dev/docs/languages/rust",
             ),
             Feature::LanguageTypescript => self.render_feature_upsell_banner(
-                "Typescript support is built-in to Zed!",
+                "Typescript support is built-in to ZedStorm!",
                 "https://zed.dev/docs/languages/typescript",
             ),
             Feature::OpenIn => self.render_feature_upsell_banner(
-                "Zed supports linking to a source line on GitHub and others.",
+                "ZedStorm supports linking to a source line on GitHub and others.",
                 "https://zed.dev/docs/git#git-integrations",
             ),
         }))

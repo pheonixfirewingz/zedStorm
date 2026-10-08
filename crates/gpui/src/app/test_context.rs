@@ -818,18 +818,29 @@ impl<V> Entity<V> {
     }
 }
 
-use derive_more::{Deref, DerefMut};
-
 use super::{Context, Entity};
-#[derive(Deref, DerefMut, Clone)]
+#[derive(Clone)]
 /// A VisualTestContext is the test-equivalent of a `Window` and `App`. It allows you to
 /// run window-specific test code. It can be dereferenced to a `TextAppContext`.
 pub struct VisualTestContext {
-    #[deref]
-    #[deref_mut]
     /// cx is the original TestAppContext (you can more easily access this using Deref)
     pub cx: TestAppContext,
     window: AnyWindowHandle,
+}
+
+impl std::ops::Deref for VisualTestContext {
+    type Target = TestAppContext;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.cx
+    }
+}
+
+impl std::ops::DerefMut for VisualTestContext {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.cx
+    }
 }
 
 impl VisualTestContext {

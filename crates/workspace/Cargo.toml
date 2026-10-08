@@ -82,7 +82,6 @@ remote = { workspace = true, features = ["test-support"] }
 session = { workspace = true, features = ["test-support"] }
 settings = { workspace = true, features = ["test-support"] }
 http_client = { workspace = true, features = ["test-support"] }
-pretty_assertions.workspace = true
 proptest.workspace = true
 proptest-derive.workspace = true
 tempfile.workspace = true

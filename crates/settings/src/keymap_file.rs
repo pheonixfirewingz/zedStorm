@@ -1579,7 +1579,7 @@ mod tests {
     use collections::HashMap;
     use gpui::{Action, App, DummyKeyboardMapper, KeybindingKeystroke, Keystroke, Unbind};
     use serde_json::Value;
-    use unindent::Unindent;
+    use util::Unindent;
 
     use crate::{
         KeybindSource, KeymapFile,
@@ -1590,35 +1590,33 @@ mod tests {
 
     #[test]
     fn can_deserialize_keymap_with_trailing_comma() {
-        let json = indoc::indoc! {"[
-              // Standard macOS bindings
-              {
-                \"bindings\": {
-                  \"up\": \"menu::SelectPrevious\",
-                },
-              },
-            ]
-                  "
-        };
+        let json = "[
+  // Standard macOS bindings
+  {
+    \"bindings\": {
+      \"up\": \"menu::SelectPrevious\",
+    },
+  },
+]
+      ";
         KeymapFile::parse(json).unwrap();
     }
 
     #[gpui::test]
     fn keymap_section_unbinds_are_loaded_before_bindings(cx: &mut App) {
         let key_bindings = match KeymapFile::load(
-            indoc::indoc! {r#"
-                [
-                    {
-                        "unbind": {
-                            "ctrl-a": "test_keymap_file::StringAction",
-                            "ctrl-b": ["test_keymap_file::InputAction", {}]
-                        },
-                        "bindings": {
-                            "ctrl-c": "test_keymap_file::StringAction"
-                        }
-                    }
-                ]
-            "#},
+            r#"[
+    {
+        "unbind": {
+            "ctrl-a": "test_keymap_file::StringAction",
+            "ctrl-b": ["test_keymap_file::InputAction", {}]
+        },
+        "bindings": {
+            "ctrl-c": "test_keymap_file::StringAction"
+        }
+    }
+]
+"#,
             cx,
         ) {
             crate::keymap_file::KeymapFileLoadResult::Success { key_bindings } => key_bindings,
@@ -1660,15 +1658,14 @@ mod tests {
     #[gpui::test]
     fn keymap_unbind_loads_valid_target_action_with_input(cx: &mut App) {
         let key_bindings = match KeymapFile::load(
-            indoc::indoc! {r#"
-                [
-                    {
-                        "unbind": {
-                            "ctrl-a": ["test_keymap_file::InputAction", {}]
-                        }
-                    }
-                ]
-            "#},
+            r#"[
+    {
+        "unbind": {
+            "ctrl-a": ["test_keymap_file::InputAction", {}]
+        }
+    }
+]
+"#,
             cx,
         ) {
             crate::keymap_file::KeymapFileLoadResult::Success { key_bindings } => key_bindings,
@@ -1693,15 +1690,14 @@ mod tests {
     #[gpui::test]
     fn keymap_unbind_rejects_null(cx: &mut App) {
         match KeymapFile::load(
-            indoc::indoc! {r#"
-                [
-                    {
-                        "unbind": {
-                            "ctrl-a": null
-                        }
-                    }
-                ]
-            "#},
+            r#"[
+    {
+        "unbind": {
+            "ctrl-a": null
+        }
+    }
+]
+"#,
             cx,
         ) {
             crate::keymap_file::KeymapFileLoadResult::SomeFailedToLoad {
@@ -1722,15 +1718,14 @@ mod tests {
     #[gpui::test]
     fn keymap_unbind_rejects_unbind_action(cx: &mut App) {
         match KeymapFile::load(
-            indoc::indoc! {r#"
-                [
-                    {
-                        "unbind": {
-                            "ctrl-a": ["zed::Unbind", "test_keymap_file::StringAction"]
-                        }
-                    }
-                ]
-            "#},
+            r#"[
+    {
+        "unbind": {
+            "ctrl-a": ["zed::Unbind", "test_keymap_file::StringAction"]
+        }
+    }
+]
+"#,
             cx,
         ) {
             crate::keymap_file::KeymapFileLoadResult::SomeFailedToLoad {
@@ -1813,7 +1808,7 @@ mod tests {
             &deprecated_aliases,
         )
         .expect("Update succeeded");
-        pretty_assertions::assert_eq!(expected.to_string(), result);
+        assert_eq!(expected.to_string(), result);
     }
 
     #[track_caller]

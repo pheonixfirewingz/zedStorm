@@ -1,7 +1,6 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use editor::{EditorStyle, MultiBuffer, display_map::*};
 use gpui::{AppContext as _, HighlightStyle, Hsla, TestDispatcher, font, px};
-use itertools::Itertools;
 use multi_buffer::MultiBufferOffset;
 use project::project_settings::DiagnosticSeverity;
 use rand::{Rng, SeedableRng, rngs::StdRng};
@@ -37,7 +36,7 @@ fn to_tab_point_benchmark(c: &mut Criterion) {
         (length, snapshot, fold_point)
     };
 
-    let inputs = [1024].into_iter().map(create_tab_map).collect_vec();
+    let inputs = [1024].into_iter().map(create_tab_map).collect::<Vec<_>>();
 
     let mut group = c.benchmark_group("To tab point");
 
@@ -85,7 +84,7 @@ fn to_fold_point_benchmark(c: &mut Criterion) {
         (length, snapshot, tab_point)
     };
 
-    let inputs = [1024].into_iter().map(create_tab_map).collect_vec();
+    let inputs = [1024].into_iter().map(create_tab_map).collect::<Vec<_>>();
 
     let mut group = c.benchmark_group("To fold point");
 

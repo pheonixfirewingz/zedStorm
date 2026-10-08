@@ -2,17 +2,50 @@ use anyhow::{Context as _, Result, bail};
 use futures::{AsyncBufReadExt as _, AsyncWriteExt as _, StreamExt as _};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use smol::{channel, io::BufReader, process::Command};
-use std::{collections::BTreeMap, path::PathBuf, process::Stdio};
+use smol::{channel, io::BufReader};
+use std::{collections::BTreeMap, path::PathBuf};
+use util::command::{Command, Stdio};
 
 pub const MAX_ACTIVITY_TEXT_LEN: usize = 64 * 1024;
 
 pub async fn run_server(
+    backend: super::Backend,
+    http_client: std::sync::Arc<dyn http_client::HttpClient>,
+    conversation: super::mistral_api::SharedConversation,
     directory: PathBuf,
+    credentials: Option<gpui::Task<Result<Option<(String, Vec<u8>)>>>>,
     outgoing: channel::Receiver<Value>,
     incoming: channel::Sender<Result<Value>>,
 ) {
-    let result = serve(directory, outgoing, incoming.clone()).await;
+    let result = match backend {
+        super::Backend::Codex => serve(directory, outgoing, incoming.clone()).await,
+        super::Backend::Mistral => {
+            let key = async {
+                let stored = match credentials {
+                    Some(credentials) => {
+                        credentials.await.context("Could not read Vibe API key")?
+                    }
+                    None => None,
+                };
+                super::mistral_api::api_key(stored, std::env::var("MISTRAL_API_KEY").ok())
+            }
+            .await;
+            match key {
+                Ok(key) => {
+                    super::mistral_api::serve(
+                        http_client,
+                        key,
+                        conversation,
+                        directory,
+                        outgoing,
+                        incoming.clone(),
+                    )
+                    .await
+                }
+                Err(error) => Err(error),
+            }
+        }
+    };
     if let Err(error) = result {
         if let Err(error) = incoming.send(Err(error)).await {
             log::debug!("Codex panel closed: {error}");
@@ -29,6 +62,32 @@ async fn serve(
         std::env::current_exe().context("Cannot locate ZedStorm's built-in MCP server")?;
     let writable = std::env::var("ZEDSTORM_CONTEXT_MCP_WRITE").is_ok_and(|value| value == "1");
     let configuration = context_mcp::codex_configuration(&executable, &directory, writable)?;
+    serve_with_configuration(directory, configuration, outgoing, incoming).await
+}
+
+pub async fn serve_commit_message(
+    directory: PathBuf,
+    outgoing: channel::Receiver<Value>,
+    incoming: channel::Sender<Result<Value>>,
+) -> Result<()> {
+    let configuration = [
+        "mcp_servers={}",
+        "project_doc_max_bytes=0",
+        "features.shell_tool=false",
+        "developer_instructions=\"Write only the requested commit message. Do not use tools.\"",
+    ]
+    .into_iter()
+    .flat_map(|setting| ["-c".to_owned(), setting.to_owned()])
+    .collect();
+    serve_with_configuration(directory, configuration, outgoing, incoming).await
+}
+
+async fn serve_with_configuration(
+    directory: PathBuf,
+    configuration: Vec<String>,
+    outgoing: channel::Receiver<Value>,
+    incoming: channel::Sender<Result<Value>>,
+) -> Result<()> {
     let mut child = Command::new("codex")
         .args(configuration)
         .arg("app-server")

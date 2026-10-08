@@ -1,5 +1,4 @@
 use gpui_util::ResultExt;
-use itertools::Itertools;
 use smallvec::SmallVec;
 use std::rc::Rc;
 use uuid::Uuid;
@@ -197,7 +196,7 @@ fn generate_uuid(device_name: &[u16]) -> Uuid {
     let name = device_name
         .iter()
         .flat_map(|&a| a.to_be_bytes())
-        .collect_vec();
+        .collect::<Vec<_>>();
     Uuid::new_v5(&Uuid::NAMESPACE_DNS, &name)
 }
 

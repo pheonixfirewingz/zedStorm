@@ -26,5 +26,3 @@ settings_content.workspace = true
 settings_json = { workspace = true, features = ["editing"] }
 
 [dev-dependencies]
-indoc.workspace = true
-pretty_assertions.workspace = true

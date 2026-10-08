@@ -10,7 +10,6 @@ pub use headless_project::{HeadlessAppState, HeadlessProject};
 
 use anyhow::{Context as _, Result, anyhow};
 use clap::Subcommand;
-use client::ProxySettings;
 use collections::HashMap;
 use extension::ExtensionHostProxy;
 use fs::{Fs, RealFs};
@@ -20,9 +19,8 @@ use futures::{
     select, select_biased,
 };
 use git::GitHostingProviderRegistry;
-use gpui::{App, AppContext as _, Context, Entity, UpdateGlobal as _};
+use gpui::{App, AppContext as _, Entity, UpdateGlobal as _};
 use gpui_tokio::Tokio;
-use http_client::{Url, read_proxy_from_env};
 use language::LanguageRegistry;
 use net::async_net::{UnixListener, UnixStream};
 use node_runtime::{NodeBinaryOptions, NodeRuntime};
@@ -676,20 +674,15 @@ pub fn execute_run(
             let fs = RealFs::new(None, cx.background_executor().clone());
             let node_settings_rx = initialize_settings(session.clone(), fs.clone(), cx);
 
-            let proxy_url = read_proxy_settings(cx);
-
             let http_client = {
                 let _guard = Tokio::handle(cx).enter();
                 Arc::new(
-                    ReqwestClient::proxy_and_user_agent(
-                        proxy_url,
-                        &format!(
-                            "Zed-Server/{} ({}; {})",
-                            env!("CARGO_PKG_VERSION"),
-                            std::env::consts::OS,
-                            std::env::consts::ARCH
-                        ),
-                    )
+                    ReqwestClient::user_agent(&format!(
+                        "Zed-Server/{} ({}; {})",
+                        env!("CARGO_PKG_VERSION"),
+                        std::env::consts::OS,
+                        std::env::consts::ARCH
+                    ))
                     .expect("Could not start HTTP client"),
                 )
             };
@@ -1294,22 +1287,6 @@ pub fn handle_settings_file_changes(
         }
     })
     .detach();
-}
-
-fn read_proxy_settings(cx: &mut Context<HeadlessProject>) -> Option<Url> {
-    let proxy_str = ProxySettings::get_global(cx).proxy.to_owned();
-
-    proxy_str
-        .as_deref()
-        .map(str::trim)
-        .filter(|input| !input.is_empty())
-        .and_then(|input| {
-            input
-                .parse::<Url>()
-                .inspect_err(|e| log::error!("Error parsing proxy settings: {}", e))
-                .ok()
-        })
-        .or_else(read_proxy_from_env)
 }
 
 fn cleanup_old_binaries() -> Result<()> {

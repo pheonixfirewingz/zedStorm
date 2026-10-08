@@ -15,7 +15,7 @@ use collections::HashSet;
 use futures::Future;
 use futures::stream::StreamExt;
 use gpui::{Context, Entity, Focusable as _, VisualTestContext, Window};
-use indoc::indoc;
+
 use language::{
     BlockCommentConfig, FakeLspAdapter, Language, LanguageConfig, LanguageMatcher, LanguageQueries,
     point_to_lsp,
@@ -190,7 +190,8 @@ impl EditorLspTestContext {
                 matcher: (LanguageMatcher {
                     path_suffixes: vec!["ts".into()],
                     ..Default::default()
-                }).into(),
+                })
+                .into(),
                 brackets: language::BracketPairConfig {
                     pairs: vec![language::BracketPair {
                         start: "{".to_string(),
@@ -207,74 +208,77 @@ impl EditorLspTestContext {
             Some(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into()),
         )
         .with_queries(LanguageQueries {
-            brackets: Some(Cow::from(indoc! {r#"
-                ("(" @open ")" @close)
-                ("[" @open "]" @close)
-                ("{" @open "}" @close)
-                ("<" @open ">" @close)
-                ("'" @open "'" @close)
-                ("`" @open "`" @close)
-                ("\"" @open "\"" @close)"#})),
-            indents: Some(Cow::from(indoc! {r#"
-                [
-                    (call_expression)
-                    (assignment_expression)
-                    (member_expression)
-                    (lexical_declaration)
-                    (variable_declaration)
-                    (assignment_expression)
-                    (if_statement)
-                    (for_statement)
-                ] @indent
+            brackets: Some(Cow::from(
+                r#"("(" @open ")" @close)
+("[" @open "]" @close)
+("{" @open "}" @close)
+("<" @open ">" @close)
+("'" @open "'" @close)
+("`" @open "`" @close)
+("\"" @open "\"" @close)"#,
+            )),
+            indents: Some(Cow::from(
+                r#"[
+    (call_expression)
+    (assignment_expression)
+    (member_expression)
+    (lexical_declaration)
+    (variable_declaration)
+    (assignment_expression)
+    (if_statement)
+    (for_statement)
+] @indent
 
-                (_ "[" "]" @end) @indent
-                (_ "<" ">" @end) @indent
-                (_ "{" "}" @end) @indent
-                (_ "(" ")" @end) @indent
-                "#})),
-            text_objects: Some(Cow::from(indoc! {r#"
-                (function_declaration
-                    body: (_
-                        "{"
-                        (_)* @function.inside
-                        "}")) @function.around
+(_ "[" "]" @end) @indent
+(_ "<" ">" @end) @indent
+(_ "{" "}" @end) @indent
+(_ "(" ")" @end) @indent
+"#,
+            )),
+            text_objects: Some(Cow::from(
+                r#"(function_declaration
+    body: (_
+        "{"
+        (_)* @function.inside
+        "}")) @function.around
 
-                (method_definition
-                    body: (_
-                        "{"
-                        (_)* @function.inside
-                        "}")) @function.around
+(method_definition
+    body: (_
+        "{"
+        (_)* @function.inside
+        "}")) @function.around
 
-                ; Arrow function in variable declaration - capture the full declaration
-                ([
-                    (lexical_declaration
-                        (variable_declarator
-                            value: (arrow_function
-                                body: (statement_block
-                                    "{"
-                                    (_)* @function.inside
-                                    "}"))))
-                    (variable_declaration
-                        (variable_declarator
-                            value: (arrow_function
-                                body: (statement_block
-                                    "{"
-                                    (_)* @function.inside
-                                    "}"))))
-                ]) @function.around
+; Arrow function in variable declaration - capture the full declaration
+([
+    (lexical_declaration
+        (variable_declarator
+            value: (arrow_function
+                body: (statement_block
+                    "{"
+                    (_)* @function.inside
+                    "}"))))
+    (variable_declaration
+        (variable_declarator
+            value: (arrow_function
+                body: (statement_block
+                    "{"
+                    (_)* @function.inside
+                    "}"))))
+]) @function.around
 
-                ([
-                    (lexical_declaration
-                        (variable_declarator
-                            value: (arrow_function)))
-                    (variable_declaration
-                        (variable_declarator
-                            value: (arrow_function)))
-                ]) @function.around
+([
+    (lexical_declaration
+        (variable_declarator
+            value: (arrow_function)))
+    (variable_declaration
+        (variable_declarator
+            value: (arrow_function)))
+]) @function.around
 
-                ; Catch-all for arrow functions in other contexts (callbacks, etc.)
-                ((arrow_function) @function.around (#not-has-parent? @function.around variable_declarator))
-                "#})),
+; Catch-all for arrow functions in other contexts (callbacks, etc.)
+((arrow_function) @function.around (#not-has-parent? @function.around variable_declarator))
+"#,
+            )),
             ..Default::default()
         })
         .expect("Could not parse queries");
@@ -295,7 +299,8 @@ impl EditorLspTestContext {
                 matcher: (LanguageMatcher {
                     path_suffixes: vec!["tsx".into()],
                     ..Default::default()
-                }).into(),
+                })
+                .into(),
                 brackets: language::BracketPairConfig {
                     pairs: vec![language::BracketPair {
                         start: "{".to_string(),
@@ -312,83 +317,86 @@ impl EditorLspTestContext {
             Some(tree_sitter_typescript::LANGUAGE_TSX.into()),
         )
         .with_queries(LanguageQueries {
-            brackets: Some(Cow::from(indoc! {r#"
-                ("(" @open ")" @close)
-                ("[" @open "]" @close)
-                ("{" @open "}" @close)
-                ("<" @open ">" @close)
-                ("<" @open "/>" @close)
-                ("</" @open ">" @close)
-                ("\"" @open "\"" @close)
-                ("'" @open "'" @close)
-                ("`" @open "`" @close)
-                ((jsx_element (jsx_opening_element) @open (jsx_closing_element) @close) (#set! newline.only))"#})),
-            indents: Some(Cow::from(indoc! {r#"
-                [
-                    (call_expression)
-                    (assignment_expression)
-                    (member_expression)
-                    (lexical_declaration)
-                    (variable_declaration)
-                    (assignment_expression)
-                    (if_statement)
-                    (for_statement)
-                ] @indent
+            brackets: Some(Cow::from(
+                r#"("(" @open ")" @close)
+("[" @open "]" @close)
+("{" @open "}" @close)
+("<" @open ">" @close)
+("<" @open "/>" @close)
+("</" @open ">" @close)
+("\"" @open "\"" @close)
+("'" @open "'" @close)
+("`" @open "`" @close)
+((jsx_element (jsx_opening_element) @open (jsx_closing_element) @close) (#set! newline.only))"#,
+            )),
+            indents: Some(Cow::from(
+                r#"[
+    (call_expression)
+    (assignment_expression)
+    (member_expression)
+    (lexical_declaration)
+    (variable_declaration)
+    (assignment_expression)
+    (if_statement)
+    (for_statement)
+] @indent
 
-                (_ "[" "]" @end) @indent
-                (_ "<" ">" @end) @indent
-                (_ "{" "}" @end) @indent
-                (_ "(" ")" @end) @indent
+(_ "[" "]" @end) @indent
+(_ "<" ">" @end) @indent
+(_ "{" "}" @end) @indent
+(_ "(" ")" @end) @indent
 
-                (jsx_opening_element ">" @end) @indent
+(jsx_opening_element ">" @end) @indent
 
-                (jsx_element
-                  (jsx_opening_element) @start
-                  (jsx_closing_element)? @end) @indent
-                "#})),
-            text_objects: Some(Cow::from(indoc! {r#"
-                (function_declaration
-                    body: (_
-                        "{"
-                        (_)* @function.inside
-                        "}")) @function.around
+(jsx_element
+  (jsx_opening_element) @start
+  (jsx_closing_element)? @end) @indent
+"#,
+            )),
+            text_objects: Some(Cow::from(
+                r#"(function_declaration
+    body: (_
+        "{"
+        (_)* @function.inside
+        "}")) @function.around
 
-                (method_definition
-                    body: (_
-                        "{"
-                        (_)* @function.inside
-                        "}")) @function.around
+(method_definition
+    body: (_
+        "{"
+        (_)* @function.inside
+        "}")) @function.around
 
-                ; Arrow function in variable declaration - capture the full declaration
-                ([
-                    (lexical_declaration
-                        (variable_declarator
-                            value: (arrow_function
-                                body: (statement_block
-                                    "{"
-                                    (_)* @function.inside
-                                    "}"))))
-                    (variable_declaration
-                        (variable_declarator
-                            value: (arrow_function
-                                body: (statement_block
-                                    "{"
-                                    (_)* @function.inside
-                                    "}"))))
-                ]) @function.around
+; Arrow function in variable declaration - capture the full declaration
+([
+    (lexical_declaration
+        (variable_declarator
+            value: (arrow_function
+                body: (statement_block
+                    "{"
+                    (_)* @function.inside
+                    "}"))))
+    (variable_declaration
+        (variable_declarator
+            value: (arrow_function
+                body: (statement_block
+                    "{"
+                    (_)* @function.inside
+                    "}"))))
+]) @function.around
 
-                ([
-                    (lexical_declaration
-                        (variable_declarator
-                            value: (arrow_function)))
-                    (variable_declaration
-                        (variable_declarator
-                            value: (arrow_function)))
-                ]) @function.around
+([
+    (lexical_declaration
+        (variable_declarator
+            value: (arrow_function)))
+    (variable_declaration
+        (variable_declarator
+            value: (arrow_function)))
+]) @function.around
 
-                ; Catch-all for arrow functions in other contexts (callbacks, etc.)
-                ((arrow_function) @function.around (#not-has-parent? @function.around variable_declarator))
-                "#})),
+; Catch-all for arrow functions in other contexts (callbacks, etc.)
+((arrow_function) @function.around (#not-has-parent? @function.around variable_declarator))
+"#,
+            )),
             ..Default::default()
         })
         .expect("Could not parse queries");
@@ -417,11 +425,12 @@ impl EditorLspTestContext {
             Some(tree_sitter_html::LANGUAGE.into()),
         )
         .with_queries(LanguageQueries {
-            brackets: Some(Cow::from(indoc! {r#"
-                ("<" @open "/>" @close)
-                ("</" @open ">" @close)
-                ("<" @open ">" @close)
-                ("\"" @open "\"" @close)"#})),
+            brackets: Some(Cow::from(
+                r#"("<" @open "/>" @close)
+("</" @open ">" @close)
+("<" @open ">" @close)
+("\"" @open "\"" @close)"#,
+            )),
             ..Default::default()
         })
         .expect("Could not parse queries");

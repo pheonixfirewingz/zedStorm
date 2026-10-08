@@ -4,7 +4,7 @@ use super::*;
 use editor::{Editor, SelectionEffects};
 use gpui::{Entity, TestAppContext, VisualTestContext};
 use menu::{Cancel, Confirm, SelectNext, SelectPrevious};
-use pretty_assertions::{assert_eq, assert_matches};
+
 use project::{FS_WATCH_LATENCY, RemoveOptions};
 use serde_json::json;
 use settings::{SettingsStore, SplicingVec};
@@ -1533,7 +1533,7 @@ async fn test_history_items_uniqueness_for_multiple_worktree(cx: &mut TestAppCon
             matches
         );
 
-        assert_matches!(matches[0], Match::History { .. });
+        assert!(matches!(matches[0], Match::History { .. }));
 
         let search_matches = collect_search_matches(finder);
         assert_eq!(
@@ -2074,10 +2074,10 @@ async fn test_history_match_positions(cx: &mut gpui::TestAppContext) {
     simulate_input(cx, "fir");
     picker.update_in(cx, |finder, window, cx| {
         let matches = &finder.delegate.matches.matches;
-        assert_matches!(
+        assert!(matches!(
             matches.as_slice(),
             [Match::History { .. }, Match::CreateNew { .. }]
-        );
+        ));
         assert_eq!(
             matches[0].panel_match().unwrap().0.path.as_ref(),
             rel_path("test/first.rs")
@@ -3876,7 +3876,7 @@ async fn test_history_items_uniqueness_for_multiple_worktree_open_all_files(
             matches
         );
 
-        assert_matches!(matches[0], Match::History { .. });
+        assert!(matches!(matches[0], Match::History { .. }));
 
         let search_matches = collect_search_matches(finder);
         assert_eq!(

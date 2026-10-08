@@ -237,7 +237,7 @@ fn start_etw_recording(cx: &mut App, heap_pid: Option<u32>) {
     .detach();
 }
 
-const INSTANCE_NAME: &str = "Zed";
+const INSTANCE_NAME: &str = "ZedStorm";
 
 const BUILTIN_PROFILES: &[&str] = &[
     "CPU.Verbose.Memory",

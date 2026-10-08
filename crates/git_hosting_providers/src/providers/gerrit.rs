@@ -101,7 +101,6 @@ mod tests {
     use std::sync::Arc;
 
     use git::repository::repo_path;
-    use pretty_assertions::assert_eq;
 
     use super::*;
 

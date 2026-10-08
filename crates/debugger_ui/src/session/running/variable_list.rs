@@ -1017,7 +1017,7 @@ impl VariableList {
             ));
         }
 
-        pretty_assertions::assert_eq!(expected, visual_entries);
+        assert_eq!(expected, visual_entries);
     }
 
     #[track_caller]

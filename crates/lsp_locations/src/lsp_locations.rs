@@ -917,7 +917,7 @@ mod tests {
     use super::*;
     use editor::test::editor_lsp_test_context::EditorLspTestContext;
     use gpui::{Modifiers, TestAppContext};
-    use indoc::indoc;
+
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::{sync::Mutex, time::Duration};
     use text::OffsetRangeExt as _;
@@ -959,12 +959,11 @@ mod tests {
             .collect()
     }
 
-    const SOURCE: &str = indoc! {r#"
-        fn main() {
-            let aˇbc = 123;
-            let xyz = abc;
-        }
-    "#};
+    const SOURCE: &str = r#"fn main() {
+    let aˇbc = 123;
+    let xyz = abc;
+}
+"#;
 
     #[gpui::test]
     async fn test_multiple_references_open_picker(cx: &mut TestAppContext) {
@@ -1016,12 +1015,13 @@ mod tests {
         );
         // The lone result at row 2 should be selected directly, moving the
         // cursor off its starting position on row 1.
-        cx.assert_editor_state(indoc! {r#"
-            fn main() {
-                let abc = 123;
-                let xyz = «abcˇ»;
-            }
-        "#});
+        cx.assert_editor_state(
+            r#"fn main() {
+    let abc = 123;
+    let xyz = «abcˇ»;
+}
+"#,
+        );
     }
 
     #[gpui::test]
@@ -1279,13 +1279,14 @@ mod tests {
                 });
             });
         });
-        cx.set_state(indoc! {r#"
-            fn main() {
-                struct Foo<T>(T);
-                struct Bar;
-                let fˇoo: Foo<Bar>;
-            }
-        "#});
+        cx.set_state(
+            r#"fn main() {
+    struct Foo<T>(T);
+    struct Bar;
+    let fˇoo: Foo<Bar>;
+}
+"#,
+        );
         cx.lsp
             .set_request_handler::<lsp::request::GotoTypeDefinition, _, _>(
                 async move |params, _| {
@@ -1323,13 +1324,14 @@ mod tests {
                 });
             });
         });
-        cx.set_state(indoc! {r#"
-            fn main() {
-                let foo = ();
-                let foo = ();
-                let bar = fˇoo;
-            }
-        "#});
+        cx.set_state(
+            r#"fn main() {
+    let foo = ();
+    let foo = ();
+    let bar = fˇoo;
+}
+"#,
+        );
         cx.lsp
             .set_request_handler::<lsp::request::GotoDeclaration, _, _>(async move |params, _| {
                 let uri = params.text_document_position_params.text_document.uri;
@@ -1374,14 +1376,13 @@ mod tests {
                 settings.editor.excerpt_context_lines = Some(0);
             });
         });
-        let source = indoc! {r#"
-            fn main() {
-                let foo = ();
+        let source = r#"fn main() {
+    let foo = ();
 
-                let foo = ();
-                let bar = fˇoo;
-            }
-        "#}
+    let foo = ();
+    let bar = fˇoo;
+}
+"#
         .replace("\n    let bar", "\n\n\n\n\n\n    let bar");
         cx.set_state(&source);
         if disabled {

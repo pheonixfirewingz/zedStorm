@@ -43,6 +43,12 @@ Icon themes support separate light and dark variants:
 
 ## Fonts
 
+ZedStorm bundles [JetBrains Mono 2.304](https://github.com/JetBrains/JetBrainsMono/releases/tag/v2.304)
+with all eight weights and their italic variants. It is the default font for editor
+text and the terminal, without requiring a system installation. To choose another
+font, set `buffer_font_family` in the Settings Editor, or `terminal.font_family` for
+the terminal. The default editor font size is 13, with a line height of 1.2.
+
 Zed uses three font settings and their fallback counterparts for different contexts:
 
 | Setting                   | Used for                  |
@@ -88,9 +94,9 @@ To disable font ligatures:
 
 Adjust line spacing with `buffer_line_height`:
 
-- `"comfortable"` — 1.618 ratio (default)
+- `"comfortable"` — 1.618 ratio
 - `"standard"` — 1.3 ratio
-- `{ "custom": 1.5 }` — Custom ratio
+- `{ "custom": 1.2 }` — Custom ratio (default)
 
 ## UI Elements
 

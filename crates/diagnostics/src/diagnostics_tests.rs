@@ -10,10 +10,10 @@ use editor::{
     },
 };
 use gpui::{TestAppContext, VisualTestContext};
-use indoc::indoc;
+
 use language::{BufferId, Diagnostic, DiagnosticEntryRef, DiagnosticSourceKind, Rope};
 use lsp::LanguageServerId;
-use pretty_assertions::assert_eq;
+
 use project::{
     FakeFs,
     project_settings::{GoToDiagnosticSeverity, GoToDiagnosticSeverityFilter},
@@ -26,7 +26,7 @@ use std::{
     path::{Path, PathBuf},
     str::FromStr,
 };
-use unindent::Unindent as _;
+use util::Unindent as _;
 use util::{RandomCharIter, path, post_inc, rel_path::rel_path};
 use workspace::MultiWorkspace;
 
@@ -129,35 +129,33 @@ async fn test_diagnostics(cx: &mut TestAppContext) {
         .next_notification(DIAGNOSTICS_UPDATE_DEBOUNCE + Duration::from_millis(10), cx)
         .await;
 
-    pretty_assertions::assert_eq!(
+    assert_eq!(
         editor_content_with_blocks(&editor, cx),
-        indoc::indoc! {
-            "§ main.rs
-             § -----
-             fn main() {
-                 let x = vec![];
-             § move occurs because `x` has type `Vec<char>`, which does not implement
-             § the `Copy` trait (back)
-                 let y = vec![];
-             § move occurs because `y` has type `Vec<char>`, which does not implement
-             § the `Copy` trait (back)
-                 a(x); § value moved here (back)
-                 b(y); § value moved here (back)
-                 // comment 1
-                 // comment 2
-                 c(y);
-             § use of moved value
-             § value used here after move
-             § hint: move occurs because `y` has type `Vec<char>`, which does not
-             § implement the `Copy` trait
-                 d(x);
-             § use of moved value
-             § value used here after move
-             § hint: move occurs because `x` has type `Vec<char>`, which does not
-             § implement the `Copy` trait
-             § hint: value moved here
-             }"
-        }
+        "§ main.rs
+§ -----
+fn main() {
+    let x = vec![];
+§ move occurs because `x` has type `Vec<char>`, which does not implement
+§ the `Copy` trait (back)
+    let y = vec![];
+§ move occurs because `y` has type `Vec<char>`, which does not implement
+§ the `Copy` trait (back)
+    a(x); § value moved here (back)
+    b(y); § value moved here (back)
+    // comment 1
+    // comment 2
+    c(y);
+§ use of moved value
+§ value used here after move
+§ hint: move occurs because `y` has type `Vec<char>`, which does not
+§ implement the `Copy` trait
+    d(x);
+§ use of moved value
+§ value used here after move
+§ hint: move occurs because `x` has type `Vec<char>`, which does not
+§ implement the `Copy` trait
+§ hint: value moved here
+}"
     );
 
     // Cursor is at the first diagnostic
@@ -204,40 +202,38 @@ async fn test_diagnostics(cx: &mut TestAppContext) {
         .next_notification(DIAGNOSTICS_UPDATE_DEBOUNCE + Duration::from_millis(10), cx)
         .await;
 
-    pretty_assertions::assert_eq!(
+    assert_eq!(
         editor_content_with_blocks(&editor, cx),
-        indoc::indoc! {
-            "§ consts.rs
-             § -----
-             const a: i32 = 'a'; § mismatched types expected `usize`, found `char`
-             const b: i32 = c;
+        "§ consts.rs
+§ -----
+const a: i32 = 'a'; § mismatched types expected `usize`, found `char`
+const b: i32 = c;
 
-             § main.rs
-             § -----
-             fn main() {
-                 let x = vec![];
-             § move occurs because `x` has type `Vec<char>`, which does not implement
-             § the `Copy` trait (back)
-                 let y = vec![];
-             § move occurs because `y` has type `Vec<char>`, which does not implement
-             § the `Copy` trait (back)
-                 a(x); § value moved here (back)
-                 b(y); § value moved here (back)
-                 // comment 1
-                 // comment 2
-                 c(y);
-             § use of moved value
-             § value used here after move
-             § hint: move occurs because `y` has type `Vec<char>`, which does not
-             § implement the `Copy` trait
-                 d(x);
-             § use of moved value
-             § value used here after move
-             § hint: move occurs because `x` has type `Vec<char>`, which does not
-             § implement the `Copy` trait
-             § hint: value moved here
-             }"
-        }
+§ main.rs
+§ -----
+fn main() {
+    let x = vec![];
+§ move occurs because `x` has type `Vec<char>`, which does not implement
+§ the `Copy` trait (back)
+    let y = vec![];
+§ move occurs because `y` has type `Vec<char>`, which does not implement
+§ the `Copy` trait (back)
+    a(x); § value moved here (back)
+    b(y); § value moved here (back)
+    // comment 1
+    // comment 2
+    c(y);
+§ use of moved value
+§ value used here after move
+§ hint: move occurs because `y` has type `Vec<char>`, which does not
+§ implement the `Copy` trait
+    d(x);
+§ use of moved value
+§ value used here after move
+§ hint: move occurs because `x` has type `Vec<char>`, which does not
+§ implement the `Copy` trait
+§ hint: value moved here
+}"
     );
 
     // Cursor keeps its position.
@@ -295,40 +291,38 @@ async fn test_diagnostics(cx: &mut TestAppContext) {
         .next_notification(DIAGNOSTICS_UPDATE_DEBOUNCE + Duration::from_millis(10), cx)
         .await;
 
-    pretty_assertions::assert_eq!(
+    assert_eq!(
         editor_content_with_blocks(&editor, cx),
-        indoc::indoc! {
-            "§ consts.rs
-             § -----
-             const a: i32 = 'a'; § mismatched types expected `usize`, found `char`
-             const b: i32 = c; § unresolved name `c`
+        "§ consts.rs
+§ -----
+const a: i32 = 'a'; § mismatched types expected `usize`, found `char`
+const b: i32 = c; § unresolved name `c`
 
-             § main.rs
-             § -----
-             fn main() {
-                 let x = vec![];
-             § move occurs because `x` has type `Vec<char>`, which does not implement
-             § the `Copy` trait (back)
-                 let y = vec![];
-             § move occurs because `y` has type `Vec<char>`, which does not implement
-             § the `Copy` trait (back)
-                 a(x); § value moved here (back)
-                 b(y); § value moved here (back)
-                 // comment 1
-                 // comment 2
-                 c(y);
-             § use of moved value
-             § value used here after move
-             § hint: move occurs because `y` has type `Vec<char>`, which does not
-             § implement the `Copy` trait
-                 d(x);
-             § use of moved value
-             § value used here after move
-             § hint: move occurs because `x` has type `Vec<char>`, which does not
-             § implement the `Copy` trait
-             § hint: value moved here
-             }"
-        }
+§ main.rs
+§ -----
+fn main() {
+    let x = vec![];
+§ move occurs because `x` has type `Vec<char>`, which does not implement
+§ the `Copy` trait (back)
+    let y = vec![];
+§ move occurs because `y` has type `Vec<char>`, which does not implement
+§ the `Copy` trait (back)
+    a(x); § value moved here (back)
+    b(y); § value moved here (back)
+    // comment 1
+    // comment 2
+    c(y);
+§ use of moved value
+§ value used here after move
+§ hint: move occurs because `y` has type `Vec<char>`, which does not
+§ implement the `Copy` trait
+    d(x);
+§ use of moved value
+§ value used here after move
+§ hint: move occurs because `x` has type `Vec<char>`, which does not
+§ implement the `Copy` trait
+§ hint: value moved here
+}"
     );
 }
 
@@ -414,31 +408,27 @@ async fn test_diagnostics_with_folds(cx: &mut TestAppContext) {
         editor.fold_ranges(vec![Point::new(0, 0)..Point::new(3, 0)], false, window, cx);
     });
 
-    pretty_assertions::assert_eq!(
+    assert_eq!(
         editor_content_with_blocks(&editor, cx),
-        indoc::indoc! {
-            "§ main.js
-             § -----
-             ⋯
-             tset(); § no method `tset`"
-        }
+        "§ main.js
+§ -----
+⋯
+tset(); § no method `tset`"
     );
 
     editor.update(cx, |editor, cx| {
         editor.unfold_ranges(&[Point::new(0, 0)..Point::new(3, 0)], false, false, cx);
     });
 
-    pretty_assertions::assert_eq!(
+    assert_eq!(
         editor_content_with_blocks(&editor, cx),
-        indoc::indoc! {
-            "§ main.js
-             § -----
-             function test() { § method `test` defined here (back)
-                 return 1
-             };
+        "§ main.js
+§ -----
+function test() { § method `test` defined here (back)
+    return 1
+};
 
-             tset(); § no method `tset`"
-        }
+tset(); § no method `tset`"
     );
 }
 
@@ -511,15 +501,13 @@ async fn test_diagnostics_multiple_servers(cx: &mut TestAppContext) {
         .advance_clock(DIAGNOSTICS_UPDATE_DEBOUNCE + Duration::from_millis(10));
     cx.executor().run_until_parked();
 
-    pretty_assertions::assert_eq!(
+    assert_eq!(
         editor_content_with_blocks(&editor, cx),
-        indoc::indoc! {
-            "§ main.js
-             § -----
-             a(); § error 1
-             b();
-             c();"
-        }
+        "§ main.js
+§ -----
+a(); § error 1
+b();
+c();"
     );
 
     // The second language server finishes
@@ -551,16 +539,14 @@ async fn test_diagnostics_multiple_servers(cx: &mut TestAppContext) {
         .advance_clock(DIAGNOSTICS_UPDATE_DEBOUNCE + Duration::from_millis(10));
     cx.executor().run_until_parked();
 
-    pretty_assertions::assert_eq!(
+    assert_eq!(
         editor_content_with_blocks(&editor, cx),
-        indoc::indoc! {
-            "§ main.js
-             § -----
-             a(); § error 1
-             b(); § warning 1
-             c();
-             d();"
-        }
+        "§ main.js
+§ -----
+a(); § error 1
+b(); § warning 1
+c();
+d();"
     );
 
     // Both language servers start updating diagnostics, and the first server finishes.
@@ -608,17 +594,15 @@ async fn test_diagnostics_multiple_servers(cx: &mut TestAppContext) {
         .advance_clock(DIAGNOSTICS_UPDATE_DEBOUNCE + Duration::from_millis(10));
     cx.executor().run_until_parked();
 
-    pretty_assertions::assert_eq!(
+    assert_eq!(
         editor_content_with_blocks(&editor, cx),
-        indoc::indoc! {
-            "§ main.js
-             § -----
-             a();
-             b(); § warning 1
-             c(); § warning 2
-             d();
-             e();"
-        }
+        "§ main.js
+§ -----
+a();
+b(); § warning 1
+c(); § warning 2
+d();
+e();"
     );
 
     // The second language server finishes.
@@ -650,17 +634,15 @@ async fn test_diagnostics_multiple_servers(cx: &mut TestAppContext) {
         .advance_clock(DIAGNOSTICS_UPDATE_DEBOUNCE + Duration::from_millis(10));
     cx.executor().run_until_parked();
 
-    pretty_assertions::assert_eq!(
+    assert_eq!(
         editor_content_with_blocks(&editor, cx),
-        indoc::indoc! {
-            "§ main.js
-                 § -----
-                 a();
-                 b();
-                 c(); § warning 2
-                 d(); § warning 2
-                 e();"
-        }
+        "§ main.js
+§ -----
+a();
+b();
+c(); § warning 2
+d(); § warning 2
+e();"
     );
 }
 
@@ -834,7 +816,7 @@ async fn test_random_diagnostics_blocks(cx: &mut TestAppContext, mut rng: StdRng
     }
 
     if next_ref_line.is_some() || skipped_block {
-        pretty_assertions::assert_eq!(mutated_excerpts, reference_excerpts);
+        assert_eq!(mutated_excerpts, reference_excerpts);
     }
 }
 
@@ -1007,10 +989,11 @@ async fn active_diagnostics_dismiss_after_invalidation(cx: &mut TestAppContext) 
     let lsp_store =
         cx.update_editor(|editor, _, cx| editor.project().unwrap().read(cx).lsp_store());
 
-    cx.set_state(indoc! {"
-        ˇfn func(abc def: i32) -> u32 {
-        }
-    "});
+    cx.set_state(
+        "ˇfn func(abc def: i32) -> u32 {
+}
+",
+    );
 
     let message = "`Something's wrong!`";
     cx.update(|_, cx| {
@@ -1049,10 +1032,11 @@ async fn active_diagnostics_dismiss_after_invalidation(cx: &mut TestAppContext) 
             "Should have a diagnostics group activated"
         );
     });
-    cx.assert_editor_state(indoc! {"
-        fn func(abcˇ def: i32) -> u32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "fn func(abcˇ def: i32) -> u32 {
+}
+",
+    );
 
     cx.update(|_, cx| {
         lsp_store.update(cx, |lsp_store, cx| {
@@ -1119,19 +1103,21 @@ async fn active_diagnostics_dismiss_after_invalidation(cx: &mut TestAppContext) 
     cx.update_editor(|editor, _, _| {
         assert_eq!(editor.active_diagnostic_message(), None);
     });
-    cx.assert_editor_state(indoc! {"
-        fn func(abcˇ def: i32) -> u32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "fn func(abcˇ def: i32) -> u32 {
+}
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.go_to_diagnostic(&GoToDiagnostic::default(), window, cx);
         assert_eq!(editor.active_diagnostic_message(), None);
     });
-    cx.assert_editor_state(indoc! {"
-        fn func(abcˇ def: i32) -> u32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "fn func(abcˇ def: i32) -> u32 {
+}
+",
+    );
 }
 
 #[gpui::test]
@@ -1142,10 +1128,11 @@ async fn cycle_through_same_place_diagnostics(cx: &mut TestAppContext) {
     let lsp_store =
         cx.update_editor(|editor, _, cx| editor.project().unwrap().read(cx).lsp_store());
 
-    cx.set_state(indoc! {"
-        ˇfn func(abc def: i32) -> u32 {
-        }
-    "});
+    cx.set_state(
+        "ˇfn func(abc def: i32) -> u32 {
+}
+",
+    );
 
     cx.update(|_, cx| {
         lsp_store.update(cx, |lsp_store, cx| {
@@ -1206,54 +1193,60 @@ async fn cycle_through_same_place_diagnostics(cx: &mut TestAppContext) {
     cx.update_editor(|editor, window, cx| {
         editor.go_to_prev_diagnostic(&GoToPreviousDiagnostic::default(), window, cx);
     });
-    cx.assert_editor_state(indoc! {"
-        fn func(abc def: i32) -> ˇu32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "fn func(abc def: i32) -> ˇu32 {
+}
+",
+    );
 
     // Third diagnostic
     cx.update_editor(|editor, window, cx| {
         editor.go_to_prev_diagnostic(&GoToPreviousDiagnostic::default(), window, cx);
     });
-    cx.assert_editor_state(indoc! {"
-        fn func(abc ˇdef: i32) -> u32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "fn func(abc ˇdef: i32) -> u32 {
+}
+",
+    );
 
     // Second diagnostic, same place
     cx.update_editor(|editor, window, cx| {
         editor.go_to_prev_diagnostic(&GoToPreviousDiagnostic::default(), window, cx);
     });
-    cx.assert_editor_state(indoc! {"
-        fn func(abc ˇdef: i32) -> u32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "fn func(abc ˇdef: i32) -> u32 {
+}
+",
+    );
 
     // First diagnostic
     cx.update_editor(|editor, window, cx| {
         editor.go_to_prev_diagnostic(&GoToPreviousDiagnostic::default(), window, cx);
     });
-    cx.assert_editor_state(indoc! {"
-        fn func(abcˇ def: i32) -> u32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "fn func(abcˇ def: i32) -> u32 {
+}
+",
+    );
 
     // Wrapped over, fourth diagnostic
     cx.update_editor(|editor, window, cx| {
         editor.go_to_prev_diagnostic(&GoToPreviousDiagnostic::default(), window, cx);
     });
-    cx.assert_editor_state(indoc! {"
-        fn func(abc def: i32) -> ˇu32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "fn func(abc def: i32) -> ˇu32 {
+}
+",
+    );
 
     cx.update_editor(|editor, window, cx| {
         editor.move_to_beginning(&MoveToBeginning, window, cx);
     });
-    cx.assert_editor_state(indoc! {"
-        ˇfn func(abc def: i32) -> u32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "ˇfn func(abc def: i32) -> u32 {
+}
+",
+    );
 
     //// Forward
 
@@ -1261,46 +1254,51 @@ async fn cycle_through_same_place_diagnostics(cx: &mut TestAppContext) {
     cx.update_editor(|editor, window, cx| {
         editor.go_to_diagnostic(&GoToDiagnostic::default(), window, cx);
     });
-    cx.assert_editor_state(indoc! {"
-        fn func(abcˇ def: i32) -> u32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "fn func(abcˇ def: i32) -> u32 {
+}
+",
+    );
 
     // Second diagnostic
     cx.update_editor(|editor, window, cx| {
         editor.go_to_diagnostic(&GoToDiagnostic::default(), window, cx);
     });
-    cx.assert_editor_state(indoc! {"
-        fn func(abc ˇdef: i32) -> u32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "fn func(abc ˇdef: i32) -> u32 {
+}
+",
+    );
 
     // Third diagnostic, same place
     cx.update_editor(|editor, window, cx| {
         editor.go_to_diagnostic(&GoToDiagnostic::default(), window, cx);
     });
-    cx.assert_editor_state(indoc! {"
-        fn func(abc ˇdef: i32) -> u32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "fn func(abc ˇdef: i32) -> u32 {
+}
+",
+    );
 
     // Fourth diagnostic
     cx.update_editor(|editor, window, cx| {
         editor.go_to_diagnostic(&GoToDiagnostic::default(), window, cx);
     });
-    cx.assert_editor_state(indoc! {"
-        fn func(abc def: i32) -> ˇu32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "fn func(abc def: i32) -> ˇu32 {
+}
+",
+    );
 
     // Wrapped around, first diagnostic
     cx.update_editor(|editor, window, cx| {
         editor.go_to_diagnostic(&GoToDiagnostic::default(), window, cx);
     });
-    cx.assert_editor_state(indoc! {"
-        fn func(abcˇ def: i32) -> u32 {
-        }
-    "});
+    cx.assert_editor_state(
+        "fn func(abcˇ def: i32) -> u32 {
+}
+",
+    );
 }
 
 #[gpui::test]
@@ -1309,10 +1307,11 @@ async fn test_diagnostics_with_links(cx: &mut TestAppContext) {
 
     let mut cx = EditorTestContext::new(cx).await;
 
-    cx.set_state(indoc! {"
-        fn func(abˇc def: i32) -> u32 {
-        }
-    "});
+    cx.set_state(
+        "fn func(abˇc def: i32) -> u32 {
+}
+",
+    );
     let lsp_store =
         cx.update_editor(|editor, _, cx| editor.project().unwrap().read(cx).lsp_store());
 
@@ -1409,10 +1408,11 @@ async fn test_markup_content_diagnostic_messages_render_as_markdown(cx: &mut Tes
 
     let mut cx = EditorTestContext::new(cx).await;
 
-    cx.set_state(indoc! {"
-        fn func(abˇc def: i32) -> u32 {
-        }
-    "});
+    cx.set_state(
+        "fn func(abˇc def: i32) -> u32 {
+}
+",
+    );
     let lsp_store =
         cx.update_editor(|editor, _, cx| editor.project().unwrap().read(cx).lsp_store());
 
@@ -1622,10 +1622,9 @@ async fn test_diagnostics_views_update_when_only_markdown_changes(cx: &mut TestA
         .advance_clock(DIAGNOSTICS_UPDATE_DEBOUNCE + Duration::from_millis(10));
     cx.run_until_parked();
 
-    let expected_content = indoc! {"
-        § main.rs
-        § -----
-        x § `x`"};
+    let expected_content = "§ main.rs
+§ -----
+x § `x`";
     assert_eq!(
         editor_content_with_blocks(&project_editor, cx),
         expected_content
@@ -1667,10 +1666,9 @@ async fn test_diagnostics_views_update_when_only_markdown_changes(cx: &mut TestA
         .advance_clock(DIAGNOSTICS_UPDATE_DEBOUNCE + Duration::from_millis(10));
     cx.run_until_parked();
 
-    let expected_content = indoc! {"
-        § main.rs
-        § -----
-        x § x"};
+    let expected_content = "§ main.rs
+§ -----
+x § x";
     assert_eq!(
         editor_content_with_blocks(&project_editor, cx),
         expected_content
@@ -1696,13 +1694,15 @@ async fn test_hover_diagnostic_and_info_popovers(cx: &mut gpui::TestAppContext) 
 
     // Hover with just diagnostic, pops DiagnosticPopover immediately and then
     // info popover once request completes
-    cx.set_state(indoc! {"
-        fn teˇst() { println!(); }
-    "});
+    cx.set_state(
+        "fn teˇst() { println!(); }
+",
+    );
     // Send diagnostic to client
-    let range = cx.lsp_range(indoc! {"
-        fn «test»() { println!(); }
-    "});
+    let range = cx.lsp_range(
+        "fn «test»() { println!(); }
+",
+    );
     let lsp_store =
         cx.update_editor(|editor, _, cx| editor.project().unwrap().read(cx).lsp_store());
     cx.update(|_, cx| {
@@ -1739,9 +1739,10 @@ async fn test_hover_diagnostic_and_info_popovers(cx: &mut gpui::TestAppContext) 
     });
 
     // Info Popover shows after request responded to
-    let range = cx.lsp_range(indoc! {"
-            fn «test»() { println!(); }
-        "});
+    let range = cx.lsp_range(
+        "fn «test»() { println!(); }
+",
+    );
     cx.set_request_handler::<lsp::request::HoverRequest, _, _>(move |_, _, _| async move {
         Ok(Some(lsp::Hover {
             contents: lsp::HoverContents::Markup(lsp::MarkupContent {
@@ -1847,17 +1848,15 @@ async fn test_diagnostics_with_code(cx: &mut TestAppContext) {
         .await;
 
     // Verify that the diagnostic codes are displayed correctly
-    pretty_assertions::assert_eq!(
+    assert_eq!(
         editor_content_with_blocks(&editor, cx),
-        indoc::indoc! {
-            "§ main.js
-             § -----
-             function test() {
-                 const x = 10; § 'x' is assigned a value but never used (eslint no-unused-vars)
-                 const y = 20; § 'y' is assigned a value but never used (eslint no-unused-vars)
-                 return 1;
-             }"
-        }
+        "§ main.js
+§ -----
+function test() {
+    const x = 10; § 'x' is assigned a value but never used (eslint no-unused-vars)
+    const y = 20; § 'y' is assigned a value but never used (eslint no-unused-vars)
+    return 1;
+}"
     );
 }
 
@@ -1869,7 +1868,7 @@ async fn go_to_diagnostic_with_severity(cx: &mut TestAppContext) {
     let lsp_store =
         cx.update_editor(|editor, _, cx| editor.project().unwrap().read(cx).lsp_store());
 
-    cx.set_state(indoc! {"error warning info hiˇnt"});
+    cx.set_state("error warning info hiˇnt");
 
     cx.update(|_, cx| {
         lsp_store.update(cx, |lsp_store, cx| {
@@ -1940,23 +1939,23 @@ async fn go_to_diagnostic_with_severity(cx: &mut TestAppContext) {
 
     // Default, should cycle through all diagnostics
     go!(GoToDiagnosticSeverityFilter::default());
-    cx.assert_editor_state(indoc! {"error warning info ˇhint"});
+    cx.assert_editor_state("error warning info ˇhint");
     go!(GoToDiagnosticSeverityFilter::default());
-    cx.assert_editor_state(indoc! {"ˇerror warning info hint"});
+    cx.assert_editor_state("ˇerror warning info hint");
     go!(GoToDiagnosticSeverityFilter::default());
-    cx.assert_editor_state(indoc! {"error ˇwarning info hint"});
+    cx.assert_editor_state("error ˇwarning info hint");
     go!(GoToDiagnosticSeverityFilter::default());
-    cx.assert_editor_state(indoc! {"error warning ˇinfo hint"});
+    cx.assert_editor_state("error warning ˇinfo hint");
     go!(GoToDiagnosticSeverityFilter::default());
-    cx.assert_editor_state(indoc! {"error warning info ˇhint"});
+    cx.assert_editor_state("error warning info ˇhint");
     go!(GoToDiagnosticSeverityFilter::default());
-    cx.assert_editor_state(indoc! {"ˇerror warning info hint"});
+    cx.assert_editor_state("ˇerror warning info hint");
 
     let only_info = GoToDiagnosticSeverityFilter::Only(GoToDiagnosticSeverity::Information);
     go!(only_info);
-    cx.assert_editor_state(indoc! {"error warning ˇinfo hint"});
+    cx.assert_editor_state("error warning ˇinfo hint");
     go!(only_info);
-    cx.assert_editor_state(indoc! {"error warning ˇinfo hint"});
+    cx.assert_editor_state("error warning ˇinfo hint");
 
     let no_hints = GoToDiagnosticSeverityFilter::Range {
         min: GoToDiagnosticSeverity::Information,
@@ -1964,13 +1963,13 @@ async fn go_to_diagnostic_with_severity(cx: &mut TestAppContext) {
     };
 
     go!(no_hints);
-    cx.assert_editor_state(indoc! {"ˇerror warning info hint"});
+    cx.assert_editor_state("ˇerror warning info hint");
     go!(no_hints);
-    cx.assert_editor_state(indoc! {"error ˇwarning info hint"});
+    cx.assert_editor_state("error ˇwarning info hint");
     go!(no_hints);
-    cx.assert_editor_state(indoc! {"error warning ˇinfo hint"});
+    cx.assert_editor_state("error warning ˇinfo hint");
     go!(no_hints);
-    cx.assert_editor_state(indoc! {"ˇerror warning info hint"});
+    cx.assert_editor_state("ˇerror warning info hint");
 
     let warning_info = GoToDiagnosticSeverityFilter::Range {
         min: GoToDiagnosticSeverity::Information,
@@ -1978,11 +1977,11 @@ async fn go_to_diagnostic_with_severity(cx: &mut TestAppContext) {
     };
 
     go!(warning_info);
-    cx.assert_editor_state(indoc! {"error ˇwarning info hint"});
+    cx.assert_editor_state("error ˇwarning info hint");
     go!(warning_info);
-    cx.assert_editor_state(indoc! {"error warning ˇinfo hint"});
+    cx.assert_editor_state("error warning ˇinfo hint");
     go!(warning_info);
-    cx.assert_editor_state(indoc! {"error ˇwarning info hint"});
+    cx.assert_editor_state("error ˇwarning info hint");
 }
 
 #[gpui::test]
@@ -2130,30 +2129,28 @@ async fn test_buffer_diagnostics(cx: &mut TestAppContext) {
     cx.executor()
         .advance_clock(DIAGNOSTICS_UPDATE_DEBOUNCE + Duration::from_millis(10));
 
-    pretty_assertions::assert_eq!(
+    assert_eq!(
         editor_content_with_blocks(&editor, cx),
-        indoc::indoc! {
-            "§ main.rs
-             § -----
-             fn main() {
-                 let x = vec![];
-             § move occurs because `x` has type `Vec<char>`, which does not implement
-             § the `Copy` trait (back)
-                 let y = vec![];
-             § move occurs because `y` has type `Vec<char>`, which does not implement
-             § the `Copy` trait (back)
-                 a(x); § value moved here (back)
-                 b(y); § value moved here (back)
-                 c(y);
-             § use of moved value
-             § value used here after move
-                 d(x);
-             § use of moved value
-             § value used here after move
-             § hint: move occurs because `x` has type `Vec<char>`, which does not
-             § implement the `Copy` trait
-             }"
-        }
+        "§ main.rs
+§ -----
+fn main() {
+    let x = vec![];
+§ move occurs because `x` has type `Vec<char>`, which does not implement
+§ the `Copy` trait (back)
+    let y = vec![];
+§ move occurs because `y` has type `Vec<char>`, which does not implement
+§ the `Copy` trait (back)
+    a(x); § value moved here (back)
+    b(y); § value moved here (back)
+    c(y);
+§ use of moved value
+§ value used here after move
+    d(x);
+§ use of moved value
+§ value used here after move
+§ hint: move occurs because `x` has type `Vec<char>`, which does not
+§ implement the `Copy` trait
+}"
     );
 }
 
@@ -2267,26 +2264,24 @@ async fn test_buffer_diagnostics_without_warnings(cx: &mut TestAppContext) {
     cx.executor()
         .advance_clock(DIAGNOSTICS_UPDATE_DEBOUNCE + Duration::from_millis(10));
 
-    pretty_assertions::assert_eq!(
+    assert_eq!(
         editor_content_with_blocks(&editor, cx),
-        indoc::indoc! {
-            "§ main.rs
-             § -----
-             fn main() {
-                 let x = vec![];
-             § move occurs because `x` has type `Vec<char>`, which does not implement
-             § the `Copy` trait (back)
-                 let y = vec![];
-                 a(x); § value moved here (back)
-                 b(y);
-                 c(y);
-                 d(x);
-             § use of moved value
-             § value used here after move
-             § hint: move occurs because `x` has type `Vec<char>`, which does not
-             § implement the `Copy` trait
-             }"
-        }
+        "§ main.rs
+§ -----
+fn main() {
+    let x = vec![];
+§ move occurs because `x` has type `Vec<char>`, which does not implement
+§ the `Copy` trait (back)
+    let y = vec![];
+    a(x); § value moved here (back)
+    b(y);
+    c(y);
+    d(x);
+§ use of moved value
+§ value used here after move
+§ hint: move occurs because `x` has type `Vec<char>`, which does not
+§ implement the `Copy` trait
+}"
     );
 }
 
@@ -2405,21 +2400,19 @@ async fn test_buffer_diagnostics_multiple_servers(cx: &mut TestAppContext) {
     cx.executor()
         .advance_clock(DIAGNOSTICS_UPDATE_DEBOUNCE + Duration::from_millis(10));
 
-    pretty_assertions::assert_eq!(
+    assert_eq!(
         editor_content_with_blocks(&editor, cx),
-        indoc::indoc! {
-            "§ main.rs
-             § -----
-                 a(x);
-                 b(y);
-                 c(y);
-             § use of moved value
-             § value used here after move
-                 d(x);
-             § use of moved value
-             § value used here after move
-             }"
-        }
+        "§ main.rs
+§ -----
+    a(x);
+    b(y);
+    c(y);
+§ use of moved value
+§ value used here after move
+    d(x);
+§ use of moved value
+§ value used here after move
+}"
     );
 
     buffer_diagnostics.update(cx, |buffer_diagnostics, _cx| {

@@ -188,7 +188,6 @@ pub fn format_output(action: &RemoteAction, output: RemoteCommandOutput) -> Succ
 #[cfg(test)]
 mod tests {
     use super::*;
-    use indoc::indoc;
 
     #[test]
     fn test_push_new_branch_pull_request() {
@@ -201,15 +200,14 @@ mod tests {
 
         let output = RemoteCommandOutput {
             stdout: String::new(),
-            stderr: indoc! { "
-                Total 0 (delta 0), reused 0 (delta 0), pack-reused 0 (from 0)
-                remote:
-                remote: Create a pull request for 'test' on GitHub by visiting:
-                remote:      https://example.com/test/test/pull/new/test
-                remote:
-                To example.com:test/test.git
-                 * [new branch]      test -> test
-                "}
+            stderr: "Total 0 (delta 0), reused 0 (delta 0), pack-reused 0 (from 0)
+remote:
+remote: Create a pull request for 'test' on GitHub by visiting:
+remote:      https://example.com/test/test/pull/new/test
+remote:
+To example.com:test/test.git
+ * [new branch]      test -> test
+"
             .to_string(),
         };
 
@@ -234,17 +232,16 @@ mod tests {
 
         let output = RemoteCommandOutput {
             stdout: String::new(),
-            stderr: indoc! {"
-                Total 0 (delta 0), reused 0 (delta 0), pack-reused 0 (from 0)
-                remote:
-                remote: To create a merge request for test, visit:
-                remote:   https://example.com/test/test/-/merge_requests/new?merge_request%5Bsource_branch%5D=test
-                remote:
-                To example.com:test/test.git
-                 * [new branch]      test -> test
-                "}
-            .to_string()
-            };
+            stderr: "Total 0 (delta 0), reused 0 (delta 0), pack-reused 0 (from 0)
+remote:
+remote: To create a merge request for test, visit:
+remote:   https://example.com/test/test/-/merge_requests/new?merge_request%5Bsource_branch%5D=test
+remote:
+To example.com:test/test.git
+ * [new branch]      test -> test
+"
+            .to_string(),
+        };
 
         let msg = format_output(&action, output);
 
@@ -264,11 +261,10 @@ mod tests {
     fn test_push_new_branch_bitbucket_pull_request() {
         let output = RemoteCommandOutput {
             stdout: String::new(),
-            stderr: indoc! {"
-                remote:
-                remote: Create pull request for test:
-                remote:   https://bitbucket.example.com/projects/TEST/repos/test/pull-requests?create&sourceBranch=refs/heads/test
-                "}
+            stderr: "remote:
+remote: Create pull request for test:
+remote:   https://bitbucket.example.com/projects/TEST/repos/test/pull-requests?create&sourceBranch=refs/heads/test
+"
             .to_string(),
         };
 
@@ -295,18 +291,17 @@ mod tests {
             // Include an unrelated URL outside of the `remote:` lines, in this
             // case, an OpenSSH warning, to ensure that it is not mistaken for
             // the merge request link.
-            stderr: indoc! {"
-                ** WARNING: connection is not using a post-quantum key exchange algorithm.
-                ** This session may be vulnerable to \"store now, decrypt later\" attacks.
-                ** The server may need to be upgraded. See https://openssh.com/pq.html
-                Total 0 (delta 0), reused 0 (delta 0), pack-reused 0 (from 0)
-                remote:
-                remote: View merge request for test:
-                remote:    https://example.com/test/test/-/merge_requests/99999
-                remote:
-                To example.com:test/test.git
-                    + 80bd3c83be...e03d499d2e test -> test
-                "}
+            stderr: "** WARNING: connection is not using a post-quantum key exchange algorithm.
+** This session may be vulnerable to \"store now, decrypt later\" attacks.
+** The server may need to be upgraded. See https://openssh.com/pq.html
+Total 0 (delta 0), reused 0 (delta 0), pack-reused 0 (from 0)
+remote:
+remote: View merge request for test:
+remote:    https://example.com/test/test/-/merge_requests/99999
+remote:
+To example.com:test/test.git
+    + 80bd3c83be...e03d499d2e test -> test
+"
             .to_string(),
         };
 
@@ -332,11 +327,9 @@ mod tests {
 
         let output = RemoteCommandOutput {
             stdout: String::new(),
-            stderr: indoc! { "
-                To http://example.com/test/test.git
-                 * [new branch]      test -> test
-                ",
-            }
+            stderr: "To http://example.com/test/test.git
+ * [new branch]      test -> test
+"
             .to_string(),
         };
 

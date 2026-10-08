@@ -56,7 +56,7 @@ use lsp::{
 use parking_lot::Mutex;
 use paths::{config_dir, global_gitignore_path, tasks_file};
 use postage::stream::Stream as _;
-use pretty_assertions::{assert_eq, assert_matches};
+
 use project::{
     Event, TaskContexts,
     git_store::{GitStoreEvent, Repository, RepositoryEvent, StatusEntry, pending_op},
@@ -87,7 +87,7 @@ use std::{
 use sum_tree::SumTree;
 use task::{ResolvedTask, ShellKind, TaskContext};
 use text::{Anchor, PointUtf16, ReplicaId, ToOffset, Unclipped};
-use unindent::Unindent as _;
+use util::Unindent as _;
 use util::{
     RandomCharIter, TryFutureExt as _, assert_set_eq, maybe, path,
     paths::{PathMatcher, PathStyle},
@@ -8933,18 +8933,18 @@ async fn test_rescan_and_remote_updates(cx: &mut gpui::TestAppContext) {
             rel_path("b/c/file5")
         );
 
-        assert_matches!(
+        assert!(matches!(
             buffer2.read(cx).file().unwrap().disk_state(),
             DiskState::Present { .. }
-        );
-        assert_matches!(
+        ));
+        assert!(matches!(
             buffer3.read(cx).file().unwrap().disk_state(),
             DiskState::Present { .. }
-        );
-        assert_matches!(
+        ));
+        assert!(matches!(
             buffer4.read(cx).file().unwrap().disk_state(),
             DiskState::Present { .. }
-        );
+        ));
         assert_eq!(
             buffer5.read(cx).file().unwrap().disk_state(),
             DiskState::Deleted
@@ -10548,10 +10548,10 @@ async fn test_dynamic_rename_registration_without_prepare_provider_skips_prepare
         .await
         .unwrap();
 
-    assert_matches!(
+    assert!(matches!(
         response,
         PrepareRenameResponse::OnlyUnpreparedRenameSupported
-    );
+    ));
     assert_eq!(
         prepare_rename_request_count.load(atomic::Ordering::SeqCst),
         0
@@ -12715,7 +12715,10 @@ async fn test_search_with_unicode(cx: &mut gpui::TestAppContext) {
         false,
         None,
     );
-    assert_matches!(unicode_case_sensitive_query, Ok(SearchQuery::Text { .. }));
+    assert!(matches!(
+        unicode_case_sensitive_query,
+        Ok(SearchQuery::Text { .. })
+    ));
     assert_eq!(
         search(&project, unicode_case_sensitive_query.unwrap(), cx)
             .await
@@ -12736,10 +12739,10 @@ async fn test_search_with_unicode(cx: &mut gpui::TestAppContext) {
         false,
         None,
     );
-    assert_matches!(
+    assert!(matches!(
         unicode_case_insensitive_query,
         Ok(SearchQuery::Regex { .. })
-    );
+    ));
     assert_eq!(
         search(&project, unicode_case_insensitive_query.unwrap(), cx)
             .await
@@ -17091,7 +17094,7 @@ async fn test_repository_and_path_for_project_path(
                 (path, result)
             })
             .collect::<Vec<_>>();
-        pretty_assertions::assert_eq!(expected, actual);
+        assert_eq!(expected, actual);
     });
 
     fs.remove_dir(path!("/root/dir1/.git").as_ref(), RemoveOptions::default())
@@ -18439,7 +18442,7 @@ async fn test_conflicted_cherry_pick(cx: &mut gpui::TestAppContext) {
     git_cherry_pick_expect_conflict(&commit, &repo);
     std::fs::read_to_string(root_path.join("project/.git/CHERRY_PICK_HEAD"))
         .expect("No CHERRY_PICK_HEAD");
-    pretty_assertions::assert_eq!(
+    assert_eq!(
         git_status(&repo),
         collections::HashMap::from_iter([("a.txt".to_owned(), GIT_STATUS_CONFLICTED.to_owned())])
     );
@@ -18455,14 +18458,14 @@ async fn test_conflicted_cherry_pick(cx: &mut gpui::TestAppContext) {
             .cloned()
             .collect::<Vec<_>>()
     });
-    pretty_assertions::assert_eq!(conflicts, [RepoPath::from("a.txt")]);
+    assert_eq!(conflicts, [RepoPath::from("a.txt")]);
 
     git_add("a.txt", &repo);
     // Attempt to manually simulate what `git cherry-pick --continue` would do.
     git_commit("whatevs", &repo);
     std::fs::remove_file(root.path().join("project/.git/CHERRY_PICK_HEAD"))
         .expect("Failed to remove CHERRY_PICK_HEAD");
-    pretty_assertions::assert_eq!(git_status(&repo), collections::HashMap::default());
+    assert_eq!(git_status(&repo), collections::HashMap::default());
     tree.flush_fs_events(cx).await;
     let conflicts = repository.update(cx, |repository, _| {
         repository
@@ -18471,7 +18474,7 @@ async fn test_conflicted_cherry_pick(cx: &mut gpui::TestAppContext) {
             .cloned()
             .collect::<Vec<_>>()
     });
-    pretty_assertions::assert_eq!(conflicts, []);
+    assert_eq!(conflicts, []);
 }
 
 #[gpui::test]
@@ -19266,7 +19269,7 @@ async fn test_repos_in_invisible_worktrees(
             .map(|repo| repo.read(cx).work_directory_abs_path.clone())
             .collect::<Vec<_>>()
     });
-    pretty_assertions::assert_eq!(repos, [Path::new(path!("/root/dir1/dep1")).into()]);
+    assert_eq!(repos, [Path::new(path!("/root/dir1/dep1")).into()]);
 
     let (_invisible_worktree, _) = project
         .update(cx, |project, cx| {
@@ -19287,7 +19290,7 @@ async fn test_repos_in_invisible_worktrees(
             .map(|repo| repo.read(cx).work_directory_abs_path.clone())
             .collect::<Vec<_>>()
     });
-    pretty_assertions::assert_eq!(repos, [Path::new(path!("/root/dir1/dep1")).into()]);
+    assert_eq!(repos, [Path::new(path!("/root/dir1/dep1")).into()]);
 }
 
 #[gpui::test(iterations = 10)]
@@ -19490,7 +19493,7 @@ async fn test_git_worktrees_and_submodules(cx: &mut gpui::TestAppContext) {
             .collect::<Vec<_>>()
     });
     repositories.sort();
-    pretty_assertions::assert_eq!(
+    assert_eq!(
         repositories,
         [
             Path::new(path!("/project")).into(),
@@ -19527,11 +19530,11 @@ async fn test_git_worktrees_and_submodules(cx: &mut gpui::TestAppContext) {
             .read(cx)
             .repository_and_path_for_buffer_id(buffer.read(cx).remote_id(), cx)
             .unwrap();
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             repo.read(cx).work_directory_abs_path,
             Path::new(path!("/project/some-worktree")).into(),
         );
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             repo.read(cx).main_worktree_abs_path(),
             Some(Path::new(path!("/project"))),
         );
@@ -19544,7 +19547,7 @@ async fn test_git_worktrees_and_submodules(cx: &mut gpui::TestAppContext) {
     });
     barrier.await.unwrap();
     worktree_repo.update(cx, |repo, _| {
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             repo.status_for_path(&repo_path("src/b.txt"))
                 .unwrap()
                 .status,
@@ -19580,11 +19583,11 @@ async fn test_git_worktrees_and_submodules(cx: &mut gpui::TestAppContext) {
             .read(cx)
             .repository_and_path_for_buffer_id(buffer.read(cx).remote_id(), cx)
             .unwrap();
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             repo.read(cx).work_directory_abs_path,
             Path::new(path!("/project/subdir/some-submodule")).into(),
         );
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             repo.read(cx).main_worktree_abs_path(),
             Some(Path::new(path!("/project/subdir/some-submodule"))),
         );
@@ -19597,7 +19600,7 @@ async fn test_git_worktrees_and_submodules(cx: &mut gpui::TestAppContext) {
     });
     barrier.await.unwrap();
     submodule_repo.update(cx, |repo, _| {
-        pretty_assertions::assert_eq!(
+        assert_eq!(
             repo.status_for_path(&repo_path("c.txt")).unwrap().status,
             StatusCode::Modified.worktree(),
         );
@@ -19648,7 +19651,7 @@ async fn test_repository_deduplication(cx: &mut gpui::TestAppContext) {
             .map(|repo| repo.read(cx).work_directory_abs_path.clone())
             .collect::<Vec<_>>()
     });
-    pretty_assertions::assert_eq!(repos, [Path::new(path!("/root/project")).into()]);
+    assert_eq!(repos, [Path::new(path!("/root/project")).into()]);
 }
 
 #[gpui::test]
@@ -20532,7 +20535,7 @@ async fn test_git_worktree_remove(cx: &mut gpui::TestAppContext) {
         .collect::<Vec<_>>();
     repo_paths.sort();
 
-    pretty_assertions::assert_eq!(
+    assert_eq!(
         repo_paths,
         [
             Path::new(path!("/root/a")).into(),

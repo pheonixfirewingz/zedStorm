@@ -1,0 +1,19 @@
+[package]
+name = "zed_mermaid"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "GPL-3.0-or-later"
+
+[lib]
+path = "src/mermaid.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+zed_extension_api = { path = "../../crates/extension_api" }
+mermaid_render = { path = "renderer" }
+serde_json = "1.0"
+
+[workspace]
+resolver = "2"
+members = ["renderer"]
