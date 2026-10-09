@@ -15,8 +15,8 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use ui::{
-    CircularProgress, ContextMenu, CopyButton, DropdownMenu, DropdownStyle, Tooltip, WithScrollbar,
-    prelude::*,
+    CircularProgress, CommonAnimationExt as _, ContextMenu, CopyButton, DropdownMenu,
+    DropdownStyle, Tooltip, WithScrollbar, prelude::*,
 };
 use util::ResultExt as _;
 use workspace::{
@@ -1398,44 +1398,11 @@ impl Render for CodexPanel {
             .bg(cx.theme().colors().panel_background)
             .child(
                 h_flex()
-                    .justify_between()
+                    .justify_end()
                     .gap_2()
                     .p_3()
                     .border_b_1()
                     .border_color(cx.theme().colors().border)
-                    .child(
-                        h_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .overflow_hidden()
-                            .gap_2()
-                            .child(Label::new(self.backend.name()))
-                            .child(
-                                div()
-                                    .id("codex-status")
-                                    .child(
-                                        Icon::new(status_icon)
-                                            .size(IconSize::Small)
-                                            .color(Color::Muted),
-                                    )
-                                    .tooltip(Tooltip::text(format!("{status} · {directory}"))),
-                            )
-                            .when_some(self.session.model.clone(), |element, model| {
-                                element.child(
-                                    div()
-                                        .id("codex-model")
-                                        .min_w_0()
-                                        .overflow_hidden()
-                                        .child(
-                                            Label::new(model.clone())
-                                                .size(LabelSize::Small)
-                                                .color(Color::Muted)
-                                                .truncate(),
-                                        )
-                                        .tooltip(Tooltip::text(model)),
-                                )
-                            }),
-                    )
                     .child(
                         h_flex()
                             .flex_none()
@@ -1468,8 +1435,8 @@ impl Render for CodexPanel {
             .when(self.backend == super::Backend::Codex, |element| {
                 element.child(
                     h_flex()
-                        .flex_wrap()
-                        .gap_2()
+                        .gap_x(px(5.0))
+                        .gap_y_2()
                         .px_3()
                         .py_2()
                         .border_b_1()
@@ -1512,8 +1479,7 @@ impl Render for CodexPanel {
                                 };
                                 v_flex()
                                     .id(id)
-                                    .flex_1()
-                                    .min_w(px(150.0))
+                                    .flex_shrink_0()
                                     .gap_1()
                                     .child(
                                         h_flex()
@@ -1530,7 +1496,7 @@ impl Render for CodexPanel {
                                             )
                                             .child(
                                                 Label::new(format!(
-                                                    "{label} {percentage} left - {reset}"
+                                                    "{label} {percentage} · {reset}"
                                                 ))
                                                 .size(LabelSize::Small)
                                                 .color(Color::Muted)
@@ -1539,7 +1505,21 @@ impl Render for CodexPanel {
                                     )
                                     .tooltip(Tooltip::text(tooltip))
                             }),
-                        ),
+                        )
+                        .child({
+                            let used = self.session.context_tokens;
+                            let window = self.session.context_window;
+                            let percentage = used.zip(window).map(|(used, window)| (used as f64 / window as f64 * 100.0).clamp(0.0, 100.0) as f32);
+                            let text = context_usage_label(used, window);
+                            v_flex()
+                                .id("codex-context-usage")
+                                .flex_shrink_0()
+                                .gap_1()
+                                .child(h_flex().gap_1p5()
+                                    .child(CircularProgress::new(percentage.unwrap_or(0.0), 100.0, px(16.0), cx).stroke_width(px(2.0)))
+                                    .child(Label::new(text.clone()).size(LabelSize::Small).color(Color::Muted)))
+                                .tooltip(Tooltip::text(format!("{text}. Context used by the latest model request, reported by Codex CLI. Updates when Codex reports token usage; not cumulative account usage.")))
+                        }),
                 )
             })
             .when(self.remote || self.session.signing_in, |element| {
@@ -1621,10 +1601,23 @@ impl Render for CodexPanel {
                         .child(
                             h_flex()
                                 .min_w_0()
-                                .justify_between()
+                                .justify_end()
                                 .gap_1()
                                 .child(settings)
                                 .child(
+                                    h_flex().flex_none().gap_2()
+                                    .child(div()
+                                        .id("codex-status")
+                                        .child({
+                                            let icon = Icon::new(status_icon).size(IconSize::Small).color(Color::Muted);
+                                            if status_icon == IconName::LoadCircle {
+                                                icon.with_rotate_animation(1).into_any_element()
+                                            } else {
+                                                icon.into_any_element()
+                                            }
+                                        })
+                                        .tooltip(Tooltip::text(format!("{status} · {directory}"))))
+                                    .child(
                                     div()
                                         .flex_none()
                                         .flex()
@@ -1672,7 +1665,7 @@ impl Render for CodexPanel {
                                                 .on_click(cx.listener(|panel, _, window, cx| {
                                                     panel.send(&SendPrompt, window, cx)
                                                 }))
-                                        }),
+                                        })),
                                 ),
                         ),
                 ),
@@ -1711,8 +1704,50 @@ impl Panel for CodexPanel {
     fn default_size(&self, _: &Window, _: &App) -> Pixels {
         px(420.)
     }
-    fn min_size(&self, _: &Window, _: &App) -> Option<Pixels> {
-        Some(px(280.))
+    fn min_size(&self, window: &Window, cx: &App) -> Option<Pixels> {
+        let font = window.text_style().font();
+        let font_size = ui::TextSize::Small.rems(cx).to_pixels(window.rem_size());
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .unwrap_or_default();
+        let limit_label = |label: &str, usage: Option<f32>, resets_at: Option<u64>| {
+            let percentage = usage
+                .map(|percent| format!("{:.0}%", 100.0 - percent))
+                .unwrap_or_else(|| "—".into());
+            format!("{label} {percentage} · {}", reset_countdown(resets_at, now))
+        };
+        let labels = [
+            limit_label(
+                "5-hour",
+                self.session.five_hour_usage,
+                self.session.five_hour_resets_at,
+            ),
+            limit_label(
+                "Weekly",
+                self.session.weekly_usage,
+                self.session.weekly_resets_at,
+            ),
+            context_usage_label(self.session.context_tokens, self.session.context_window),
+        ];
+        let text_width = labels
+            .into_iter()
+            .map(|label| {
+                let run = gpui::TextRun {
+                    len: label.len(),
+                    font: font.clone(),
+                    ..Default::default()
+                };
+                window
+                    .text_system()
+                    .shape_line(label.into(), font_size, &[run], None)
+                    .width
+            })
+            .fold(px(0.0), |width, label_width| width + label_width);
+        Some(
+            (text_width + px(3.0 * 16.0 + 2.0 * 5.0) + window.rem_size() * (3.0 * 0.375 + 1.5))
+                .max(px(280.0)),
+        )
     }
     fn icon(&self, _: &Window, _: &App) -> Option<IconName> {
         None
@@ -1761,6 +1796,28 @@ fn reset_countdown(resets_at: Option<u64>, now: u64) -> String {
         format!("{hours}h {minutes}m")
     } else {
         format!("{minutes}m")
+    }
+}
+
+fn context_usage_label(tokens: Option<u64>, window: Option<u64>) -> String {
+    let format_tokens = |tokens: u64| {
+        if tokens >= 1000 {
+            format!("{:.0}k", tokens as f64 / 1000.0)
+        } else {
+            tokens.to_string()
+        }
+    };
+    match (tokens, window.filter(|window| *window > 0)) {
+        (Some(tokens), Some(window)) => {
+            let percentage = (tokens as f64 / window as f64 * 100.0).clamp(0.0, 100.0);
+            format!(
+                "Context {percentage:.0}% · {} / {}",
+                format_tokens(tokens),
+                format_tokens(window)
+            )
+        }
+        (Some(tokens), None) => format!("Context · {}", format_tokens(tokens)),
+        _ => "Context · —".into(),
     }
 }
 

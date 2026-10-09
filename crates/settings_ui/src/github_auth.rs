@@ -180,7 +180,16 @@ fn github_command(binary: &Path) -> Result<Command> {
 }
 
 fn device_code(line: &str) -> Option<&str> {
-    let code = line.split_once("First copy your one-time code:")?.1.trim();
+    let code = if let Some((_, code)) = line.split_once("First copy your one-time code:") {
+        code.trim()
+    } else {
+        let (_, remaining) = line.split_once("One-time code (")?;
+        let (code, suffix) = remaining.split_once(')')?;
+        if suffix.trim() != "copied to clipboard" {
+            return None;
+        }
+        code
+    };
     (code.len() == 9
         && code.as_bytes().get(4) == Some(&b'-')
         && code
@@ -361,14 +370,17 @@ impl Render for GitHubAccount {
             .child(Label::new("GitHub Account").size(LabelSize::Large))
             .child(Label::new(self.message.clone()).color(if self.failed { Color::Error } else { Color::Muted }))
             .when_some(self.device_code.clone(), |this, code| {
-                this.child(h_flex().gap_2().flex_wrap()
-                    .child(Label::new(format!("One-time code: {code}")))
+                this.child(v_flex().gap_2()
+                    .child(Label::new("GitHub sign-in code"))
+                    .child(Label::new(code.clone()).size(LabelSize::Large))
+                    .child(Label::new("Enter this code at github.com/login/device. If copying fails, type it manually; it stays visible here while sign-in is pending.").size(LabelSize::Small))
+                    .child(h_flex().gap_2().flex_wrap()
                     .child(Button::new("copy-github-code", "Copy code").tab_index(0_isize).on_click(move |_, _, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(code.to_string()));
                     }))
                     .child(Button::new("open-github-browser", "Open browser").tab_index(0_isize).on_click(|_, _, cx| {
                         cx.open_url("https://github.com/login/device");
-                    })))
+                    }))))
             })
             .child(h_flex().gap_2().flex_wrap()
                 .child(Button::new("github-sign-in", if self.signed_in { "Sign in with another account" } else { "Sign in with browser" })
@@ -442,6 +454,18 @@ mod tests {
             None
         );
         assert_eq!(device_code("token: secret"), None);
+        assert_eq!(
+            device_code("! One-time code (ABCD-1234) copied to clipboard"),
+            Some("ABCD-1234")
+        );
+        assert_eq!(
+            device_code("! One-time code (invalid) copied to clipboard"),
+            None
+        );
+        assert_eq!(
+            device_code("! Failed to copy one-time code to clipboard"),
+            None
+        );
     }
 
     #[test]

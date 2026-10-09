@@ -611,7 +611,7 @@ pub struct OpenAtCommit {
 fn timestamp_format() -> &'static [BorrowedFormatItem<'static>] {
     static FORMAT: OnceLock<Vec<BorrowedFormatItem<'static>>> = OnceLock::new();
     FORMAT.get_or_init(|| {
-        time::format_description::parse("[day] [month repr:short] [year] [hour]:[minute]")
+        time::format_description::parse_borrowed::<2>("[day] [month repr:short] [year] [hour]:[minute]")
             .unwrap_or_default()
     })
 }

@@ -802,10 +802,6 @@ calloop = { git = "https://github.com/zed-industries/calloop", rev = "3759371fee
 notify = { git = "https://github.com/zed-industries/notify", rev = "d842f16b2716bd60f09caf3ae3a894237ab38f54" }
 notify-types = { git = "https://github.com/zed-industries/notify", rev = "d842f16b2716bd60f09caf3ae3a894237ab38f54" }
 
-# Each native build script needs its own scratch directory rather than a path
-# embedded from a different checkout at dependency build time.
-scratch = { path = "tooling/patches/scratch" }
-
 [profile.dev]
 split-debuginfo = "unpacked"
 incremental = true

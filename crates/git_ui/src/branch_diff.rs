@@ -24,7 +24,7 @@ use project::{
         diff_buffer_list::{self, DiffBase},
     },
 };
-use settings::{GitDiffBaseSetting, Settings};
+use settings::GitDiffBaseSetting;
 use std::{
     any::{Any, TypeId},
     sync::Arc,

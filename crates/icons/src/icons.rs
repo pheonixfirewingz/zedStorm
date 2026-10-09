@@ -109,6 +109,7 @@ pub enum IconName {
     GenericRestore,
     Gerrit,
     GitBranch,
+    Hammer,
     GitBranchPlus,
     GitCommit,
     GitGraph,

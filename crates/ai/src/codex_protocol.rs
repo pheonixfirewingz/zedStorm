@@ -255,6 +255,8 @@ pub struct Session {
     pub five_hour_resets_at: Option<u64>,
     pub weekly_resets_at: Option<u64>,
     pub usage_error: Option<String>,
+    pub context_tokens: Option<u64>,
+    pub context_window: Option<u64>,
     pub thread_id: Option<String>,
     pub turn_id: Option<String>,
     pub messages: Vec<Message>,
@@ -290,6 +292,8 @@ impl Session {
             five_hour_resets_at: None,
             weekly_resets_at: None,
             usage_error: None,
+            context_tokens: None,
+            context_window: None,
             thread_id: None,
             turn_id: None,
             messages: Vec::new(),
@@ -631,6 +635,10 @@ impl Session {
                     self.disconnected("Codex returned a thread without an ID".into());
                     return Vec::new();
                 };
+                if self.thread_id.as_deref() != Some(thread_id) {
+                    self.context_tokens = None;
+                    self.context_window = None;
+                }
                 self.thread_id = Some(thread_id.to_owned());
                 self.model = result
                     .get("model")
@@ -763,6 +771,15 @@ impl Session {
                 if let Some(limits) = params.get("rateLimits") {
                     self.update_rate_limits(limits);
                 }
+            }
+            "thread/tokenUsage/updated" => {
+                self.context_tokens = params
+                    .pointer("/tokenUsage/last/totalTokens")
+                    .and_then(Value::as_u64);
+                self.context_window = params
+                    .pointer("/tokenUsage/modelContextWindow")
+                    .and_then(Value::as_u64)
+                    .filter(|window| *window > 0);
             }
             "turn/started" => {
                 self.busy = true;
@@ -1034,6 +1051,27 @@ impl Session {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn context_usage_tracks_current_thread_and_latest_request() {
+        let mut session = super::Session::new(std::path::PathBuf::from("/tmp"));
+        session.thread_id = Some("current".into());
+        session.receive(serde_json::json!({"method": "thread/tokenUsage/updated", "params": {
+            "threadId": "current", "tokenUsage": {
+                "last": {"totalTokens": 24000}, "total": {"totalTokens": 500000}, "modelContextWindow": 128000
+            }
+        }}));
+        assert_eq!(session.context_tokens, Some(24000));
+        assert_eq!(session.context_window, Some(128000));
+        session.receive(serde_json::json!({"method": "thread/tokenUsage/updated", "params": {
+            "threadId": "other", "tokenUsage": {"last": {"totalTokens": 10}, "modelContextWindow": 100}
+        }}));
+        assert_eq!(session.context_tokens, Some(24000));
+        session.receive(serde_json::json!({"method": "thread/tokenUsage/updated", "params": {
+            "threadId": "current", "tokenUsage": {"last": {"totalTokens": 1000}, "modelContextWindow": null}
+        }}));
+        assert_eq!(session.context_tokens, Some(1000));
+        assert_eq!(session.context_window, None);
+    }
     use super::*;
 
     #[test]

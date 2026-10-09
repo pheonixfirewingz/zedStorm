@@ -6,7 +6,9 @@ use dap::DapRegistry;
 use db::kvp::KeyValueStore;
 use fs::Fs;
 use futures::{FutureExt as _, future::Shared};
-use gpui::{App, AppContext, Context, Entity, Subscription, Task, WeakEntity, Window, actions};
+use gpui::{
+    Action as _, App, AppContext, Context, Entity, Subscription, Task, WeakEntity, Window, actions,
+};
 use project::{Project, TaskContexts, TaskSourceKind, WorktreeId};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -28,6 +30,8 @@ actions!(
         EditConfigurations,
         /// Runs the selected configuration.
         RunSelected,
+        /// Builds the selected configuration without running or debugging it.
+        BuildSelected,
         /// Debugs the selected configuration.
         DebugSelected,
     ]
@@ -326,6 +330,18 @@ impl RunConfigurations {
             })
     }
 
+    pub fn can_build(&self) -> bool {
+        !self.loading
+            && self.selected_entry().is_some_and(|entry| {
+                entry
+                    .configuration
+                    .debug
+                    .as_ref()
+                    .and_then(|debug| debug.build.as_ref())
+                    .is_some()
+            })
+    }
+
     pub fn select(&mut self, key: ConfigurationKey, cx: &mut Context<Self>) {
         self.selected = Some(key.clone());
         if let Some(root) = self.active_root.clone() {
@@ -504,6 +520,16 @@ impl RunConfigurations {
     }
 
     pub fn launch_selected(&mut self, debug: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.launch_selected_inner(debug, false, window, cx);
+    }
+
+    fn launch_selected_inner(
+        &mut self,
+        debug: bool,
+        build_only: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(key) = self.selected.clone() else {
             return;
         };
@@ -525,7 +551,35 @@ impl RunConfigurations {
             let entry =
                 entry.context("The selected configuration was removed or could not be loaded")?;
             workspace.update_in(cx, |workspace, window, cx| {
-                launch_configuration(workspace, &entry, &contexts, debug, window, cx)
+                if build_only {
+                    let build = entry
+                        .configuration
+                        .debug
+                        .as_ref()
+                        .and_then(|debug| debug.build.clone())
+                        .context("This configuration does not have a Build task")?;
+                    match build {
+                        task::BuildTaskDefinition::ByName(name) => {
+                            window.dispatch_action(
+                                zed_actions::Spawn::ByName {
+                                    task_name: name.to_string(),
+                                    reveal_target: None,
+                                }
+                                .boxed_clone(),
+                                cx,
+                            );
+                            Ok(())
+                        }
+                        task::BuildTaskDefinition::Template { task_template, .. } => {
+                            let mut entry = entry.clone();
+                            entry.configuration =
+                                build_only_configuration(entry.configuration, task_template);
+                            launch_configuration(workspace, &entry, &contexts, false, window, cx)
+                        }
+                    }
+                } else {
+                    launch_configuration(workspace, &entry, &contexts, debug, window, cx)
+                }
             })??;
             Ok(())
         })
@@ -796,6 +850,16 @@ fn launch_configuration(
     Ok(())
 }
 
+fn build_only_configuration(
+    mut configuration: RunConfiguration,
+    task: TaskTemplate,
+) -> RunConfiguration {
+    configuration.name = format!("Build {}", configuration.name);
+    configuration.run = Some(task);
+    configuration.debug = None;
+    configuration
+}
+
 pub fn init(cx: &mut App) {
     cx.observe_new(|workspace: &mut Workspace, _, _| {
         workspace
@@ -803,10 +867,13 @@ pub fn init(cx: &mut App) {
                 ConfigurationEditor::show(workspace, window, cx);
             })
             .register_action(|workspace, _: &RunSelected, window, cx| {
-                launch_selected_action(workspace, false, window, cx);
+                launch_selected_action(workspace, false, false, window, cx);
+            })
+            .register_action(|workspace, _: &BuildSelected, window, cx| {
+                launch_selected_action(workspace, false, true, window, cx);
             })
             .register_action(|workspace, _: &DebugSelected, window, cx| {
-                launch_selected_action(workspace, true, window, cx);
+                launch_selected_action(workspace, true, false, window, cx);
             });
     })
     .detach();
@@ -815,6 +882,7 @@ pub fn init(cx: &mut App) {
 fn launch_selected_action(
     workspace: &Workspace,
     debug: bool,
+    build_only: bool,
     window: &mut Window,
     cx: &mut Context<Workspace>,
 ) {
@@ -824,7 +892,7 @@ fn launch_selected_action(
         cx.spawn_in(window, async move |_, cx| {
             configurations
                 .update_in(cx, |configurations, window, cx| {
-                    configurations.launch_selected(debug, window, cx)
+                    configurations.launch_selected_inner(debug, build_only, window, cx)
                 })
                 .log_err();
         })
@@ -835,6 +903,33 @@ fn launch_selected_action(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn build_only_uses_build_task_instead_of_run_target() {
+        let original = configuration("Application");
+        let built = build_only_configuration(
+            original.clone(),
+            TaskTemplate {
+                label: "Build".into(),
+                command: "cargo".into(),
+                args: vec!["build".into()],
+                ..TaskTemplate::default()
+            },
+        );
+        assert_eq!(
+            built.run.as_ref().map(|task| task.command.as_str()),
+            Some("cargo")
+        );
+        assert_eq!(
+            built.run.as_ref().map(|task| task.args.as_slice()),
+            Some(["build".to_owned()].as_slice())
+        );
+        assert!(built.debug.is_none());
+        assert_eq!(
+            original.run.as_ref().map(|task| task.command.as_str()),
+            Some("echo")
+        );
+    }
 
     fn configuration(name: &str) -> RunConfiguration {
         RunConfiguration {

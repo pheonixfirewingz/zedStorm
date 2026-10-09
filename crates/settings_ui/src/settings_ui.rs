@@ -3468,7 +3468,7 @@ impl SettingsWindow {
 
     fn render_current_page_items(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<SettingsWindow>,
     ) -> impl IntoElement {
         let current_page_index = self.current_page_index();
@@ -3479,6 +3479,12 @@ impl SettingsWindow {
             .size_full();
 
         let has_active_search = !self.search_bar.read(cx).is_empty(cx);
+        if self.current_page().title == "Git" && !has_active_search {
+            let account = window.use_keyed_state("github-account", cx, |_, cx| {
+                crate::github_auth::GitHubAccount::new(cx)
+            });
+            page_content = page_content.child(div().px_8().py_4().child(account));
+        }
         let has_no_results = self.visible_page_items().next().is_none() && has_active_search;
 
         if has_no_results {
