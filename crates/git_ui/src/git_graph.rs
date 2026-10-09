@@ -1486,6 +1486,8 @@ struct DetailPanelCommitMessage {
 }
 
 pub struct GitGraph {
+    signing_prompt: Option<Entity<git_ui_core::askpass_modal::AskPassModal>>,
+    signing_prompt_subscription: Option<Subscription>,
     focus_handle: FocusHandle,
     search_state: SearchState,
     graph_data: GraphData,
@@ -1520,6 +1522,25 @@ pub struct GitGraph {
 }
 
 impl GitGraph {
+    pub(crate) fn show_signing_prompt(
+        &mut self,
+        prompt: Entity<git_ui_core::askpass_modal::AskPassModal>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        prompt.focus_handle(cx).focus(window, cx);
+        self.signing_prompt_subscription =
+            Some(
+                cx.subscribe_in(&prompt, window, |this, _, _: &DismissEvent, window, cx| {
+                    this.signing_prompt = None;
+                    this.signing_prompt_subscription = None;
+                    this.focus_handle.focus(window, cx);
+                    cx.notify();
+                }),
+            );
+        self.signing_prompt = Some(prompt);
+        cx.notify();
+    }
     fn invalidate_state(&mut self, cx: &mut Context<Self>) {
         self.graph_data.clear();
         self.search_state.matches.clear();
@@ -1735,6 +1756,8 @@ impl GitGraph {
             graph_data: graph,
             _commit_diff_task: None,
             context_menu: None,
+            signing_prompt: None,
+            signing_prompt_subscription: None,
             table_interaction_state,
             column_widths,
             column_visibility,
@@ -4834,6 +4857,11 @@ impl Render for GitGraph {
             .child(
                 v_flex()
                     .size_full()
+                    .children(
+                        self.signing_prompt
+                            .as_ref()
+                            .map(|prompt| div().w_full().flex_none().p_2().child(prompt.clone())),
+                    )
                     .child(self.render_search_bar(cx))
                     .child(div().flex_1().child(content)),
             )

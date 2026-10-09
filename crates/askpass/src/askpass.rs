@@ -533,18 +533,12 @@ fn generate_gpg_wrapper_script(
 
     // The wrapper only intervenes when git asks gpg to *sign* (e.g. `gpg -bsau
     // <key>`); other invocations like `--verify` run unchanged. Signing runs in
-    // three stages, most silent first, so every pinentry configuration works
+    // two stages, most silent first, so cached passphrases need no prompt
     // without Zed getting in the way:
     //   1. `--pinentry-mode error`: succeeds only via gpg-agent's passphrase
     //      cache or an unprotected key; guaranteed to never prompt anywhere.
-    //   2. Default pinentry mode: lets the configured pinentry run. GUI
-    //      pinentries (e.g. pinentry-mac reading the macOS Keychain) need no
-    //      TTY and can sign silently or show their native dialog, exactly like
-    //      terminal git; TTY pinentries fail fast ("Inappropriate ioctl for
-    //      device") because git spawns gpg without a TTY.
-    //   3. Loopback mode with the passphrase from Zed's askpass modal (fd 3),
-    //      for setups where gpg cannot prompt at all.
-    //      (e.g. when gpg agent's `pinentry-program` is not configured)
+    //   2. Loopback mode with the passphrase from Zed's password prompt (fd 3).
+    //      Keeping the prompt in Zed lets the graph own signing interactions.
     //
     // git streams the payload on stdin (readable once) and reads the signature
     // from stdout, so we buffer stdin to replay it into each attempt and buffer
@@ -586,20 +580,10 @@ if {gpg_program} --pinentry-mode error "$@" < "$payload" > "$signature" 2> "$sta
     exit 0
 fi
 
-# Stage 2: let gpg launch the configured pinentry, matching terminal git. GUI
-# pinentries work without a TTY and may fetch the passphrase from an OS
-# keychain silently (or show their native dialog); TTY pinentries fail fast
-# with "Inappropriate ioctl for device" since gpg has no TTY here.
-if {gpg_program} "$@" < "$payload" > "$signature" 2> "$status"; then
-    cat "$status" >&2
-    cat "$signature"
-    exit 0
-fi
-
-# Stage 3: gpg cannot obtain the passphrase on its own. Ask Zed for it, then
+# Stage 2: ask Zed for the passphrase, then
 # hand it to gpg on fd 3 using loopback mode so no pinentry/terminal is
 # required.
-passphrase=$(printf '%s\0' {prompt} | {askpass_program} --askpass={askpass_socket} 2>/dev/null)
+passphrase=$(printf '%s\0' {prompt} | {askpass_program} --askpass={askpass_socket} 2>/dev/null) || exit 1
 printf '%s\n' "$passphrase" |
 {gpg_program} --pinentry-mode loopback --passphrase-fd 3 "$@" 3<&0 < "$payload"
 "#,

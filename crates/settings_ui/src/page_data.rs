@@ -7114,9 +7114,66 @@ fn terminal_page() -> SettingsPage {
 }
 
 fn version_control_page() -> SettingsPage {
-    fn git_integration_section() -> [SettingsPageItem; 2] {
+    fn git_integration_section() -> [SettingsPageItem; 7] {
         [
             SettingsPageItem::SectionHeader("Git Integration"),
+            SettingsPageItem::SectionHeader("Signing and Keys"),
+            SettingsPageItem::SettingItem(SettingItem {
+                files: USER,
+                title: "Sign Commits",
+                description: "Sign new commits. Reset to use your Git configuration.",
+                field: Box::new(SettingField::<bool> {
+                    organization_override: None,
+                    json_path: Some("git.sign_commits"),
+                    pick: |settings| settings.git.as_ref()?.sign_commits.as_ref(),
+                    write: |settings, value, _| {
+                        settings.git.get_or_insert_default().sign_commits = value
+                    },
+                }),
+                metadata: None,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                files: USER,
+                title: "GPG Signing Key",
+                description: "GPG key ID or fingerprint. Passphrases are requested when signing, never stored in settings.",
+                field: Box::new(SettingField::<String> {
+                    organization_override: None,
+                    json_path: Some("git.gpg_signing_key"),
+                    pick: |settings| settings.git.as_ref()?.gpg_signing_key.as_ref(),
+                    write: |settings, value, _| {
+                        settings.git.get_or_insert_default().gpg_signing_key = value
+                    },
+                }),
+                metadata: None,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                files: USER,
+                title: "SSH Signing Key",
+                description: "Path to an SSH signing key. Takes precedence over the GPG signing key when set.",
+                field: Box::new(SettingField::<String> {
+                    organization_override: None,
+                    json_path: Some("git.ssh_signing_key"),
+                    pick: |settings| settings.git.as_ref()?.ssh_signing_key.as_ref(),
+                    write: |settings, value, _| {
+                        settings.git.get_or_insert_default().ssh_signing_key = value
+                    },
+                }),
+                metadata: None,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                files: USER,
+                title: "SSH Authentication Key",
+                description: "Path to the SSH private key used to connect to Git remotes.",
+                field: Box::new(SettingField::<String> {
+                    organization_override: None,
+                    json_path: Some("git.ssh_key"),
+                    pick: |settings| settings.git.as_ref()?.ssh_key.as_ref(),
+                    write: |settings, value, _| {
+                        settings.git.get_or_insert_default().ssh_key = value
+                    },
+                }),
+                metadata: None,
+            }),
             SettingsPageItem::DynamicItem(DynamicItem {
                 discriminant: SettingItem {
                     files: USER,

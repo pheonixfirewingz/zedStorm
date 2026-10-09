@@ -115,10 +115,11 @@ impl Render for AskPassModal {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         v_flex()
             .key_context("PasswordPrompt")
+            .track_focus(&self.editor.focus_handle(cx))
             .on_action(cx.listener(Self::cancel))
             .on_action(cx.listener(Self::confirm))
             .elevation_2(cx)
-            .size_full()
+            .w_full()
             .child(
                 h_flex()
                     .font_buffer(cx)
@@ -144,10 +145,32 @@ impl Render for AskPassModal {
                     .bg(cx.theme().colors().editor_background)
                     .border_t_1()
                     .border_color(cx.theme().colors().border_variant)
-                    .size_full()
+                    .w_full()
                     .overflow_hidden()
                     .child(self.prompt.clone())
                     .child(self.editor.clone()),
+            )
+            .child(
+                h_flex()
+                    .justify_end()
+                    .gap_2()
+                    .p_2()
+                    .child(
+                        Button::new("cancel-password", "Cancel").on_click(cx.listener(
+                            |this, _, window, cx| {
+                                this.editor
+                                    .update(cx, |editor, cx| editor.clear(window, cx));
+                                this.cancel(&menu::Cancel, window, cx);
+                            },
+                        )),
+                    )
+                    .child(
+                        Button::new("confirm-password", "Continue").on_click(cx.listener(
+                            |this, _, window, cx| {
+                                this.confirm(&menu::Confirm, window, cx);
+                            },
+                        )),
+                    ),
             )
             .children(self.render_hint(cx))
     }

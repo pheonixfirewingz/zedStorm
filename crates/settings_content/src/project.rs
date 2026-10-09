@@ -631,6 +631,14 @@ impl std::fmt::Debug for ContextServerCommand {
 #[with_fallible_options]
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize, JsonSchema, MergeFrom)]
 pub struct GitSettings {
+    /// Override Git's commit.gpgSign setting. Unset preserves Git configuration.
+    pub sign_commits: Option<bool>,
+    /// GPG key ID or fingerprint used to sign commits.
+    pub gpg_signing_key: Option<String>,
+    /// SSH private key file used to sign commits instead of GPG when configured.
+    pub ssh_signing_key: Option<String>,
+    /// SSH private key file used for remote authentication.
+    pub ssh_key: Option<String>,
     /// Whether or not to enable git integration.
     ///
     /// Default: true

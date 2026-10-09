@@ -4069,13 +4069,15 @@ async fn run_git_command(
             .env("SSH_ASKPASS", ask_pass.script_path())
             .env("SSH_ASKPASS_REQUIRE", "force");
 
-        if !env.contains_key("GIT_CONFIG_COUNT")
-            && let Some(gpg_wrapper) = ask_pass.gpg_wrapper_path()
-        {
+        if let Some(gpg_wrapper) = ask_pass.gpg_wrapper_path() {
+            let config_count = env
+                .get("GIT_CONFIG_COUNT")
+                .and_then(|count| count.parse::<usize>().ok())
+                .unwrap_or_default();
             command
-                .env("GIT_CONFIG_COUNT", "1")
-                .env("GIT_CONFIG_KEY_0", "gpg.program")
-                .env("GIT_CONFIG_VALUE_0", gpg_wrapper);
+                .env("GIT_CONFIG_COUNT", (config_count + 1).to_string())
+                .env(format!("GIT_CONFIG_KEY_{config_count}"), "gpg.program")
+                .env(format!("GIT_CONFIG_VALUE_{config_count}"), gpg_wrapper);
         }
 
         #[cfg(target_os = "windows")]

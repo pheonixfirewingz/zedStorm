@@ -6913,6 +6913,51 @@ impl Repository {
                 id: job_id,
                 key,
                 job: Box::new(move |state, cx: &mut AsyncApp| {
+                    let state = match state {
+                        RepositoryState::Local(mut local) => {
+                            let settings =
+                                cx.update(|cx| ProjectSettings::get_global(cx).git.clone());
+                            let environment = Arc::make_mut(&mut local.environment);
+                            let mut config_count = environment
+                                .get("GIT_CONFIG_COUNT")
+                                .and_then(|count| count.parse::<usize>().ok())
+                                .unwrap_or_default();
+                            let mut set_config = |key: &str, value: String| {
+                                environment
+                                    .insert(format!("GIT_CONFIG_KEY_{config_count}"), key.into());
+                                environment
+                                    .insert(format!("GIT_CONFIG_VALUE_{config_count}"), value);
+                                config_count += 1;
+                            };
+                            if let Some(sign_commits) = settings.sign_commits {
+                                set_config("commit.gpgSign", sign_commits.to_string());
+                            }
+                            if let Some(key) = settings
+                                .ssh_signing_key
+                                .filter(|key| !key.trim().is_empty())
+                            {
+                                set_config("gpg.format", "ssh".into());
+                                set_config("user.signingKey", key);
+                            } else if let Some(key) = settings
+                                .gpg_signing_key
+                                .filter(|key| !key.trim().is_empty())
+                            {
+                                set_config("gpg.format", "openpgp".into());
+                                set_config("user.signingKey", key);
+                            }
+                            if let Some(key) = settings.ssh_key.filter(|key| !key.trim().is_empty())
+                            {
+                                let quoted_key = format!("'{}'", key.replace('\'', "'\\''"));
+                                set_config(
+                                    "core.sshCommand",
+                                    format!("ssh -i {quoted_key} -o IdentitiesOnly=yes"),
+                                );
+                            }
+                            environment.insert("GIT_CONFIG_COUNT".into(), config_count.to_string());
+                            RepositoryState::Local(local)
+                        }
+                        state => state,
+                    };
                     let job = job(state, cx.clone());
                     cx.spawn(async move |cx| {
                         this.update(cx, |this, cx| {

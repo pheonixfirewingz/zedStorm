@@ -14,7 +14,10 @@ use std::{
     rc::Rc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-use ui::{CircularProgress, ContextMenu, DropdownMenu, DropdownStyle, Tooltip, prelude::*};
+use ui::{
+    CircularProgress, ContextMenu, CopyButton, DropdownMenu, DropdownStyle, Tooltip, WithScrollbar,
+    prelude::*,
+};
 use util::ResultExt as _;
 use workspace::{
     Panel, Workspace,
@@ -1252,6 +1255,7 @@ impl Render for CodexPanel {
                     return Some(
                         v_flex()
                             .min_w_0()
+                            .flex_shrink_0()
                             .gap_1()
                             .child(
                                 h_flex()
@@ -1328,7 +1332,11 @@ impl Render for CodexPanel {
                             .into_any_element(),
                     );
                 }
-                let body = if let Some(markdown) = self.markdown.get(&message.id) {
+                let body = if let Some(markdown) = self
+                    .markdown
+                    .get(&message.id)
+                    .filter(|_| message.kind != MessageKind::User)
+                {
                     div()
                         .min_w_0()
                         .child(MarkdownElement::new(
@@ -1347,6 +1355,7 @@ impl Render for CodexPanel {
                 Some(
                     v_flex()
                         .min_w_0()
+                        .flex_shrink_0()
                         .px_1()
                         .py_1()
                         .when(message.kind == MessageKind::User, |element| {
@@ -1356,10 +1365,23 @@ impl Render for CodexPanel {
                                 .my_1()
                                 .px_3()
                                 .py_2()
-                                .rounded_lg()
+                                .rounded(px(18.))
+                                .border_1()
+                                .border_color(cx.theme().colors().border_variant)
                                 .bg(cx.theme().colors().element_background)
                         })
                         .child(body)
+                        .when(message.kind == MessageKind::User, |element| {
+                            element.child(
+                                h_flex().justify_end().pt_1().child(
+                                    CopyButton::new(
+                                        ("codex-copy-user-message", index),
+                                        message.text.clone(),
+                                    )
+                                    .tooltip_label("Copy message"),
+                                ),
+                            )
+                        })
                         .into_any_element(),
                 )
             })
@@ -1530,16 +1552,22 @@ impl Render for CodexPanel {
                 )
             })
             .child(
-                v_flex()
-                    .id("codex-transcript")
+                div()
                     .flex_1()
                     .min_h_0()
-                    .overflow_y_scroll()
-                    .track_scroll(&self.scroll_handle)
-                    .px_3()
-                    .py_2()
-                    .gap_2()
-                    .children(messages),
+                    .relative()
+                    .child(
+                        v_flex()
+                            .id("codex-transcript")
+                            .size_full()
+                            .overflow_y_scroll()
+                            .track_scroll(&self.scroll_handle)
+                            .px_3()
+                            .py_2()
+                            .gap_2()
+                            .children(messages),
+                    )
+                    .vertical_scrollbar_for(&self.scroll_handle, window, cx),
             )
             .when_some(self.session.error.clone(), |element, error| {
                 element.child(

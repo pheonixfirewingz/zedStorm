@@ -299,6 +299,10 @@ impl GoToDiagnosticSeverityFilter {
 
 #[derive(Clone, Debug)]
 pub struct GitSettings {
+    pub sign_commits: Option<bool>,
+    pub gpg_signing_key: Option<String>,
+    pub ssh_signing_key: Option<String>,
+    pub ssh_key: Option<String>,
     /// Whether or not git integration is enabled.
     ///
     /// Default: true
@@ -527,6 +531,10 @@ impl Settings for ProjectSettings {
             }
         };
         let git_settings = GitSettings {
+            sign_commits: git.sign_commits,
+            gpg_signing_key: git.gpg_signing_key.clone(),
+            ssh_signing_key: git.ssh_signing_key.clone(),
+            ssh_key: git.ssh_key.clone(),
             enabled: git_enabled,
             git_gutter: git.git_gutter.unwrap(),
             gutter_debounce: git.gutter_debounce.unwrap_or_default(),

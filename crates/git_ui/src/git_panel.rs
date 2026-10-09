@@ -4454,6 +4454,25 @@ impl GitPanel {
                 window
                     .update(cx, |_, window, cx| {
                         workspace.update(cx, |workspace, cx| {
+                            if prompt.contains("Git signing key")
+                                && let Some(graph) =
+                                    workspace.active_item_as::<crate::git_graph::GitGraph>(cx)
+                            {
+                                let modal = cx.new(|cx| {
+                                    AskPassModal::new(
+                                        operation.clone(),
+                                        prompt.into(),
+                                        tx,
+                                        cancellation,
+                                        window,
+                                        cx,
+                                    )
+                                });
+                                graph.update(cx, |graph, cx| {
+                                    graph.show_signing_prompt(modal, window, cx)
+                                });
+                                return;
+                            }
                             workspace.toggle_modal(window, cx, |window, cx| {
                                 AskPassModal::new(
                                     operation.clone(),
