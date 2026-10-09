@@ -1,4 +1,5 @@
 mod components;
+mod github_auth;
 mod page_data;
 pub mod pages;
 mod vibe_settings;
@@ -432,6 +433,7 @@ impl Focusable for NonFocusableHandle {
 
 #[derive(Default)]
 struct SettingsFieldMetadata {
+    allow_missing_default: bool,
     placeholder: Option<&'static str>,
     should_do_titlecase: Option<bool>,
     display_confirm_button: bool,
@@ -1075,7 +1077,13 @@ impl SettingsPageItem {
                     renderers.get(&AnySettingField::type_id(setting_item.field.as_ref()));
                 let field_renderer_or_warning =
                     field_renderer.ok_or("NO RENDERER").and_then(|renderer| {
-                        if cfg!(debug_assertions) && !found {
+                        if cfg!(debug_assertions)
+                            && !found
+                            && !setting_item
+                                .metadata
+                                .as_ref()
+                                .is_some_and(|metadata| metadata.allow_missing_default)
+                        {
                             Err("NO DEFAULT")
                         } else {
                             Ok(renderer)

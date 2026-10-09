@@ -18,7 +18,7 @@ pub async fn run_server(
     incoming: channel::Sender<Result<Value>>,
 ) {
     let result = match backend {
-        super::Backend::Codex => serve(directory, outgoing, incoming.clone()).await,
+        super::Backend::Codex => serve(directory, http_client, outgoing, incoming.clone()).await,
         super::Backend::Mistral => {
             let key = async {
                 let stored = match credentials {
@@ -55,6 +55,7 @@ pub async fn run_server(
 
 async fn serve(
     directory: PathBuf,
+    http_client: std::sync::Arc<dyn http_client::HttpClient>,
     outgoing: channel::Receiver<Value>,
     incoming: channel::Sender<Result<Value>>,
 ) -> Result<()> {
@@ -62,11 +63,12 @@ async fn serve(
         std::env::current_exe().context("Cannot locate ZedStorm's built-in MCP server")?;
     let writable = std::env::var("ZEDSTORM_CONTEXT_MCP_WRITE").is_ok_and(|value| value == "1");
     let configuration = context_mcp::codex_configuration(&executable, &directory, writable)?;
-    serve_with_configuration(directory, configuration, outgoing, incoming).await
+    serve_with_configuration(directory, http_client, configuration, outgoing, incoming).await
 }
 
 pub async fn serve_commit_message(
     directory: PathBuf,
+    http_client: std::sync::Arc<dyn http_client::HttpClient>,
     outgoing: channel::Receiver<Value>,
     incoming: channel::Sender<Result<Value>>,
 ) -> Result<()> {
@@ -81,16 +83,26 @@ pub async fn serve_commit_message(
     .into_iter()
     .flat_map(|setting| ["-c".to_owned(), setting.to_owned()])
     .collect();
-    serve_with_configuration(directory, configuration, outgoing, incoming).await
+    serve_with_configuration(directory, http_client, configuration, outgoing, incoming).await
 }
 
 async fn serve_with_configuration(
     directory: PathBuf,
+    http_client: std::sync::Arc<dyn http_client::HttpClient>,
     configuration: Vec<String>,
     outgoing: channel::Receiver<Value>,
     incoming: channel::Sender<Result<Value>>,
 ) -> Result<()> {
-    let mut child = Command::new("codex")
+    use http_client::managed_tools::{self, Tool};
+    let git = managed_tools::ensure_tool(Tool::Git, http_client.clone()).await?;
+    let codex = managed_tools::ensure_tool(Tool::Codex, http_client).await?;
+    let mut command = Command::new(codex);
+    managed_tools::configure_git(&git, &mut command)?;
+    command.env(
+        "PATH",
+        managed_tools::path_with_tools(std::env::var_os("PATH").as_deref())?,
+    );
+    let mut child = command
         .args(configuration)
         .args([
             "-c",
@@ -105,7 +117,7 @@ async fn serve_with_configuration(
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
-        .context("Could not start Codex. Install Codex CLI and ensure `codex` is on your PATH.")?;
+        .context("Could not start Codex after preparing its tools")?;
     let mut stdin = child.stdin.take().context("Codex stdin is unavailable")?;
     let stdout = child.stdout.take().context("Codex stdout is unavailable")?;
     let stderr = child.stderr.take().context("Codex stderr is unavailable")?;

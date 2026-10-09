@@ -6278,7 +6278,8 @@ impl GitPanel {
         self.commit_message_generation = Some(cx.spawn_in(window, async move |panel, cx| {
             let result = async {
                 let diff = diff.await.context("Could not load staged changes")??;
-                let message = cx.background_spawn(ai::generate_commit_message(directory, diff.clone())).await?;
+                let http_client = cx.update(|_, cx| cx.http_client())?;
+                let message = cx.background_spawn(ai::generate_commit_message(directory, diff.clone(), http_client)).await?;
                 let current_diff = panel.update(cx, |_, cx| {
                     repository.update(cx, |repository, cx| repository.diff(DiffType::HeadToIndex, cx))
                 })?.await.context("Could not verify staged changes")??;

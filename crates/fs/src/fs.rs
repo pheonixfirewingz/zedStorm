@@ -1246,7 +1246,12 @@ impl Fs for RealFs {
         abs_work_directory_path: &Path,
         fallback_branch_name: String,
     ) -> Result<()> {
-        let result = new_command("git")
+        let git =
+            http_client::managed_tools::system_or_bundled(http_client::managed_tools::Tool::Git)?
+                .context("Git is not available")?;
+        let mut command = new_command(&git);
+        http_client::managed_tools::configure_git(&git, &mut command)?;
+        let result = command
             .current_dir(abs_work_directory_path)
             .args(&["config", "--global", "--get", "init.defaultBranch"])
             .output()
@@ -1260,13 +1265,19 @@ impl Fs for RealFs {
             _ => fallback_branch_name,
         };
 
-        new_command("git")
+        let mut command = new_command(&git);
+        http_client::managed_tools::configure_git(&git, &mut command)?;
+        let output = command
             .current_dir(abs_work_directory_path)
             .args(&["init", "-b"])
             .arg(branch_name.trim())
             .output()
             .await?;
-
+        anyhow::ensure!(
+            output.status.success(),
+            "Git initialization failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         Ok(())
     }
 
@@ -1279,7 +1290,12 @@ impl Fs for RealFs {
         };
 
         let job_tracker = JobTracker::new(job_info, self.job_event_subscribers.clone());
-        let mut child = new_command("git")
+        let git =
+            http_client::managed_tools::system_or_bundled(http_client::managed_tools::Tool::Git)?
+                .context("Git is not available")?;
+        let mut command = new_command(&git);
+        http_client::managed_tools::configure_git(&git, &mut command)?;
+        let mut child = command
             .current_dir(abs_work_directory)
             .args(["clone", "--progress", repo_url])
             .stdout(Stdio::null())
@@ -1310,7 +1326,12 @@ impl Fs for RealFs {
     /// Will return `Ok` if the commands exit status is `0`, with the stdout
     /// contents. Otherwise returns `Err` with the stderr contents.
     async fn git_config(&self, abs_work_directory: &Path, args: Vec<String>) -> Result<String> {
-        let output = new_command("git")
+        let git =
+            http_client::managed_tools::system_or_bundled(http_client::managed_tools::Tool::Git)?
+                .context("Git is not available")?;
+        let mut command = new_command(&git);
+        http_client::managed_tools::configure_git(&git, &mut command)?;
+        let output = command
             .current_dir(abs_work_directory)
             .args([String::from("config")].into_iter().chain(args))
             .output()

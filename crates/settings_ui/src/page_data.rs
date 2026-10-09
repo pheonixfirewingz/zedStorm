@@ -7116,7 +7116,6 @@ fn terminal_page() -> SettingsPage {
 fn version_control_page() -> SettingsPage {
     fn git_integration_section() -> [SettingsPageItem; 7] {
         [
-            SettingsPageItem::SectionHeader("Git Integration"),
             SettingsPageItem::SectionHeader("Signing and Keys"),
             SettingsPageItem::SettingItem(SettingItem {
                 files: USER,
@@ -7130,7 +7129,10 @@ fn version_control_page() -> SettingsPage {
                         settings.git.get_or_insert_default().sign_commits = value
                     },
                 }),
-                metadata: None,
+                metadata: Some(Box::new(SettingsFieldMetadata {
+                    allow_missing_default: true,
+                    ..Default::default()
+                })),
             }),
             SettingsPageItem::SettingItem(SettingItem {
                 files: USER,
@@ -7144,7 +7146,12 @@ fn version_control_page() -> SettingsPage {
                         settings.git.get_or_insert_default().gpg_signing_key = value
                     },
                 }),
-                metadata: None,
+                metadata: Some(Box::new(SettingsFieldMetadata {
+                    allow_missing_default: true,
+                    display_clear_button: true,
+                    display_confirm_button: true,
+                    ..Default::default()
+                })),
             }),
             SettingsPageItem::SettingItem(SettingItem {
                 files: USER,
@@ -7158,7 +7165,12 @@ fn version_control_page() -> SettingsPage {
                         settings.git.get_or_insert_default().ssh_signing_key = value
                     },
                 }),
-                metadata: None,
+                metadata: Some(Box::new(SettingsFieldMetadata {
+                    allow_missing_default: true,
+                    display_clear_button: true,
+                    display_confirm_button: true,
+                    ..Default::default()
+                })),
             }),
             SettingsPageItem::SettingItem(SettingItem {
                 files: USER,
@@ -7172,8 +7184,14 @@ fn version_control_page() -> SettingsPage {
                         settings.git.get_or_insert_default().ssh_key = value
                     },
                 }),
-                metadata: None,
+                metadata: Some(Box::new(SettingsFieldMetadata {
+                    allow_missing_default: true,
+                    display_clear_button: true,
+                    display_confirm_button: true,
+                    ..Default::default()
+                })),
             }),
+            SettingsPageItem::SectionHeader("Integration"),
             SettingsPageItem::DynamicItem(DynamicItem {
                 discriminant: SettingItem {
                     files: USER,
@@ -7668,15 +7686,55 @@ fn version_control_page() -> SettingsPage {
 
     SettingsPage {
         title: "Version Control",
-        items: concat_sections![
-            git_integration_section(),
-            git_gutter_section(),
-            inline_git_blame_section(),
-            git_blame_view_section(),
-            branch_picker_section(),
-            file_diff_section(),
-            git_hunks_section(),
-        ],
+        items: Box::new([
+            SettingsPageItem::SectionHeader("Version Control"),
+            SettingsPageItem::SubPageLink(SubPageLink {
+                title: "Git".into(),
+                r#type: Default::default(),
+                description: Some("GitHub sign-in, commit signing, keys, diffs, and blame.".into()),
+                search_aliases: &[
+                    "GitHub",
+                    "signing",
+                    "GPG",
+                    "SSH",
+                    "authentication",
+                    "blame",
+                    "diff",
+                ],
+                json_path: Some("git"),
+                in_json: true,
+                files: USER,
+                render: |this, scroll_handle, window, cx| {
+                    use ui::prelude::*;
+                    let account = window.use_keyed_state("github-account", cx, |_, cx| {
+                        crate::github_auth::GitHubAccount::new(cx)
+                    });
+                    let items = concat_sections![
+                        git_integration_section(),
+                        git_gutter_section(),
+                        inline_git_blame_section(),
+                        git_blame_view_section(),
+                        branch_picker_section(),
+                        file_diff_section(),
+                        git_hunks_section(),
+                    ];
+                    let content = v_flex()
+                        .id("git-settings-page")
+                        .size_full()
+                        .overflow_y_scroll()
+                        .track_scroll(scroll_handle)
+                        .child(div().px_8().py_4().child(account));
+                    this.render_sub_page_items_in(
+                        content,
+                        items.iter().enumerate(),
+                        false,
+                        window,
+                        cx,
+                    )
+                    .into_any_element()
+                },
+            }),
+        ]),
     }
 }
 

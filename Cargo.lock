@@ -4243,6 +4243,7 @@ dependencies = [
  "futures",
  "git",
  "gpui",
+ "http_client",
  "ignore",
  "is_executable",
  "libc",
@@ -5497,6 +5498,7 @@ dependencies = [
  "tempfile",
  "url",
  "util",
+ "which",
 ]
 
 [[package]]
@@ -12061,8 +12063,10 @@ dependencies = [
  "serde_yaml_ng",
  "settings",
  "shell_command_parser",
+ "smol",
  "strum",
  "telemetry",
+ "tempfile",
  "theme",
  "theme_settings",
  "ui",

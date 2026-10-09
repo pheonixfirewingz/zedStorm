@@ -330,10 +330,20 @@ impl ExtensionBuilder {
     }
 
     async fn checkout_repo(&self, directory: &Path, url: &str, rev: &str) -> Result<()> {
+        let git = http_client::managed_tools::ensure_tool(
+            http_client::managed_tools::Tool::Git,
+            self.http.clone(),
+        )
+        .await?;
+        let git_command = || -> Result<util::command::Command> {
+            let mut command = util::command::new_command(&git);
+            http_client::managed_tools::configure_git(&git, &mut command)?;
+            Ok(command)
+        };
         let git_dir = directory.join(".git");
 
         if directory.exists() {
-            let remotes_output = util::command::new_command("git")
+            let remotes_output = git_command()?
                 .arg("--git-dir")
                 .arg(&git_dir)
                 .args(["remote", "get-url", "origin"])
@@ -349,7 +359,7 @@ impl ExtensionBuilder {
         } else {
             fs::create_dir_all(directory)
                 .with_context(|| format!("creating grammar directory {directory:?}"))?;
-            let init_output = util::command::new_command("git")
+            let init_output = git_command()?
                 .arg("init")
                 .current_dir(directory)
                 .output()
@@ -359,7 +369,7 @@ impl ExtensionBuilder {
                 "failed to run `git init` in directory {directory:?}"
             );
 
-            let remote_add_output = util::command::new_command("git")
+            let remote_add_output = git_command()?
                 .arg("--git-dir")
                 .arg(&git_dir)
                 .args(["remote", "add", "origin", url])
@@ -372,7 +382,7 @@ impl ExtensionBuilder {
             );
         }
 
-        let fetch_output = util::command::new_command("git")
+        let fetch_output = git_command()?
             .arg("--git-dir")
             .arg(&git_dir)
             .args(["fetch", "--depth", "1", "origin", rev])
@@ -380,7 +390,7 @@ impl ExtensionBuilder {
             .await
             .context("executing `git fetch`")?;
 
-        let checkout_output = util::command::new_command("git")
+        let checkout_output = git_command()?
             .arg("--git-dir")
             .arg(&git_dir)
             .args(["checkout", rev])

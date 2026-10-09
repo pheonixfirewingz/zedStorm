@@ -771,7 +771,7 @@ impl LocalRepositoryState {
         is_trusted: bool,
         cx: &mut AsyncApp,
     ) -> anyhow::Result<Self> {
-        let environment = project_environment
+        let mut environment = project_environment
                 .update(cx, |project_environment, cx| {
                     project_environment.local_directory_environment(&Shell::System, work_directory_abs_path.clone(), cx)
                 })?
@@ -781,6 +781,7 @@ impl LocalRepositoryState {
                     HashMap::default()
                 });
         let search_paths = environment.get("PATH").map(|val| val.to_owned());
+        let http_client = cx.update(|cx| cx.http_client());
         let backend = cx
             .background_spawn({
                 let fs = fs.clone();
@@ -791,11 +792,29 @@ impl LocalRepositoryState {
                                 .ok()
                         })
                         .or_else(|| which::which("git").ok());
-                    fs.open_repo(&dot_git_abs_path, system_git_binary_path.as_deref())
+                    let git_binary_path = match system_git_binary_path {
+                        Some(path) => path,
+                        None => {
+                            http_client::managed_tools::ensure_tool(
+                                http_client::managed_tools::Tool::Git,
+                                http_client,
+                            )
+                            .await?
+                        }
+                    };
+                    fs.open_repo(&dot_git_abs_path, Some(&git_binary_path))
                         .with_context(|| format!("opening repository at {dot_git_abs_path:?}"))
                 }
             })
             .await?;
+        let path = http_client::managed_tools::path_with_tools(
+            environment.get("PATH").map(std::ffi::OsStr::new),
+        )?;
+        environment.insert(
+            "PATH".into(),
+            path.into_string()
+                .map_err(|_| anyhow::anyhow!("Bundled tool path is not valid UTF-8"))?,
+        );
         backend.set_trusted(is_trusted);
         Ok(LocalRepositoryState {
             backend,
@@ -3298,8 +3317,15 @@ impl GitStore {
         match &self.state {
             GitStoreState::Local { fs, .. } => {
                 let fs = fs.clone();
-                cx.background_executor()
-                    .spawn(async move { fs.git_init(&path, fallback_branch_name).await })
+                let http_client = cx.http_client();
+                cx.background_executor().spawn(async move {
+                    http_client::managed_tools::ensure_tool(
+                        http_client::managed_tools::Tool::Git,
+                        http_client,
+                    )
+                    .await?;
+                    fs.git_init(&path, fallback_branch_name).await
+                })
             }
             GitStoreState::Remote {
                 upstream_client,
@@ -3332,8 +3358,15 @@ impl GitStore {
         match &self.state {
             GitStoreState::Local { fs, .. } => {
                 let fs = fs.clone();
-                cx.background_executor()
-                    .spawn(async move { fs.git_clone(&path, &repo).await })
+                let http_client = cx.http_client();
+                cx.background_executor().spawn(async move {
+                    http_client::managed_tools::ensure_tool(
+                        http_client::managed_tools::Tool::Git,
+                        http_client,
+                    )
+                    .await?;
+                    fs.git_clone(&path, &repo).await
+                })
             }
             GitStoreState::Remote {
                 upstream_client,

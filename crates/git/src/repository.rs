@@ -1374,6 +1374,11 @@ pub async fn get_git_committer(cx: &AsyncApp) -> GitCommitter {
             None
         };
 
+    let git_binary_path = git_binary_path.or_else(|| {
+        http_client::managed_tools::system_or_bundled(http_client::managed_tools::Tool::Git)
+            .log_err()
+            .flatten()
+    });
     let git = GitBinary::new(
         git_binary_path.unwrap_or(PathBuf::from("git")),
         paths::home_dir().clone(),
@@ -4031,6 +4036,7 @@ impl GitBinary {
         if let Some(index_file_path) = self.index_file_path.as_ref() {
             command.env("GIT_INDEX_FILE", index_file_path);
         }
+        http_client::managed_tools::configure_git(&self.git_binary_path, &mut command).log_err();
         command.envs(&self.envs);
         command
     }

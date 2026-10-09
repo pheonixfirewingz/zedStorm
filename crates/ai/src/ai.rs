@@ -119,13 +119,14 @@ fn open_codex(
         Ok(())
     })
     .detach_and_prompt_err("Could not open Codex chat", window, cx, |_, _, _| {
-        Some("Install Codex CLI and ensure `codex` is on your PATH.".into())
+        Some("Missing tools are installed beside the application automatically. Check that its folder is writable and retry.".into())
     });
 }
 
 pub async fn generate_commit_message(
     directory: std::path::PathBuf,
     diff: String,
+    http_client: std::sync::Arc<dyn http_client::HttpClient>,
 ) -> anyhow::Result<String> {
     anyhow::ensure!(
         !diff.trim().is_empty(),
@@ -134,8 +135,12 @@ pub async fn generate_commit_message(
     let diff = compact_commit_diff(&diff);
     let (outgoing, outgoing_receiver) = smol::channel::unbounded();
     let (incoming_sender, incoming) = smol::channel::unbounded();
-    let server =
-        codex_protocol::serve_commit_message(directory.clone(), outgoing_receiver, incoming_sender);
+    let server = codex_protocol::serve_commit_message(
+        directory.clone(),
+        http_client,
+        outgoing_receiver,
+        incoming_sender,
+    );
     let response = receive_commit_message(directory, diff, outgoing, incoming);
     futures::pin_mut!(server, response);
     match futures::future::select(server, response).await {
@@ -362,6 +367,7 @@ mod tests {
         let message = smol::block_on(generate_commit_message(
             directory.path().to_path_buf(),
             "diff --git a/main.rs b/main.rs\n--- a/main.rs\n+++ b/main.rs\n@@ -1 +1 @@\n-fn main() {}\n+fn main() { println!(\"Hello\"); }\n".into(),
+            std::sync::Arc::new(http_client::BlockedHttpClient),
         ))?;
         assert!(!message.trim().is_empty());
         assert!(message.len() < 2_000);
@@ -381,6 +387,7 @@ mod tests {
         let message = smol::block_on(generate_commit_message(
             directory.path().to_path_buf(),
             diff,
+            std::sync::Arc::new(http_client::BlockedHttpClient),
         ))?;
         assert!(!message.trim().is_empty());
         assert!(message.len() < 2_000);

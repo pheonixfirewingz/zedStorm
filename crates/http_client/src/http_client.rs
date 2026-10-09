@@ -3,6 +3,8 @@ mod async_body;
 pub mod github;
 #[cfg(all(not(target_family = "wasm"), feature = "github-download"))]
 pub mod github_download;
+#[cfg(all(not(target_family = "wasm"), feature = "github-download"))]
+pub mod managed_tools;
 
 pub use anyhow::{Result, anyhow};
 pub use async_body::{AsyncBody, Inner, Json};
