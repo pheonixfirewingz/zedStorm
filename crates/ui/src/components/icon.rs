@@ -162,14 +162,18 @@ impl Icon {
     }
 
     /// Create an icon from a path. Uses a heuristic to determine if it's embedded or external:
-    /// - Built-in file and folder icons are treated as embedded color images
+    /// - Built-in file icons are treated as embedded color images
+    /// - Built-in folder icons and chevrons are treated as embedded SVGs
     /// - Other paths starting with "icons/" are treated as embedded SVGs
     /// - Other paths are treated as external raster images (from icon themes)
     pub fn from_path(path: impl Into<SharedString>) -> Self {
         let path = path.into();
         let source = if path.starts_with("icons/file_icons/")
             && !path.starts_with("icons/file_icons/chevron_")
-        {
+            && !matches!(
+                path.as_ref(),
+                "icons/file_icons/folder.svg" | "icons/file_icons/folder_open.svg"
+            ) {
             IconSource::EmbeddedImage(path)
         } else if path.starts_with("icons/") {
             IconSource::Embedded(path)
