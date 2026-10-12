@@ -1458,6 +1458,14 @@ async fn test_fold_import_blocks_separated_by_comments_and_blank_lines(cx: &mut 
     cx.set_state(&format!("ˇ{source}"));
     cx.run_until_parked();
     cx.update_editor(|editor, window, cx| {
+        let snapshot = editor.snapshot(window, cx);
+        for row in [0, 3, 7] {
+            assert!(
+                snapshot
+                    .render_crease_toggle(MultiBufferRow(row), true, cx.entity(), window, cx)
+                    .is_some()
+            );
+        }
         editor.fold_at(MultiBufferRow(3), window, cx);
         assert_eq!(editor.display_text(cx), "use std::fmt;\nuse std::fs;\n// Threading\nuse std::sync::{Arc, Mutex};⋯\n\nuse std::io;\nuse std::path::Path;\n// Keep this comment visible\nfn main() {}\n");
         editor.fold_at(MultiBufferRow(0), window, cx);
