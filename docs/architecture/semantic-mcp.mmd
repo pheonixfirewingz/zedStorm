@@ -1,0 +1,15 @@
+flowchart LR
+    client[ZedStorm Codex panel or external MCP client]
+    stdio[Editor executable --context-mcp]
+    endpoint[Private endpoint file keyed by canonical root]
+    bridge[Authenticated loopback bridge in ai]
+    project[Live GPUI Project and buffers]
+    servers[Existing language servers]
+    disk[Project filesystem]
+    client <-->|stdio JSON-RPC| stdio
+    stdio -->|discover each semantic call| endpoint
+    stdio <-->|authenticated request and bounded result| bridge
+    bridge -->|foreground entity access| project
+    project <-->|typed LSP commands| servers
+    stdio -->|filesystem tools| disk
+    bridge -->|publish and remove on workspace lifetime| endpoint

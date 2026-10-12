@@ -13,3 +13,25 @@ The `ai` crate owns the native panel, its session state, Codex process lifecycle
 The integration initially inherits the CLI's model, sandbox, and approval configuration. The composer selectors apply model, supported reasoning levels up to High, and access overrides to subsequent turns. Returning to configured settings restores the original configuration. New Chat preserves the user's selections. It reuses existing CLI credentials; when required, the panel starts Codex's browser login. Upstream Zed agent, model-provider, prediction, web-search, sandbox, MCP/ACP, and AI evaluation crates are deleted. Their dependencies and editor integrations are removed, including AI commit-message generation and model settings. Codex owns the AI runtime and server configuration. Zed account authentication and collaboration panels remain disabled; shared collaboration libraries support editor infrastructure.
 
 See [the crate-boundary decision](adr/0002-ai-crate.md), [the integration decision](adr/0001-codex-cli.md), [the component diagram](codex-cli.mmd), and [the Codex App Server documentation](https://learn.chatgpt.com/docs/app-server).
+
+The built-in context MCP also serves language-server navigation. The stdio process
+owns MCP framing, tool schemas, root validation, budgets, and filesystem access.
+For semantic calls it discovers the running workspace's authenticated loopback
+bridge through a root-specific endpoint file in the application data directory.
+The `ai` crate owns the listener and dispatches requests on GPUI's foreground
+executor, using the workspace's existing `Project` and language-server buffer
+registration. No second language-server process is started by the MCP client.
+Live-source reads and navigation observe unsaved editor buffers. Read-only buffer
+retention is bounded; dirty buffers stay retained, and renames open affected files
+in the workspace for review. Closing the workspace cancels the bridge and removes
+its endpoint when it is still the current registration.
+
+Semantic and filesystem ownership deliberately differ: filesystem reads access
+disk; `read_buffer` accesses the editor. Semantic rename requires write opt-in in
+both processes, validates source freshness and the complete edit's paths, rejects
+resource operations, and pushes edits into editor undo history without saving.
+Capability failures, startup/indexing errors and timeouts are returned to the
+client. The bridge is local to a user/host; it is not a remote editor service.
+See [the semantic bridge decision](adr/0004-semantic-mcp.md),
+[the semantic component diagram](semantic-mcp.mmd), and
+[the tool/client contract](../../crates/context_mcp/README.md).

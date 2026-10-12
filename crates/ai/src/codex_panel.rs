@@ -69,6 +69,9 @@ pub struct CodexPanel {
     history_sender: Option<channel::Sender<super::chat_store::SavedChats>>,
     _history_error_task: Option<Task<()>>,
     history_writer_task: Option<Task<()>>,
+    context_bridge_task: Option<Task<()>>,
+    context_bridge_directory: Option<PathBuf>,
+    context_bridge_window: gpui::AnyWindowHandle,
 }
 
 impl CodexPanel {
@@ -94,6 +97,9 @@ impl CodexPanel {
                     panel.connect(cx);
                 }
             });
+        let project_subscription = cx.observe(workspace.project(), |panel, project, cx| {
+            panel.refresh_context_bridge(&project, false, cx);
+        });
         let usage_refresh_task = cx.spawn(async move |panel, cx| {
             loop {
                 cx.background_executor()
@@ -112,6 +118,19 @@ impl CodexPanel {
                 }
             }
         });
+        let directory = project_directory(workspace, cx);
+        let context_bridge_directory = context_bridge_directory(workspace.project().read(cx), cx);
+        let context_bridge_task = if let Some(root) = context_bridge_directory.clone() {
+            Some(super::context_bridge::start(
+                workspace.project().downgrade(),
+                workspace.weak_handle(),
+                window.window_handle(),
+                root,
+                cx,
+            ))
+        } else {
+            None
+        };
         let mut panel = Self {
             chat_identity: Rc::new(()),
             backend: super::Backend::Codex,
@@ -120,7 +139,7 @@ impl CodexPanel {
             workspace: workspace.weak_handle(),
             focus_handle: cx.focus_handle(),
             prompt,
-            session: Session::new(project_directory(workspace, cx)),
+            session: Session::new(directory),
             outgoing: None,
             connection_task: None,
             event_task: None,
@@ -136,6 +155,7 @@ impl CodexPanel {
                 subscription,
                 settings_subscription,
                 credentials_subscription,
+                project_subscription,
                 cx.on_app_quit(|panel, _| {
                     panel.save_history();
                     panel.history_sender.take();
@@ -161,6 +181,9 @@ impl CodexPanel {
             history_sender: None,
             _history_error_task: None,
             history_writer_task: None,
+            context_bridge_task,
+            context_bridge_directory,
+            context_bridge_window: window.window_handle(),
         };
         panel.restore_history(cx);
         panel.sync_markdown(cx);
@@ -299,6 +322,29 @@ impl CodexPanel {
         }
     }
 
+    fn refresh_context_bridge(
+        &mut self,
+        project: &Entity<project::Project>,
+        restart: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let directory = context_bridge_directory(project.read(cx), cx);
+        if !restart && self.context_bridge_directory == directory {
+            return;
+        }
+        self.context_bridge_task.take();
+        self.context_bridge_directory = directory.clone();
+        if let Some(directory) = directory {
+            self.context_bridge_task = Some(super::context_bridge::start(
+                project.downgrade(),
+                self.workspace.clone(),
+                self.context_bridge_window,
+                directory,
+                cx,
+            ));
+        }
+    }
+
     fn connect(&mut self, cx: &mut Context<Self>) {
         if self.remote {
             self.session.error = Some(
@@ -322,6 +368,10 @@ impl CodexPanel {
         let initialize = self.session.initialize();
         self.transmit(initialize);
         let directory = self.session.directory.clone();
+        if let Some(workspace) = self.workspace.upgrade() {
+            let project = workspace.read(cx).project().clone();
+            self.refresh_context_bridge(&project, true, cx);
+        }
         let credentials = if self.backend == super::Backend::Mistral {
             Some(cx.read_credentials(super::VIBE_CREDENTIAL_KEY))
         } else {
@@ -815,7 +865,13 @@ impl CodexPanel {
             .or(self.session.selected_model())
             .unwrap_or("Model");
         let reasoning_label = reasoning_label(self.session.selected_reasoning_effort());
-        let access_label = self.session.access_label();
+        let flatpak_sandbox =
+            self.backend == super::Backend::Codex && self.session.uses_flatpak_sandbox();
+        let access_label = if flatpak_sandbox {
+            "Flatpak sandbox"
+        } else {
+            self.session.access_label()
+        };
         let trigger = |label: &str, icon: Option<IconName>| {
             h_flex()
                 .gap_1()
@@ -866,8 +922,8 @@ impl CodexPanel {
                 .tab_index(0)
                 .aria_label("Access")
                 .aria_value(access_label)
-                .disabled(self.session.busy)
-                .trigger_tooltip(Tooltip::text(if self.backend == super::Backend::Mistral { "Read-only: project reads. Default and Workspace write: approve modifying tools. Full access: automatically approve project tools. Mistral API requires network in every mode." } else { "Read-only: no edits or network. Workspace write: project edits, approval for elevated access. Full access: unrestricted files and network, no approvals." })))
+                .disabled(self.session.busy || flatpak_sandbox)
+                .trigger_tooltip(Tooltip::text(if flatpak_sandbox { "Codex runs inside Flatpak with its filesystem and network permissions. Workspace write restrictions are unavailable. Configured approvals still apply." } else if self.backend == super::Backend::Mistral { "Read-only: project reads. Default and Workspace write: approve modifying tools. Full access: automatically approve project tools. Mistral API requires network in every mode." } else { "Read-only: no edits or network. Workspace write: project edits, approval for elevated access. Full access: unrestricted files and network, no approvals." })))
     }
 
     fn switch_backend(&mut self, backend: super::Backend, cx: &mut Context<Self>) {
@@ -1116,6 +1172,25 @@ fn reasoning_label(effort: Option<&str>) -> &'static str {
     }
 }
 
+fn context_bridge_directory(project: &project::Project, cx: &App) -> Option<PathBuf> {
+    if project.is_remote() {
+        return None;
+    }
+    project.visible_worktrees(cx).next().and_then(|worktree| {
+        let worktree = worktree.read(cx);
+        let path = worktree.abs_path();
+        if !worktree
+            .root_entry()
+            .map(|entry| entry.is_dir())
+            .unwrap_or_else(|| path.is_dir())
+        {
+            path.parent().map(PathBuf::from)
+        } else {
+            Some(path.to_path_buf())
+        }
+    })
+}
+
 fn project_directory(workspace: &Workspace, cx: &App) -> PathBuf {
     workspace
         .worktrees(cx)
@@ -1234,7 +1309,7 @@ impl Render for CodexPanel {
         };
         let directory = self.session.directory.display().to_string();
         let can_send = self.session.ready
-            && !self.session.busy
+            && (!self.session.busy || self.session.can_steer())
             && !self.session.needs_sign_in
             && !self.prompt.read(cx).text(cx).trim().is_empty();
         let messages = self
@@ -1684,6 +1759,14 @@ impl Render for CodexPanel {
                                             }
                                         })
                                         .tooltip(Tooltip::text(format!("{status} · {directory}"))))
+                                    .when(self.session.busy, |element| element.child(
+                                        Button::new("codex-steer", "Steer")
+                                            .disabled(!can_send)
+                                            .tooltip(Tooltip::text("Guide the active response · Enter"))
+                                            .on_click(cx.listener(|panel, _, window, cx| {
+                                                panel.send(&SendPrompt, window, cx)
+                                            })),
+                                    ))
                                     .child(
                                     div()
                                         .flex_none()

@@ -16,6 +16,10 @@ pub struct Conversation {
     messages: Vec<Value>,
     items: Vec<Value>,
     next_turn: usize,
+    #[serde(skip)]
+    active_turn: Option<String>,
+    #[serde(skip)]
+    steering: Vec<Value>,
 }
 
 struct Client {
@@ -158,13 +162,16 @@ async fn serve_with_client(
                 if let Some(task) = active.take() {
                     task.cancel().await;
                 }
+                finish_turn(&conversation)?;
                 while approval_receiver.try_recv().is_ok() {}
                 let turn = {
                     let mut state = conversation
                         .lock()
                         .map_err(|_| anyhow::anyhow!("Mistral conversation lock failed"))?;
                     state.next_turn += 1;
-                    format!("mistral-turn-{}", state.next_turn)
+                    let turn = format!("mistral-turn-{}", state.next_turn);
+                    state.active_turn = Some(turn.clone());
+                    turn
                 };
                 current_turn = turn.clone();
                 send(
@@ -185,7 +192,7 @@ async fn serve_with_client(
                 active = Some(smol::spawn(async move {
                     let result = run_turn(
                         client,
-                        conversation,
+                        conversation.clone(),
                         directory,
                         parameters,
                         model,
@@ -194,6 +201,7 @@ async fn serve_with_client(
                         approvals,
                     )
                     .await;
+                    let result = finish_turn(&conversation).and(result);
                     let completion = match result {
                         Ok(()) => json!({"id": turn, "status": "completed"}),
                         Err(error) => {
@@ -206,6 +214,36 @@ async fn serve_with_client(
                 }));
                 continue;
             }
+            Some("turn/steer") => {
+                let accepted = {
+                    let mut state = conversation
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("Mistral conversation lock failed"))?;
+                    let text = parameters["input"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|item| item["text"].as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    if parameters["threadId"] == "mistral-local"
+                        && state.active_turn.as_deref() == parameters["expectedTurnId"].as_str()
+                        && state.active_turn.is_some()
+                        && !text.trim().is_empty()
+                    {
+                        state.steering.push(json!({"id": format!("{current_turn}-steer-{id}"),
+                            "type": "userMessage", "content": [{"type": "inputText", "text": text}]}));
+                        true
+                    } else {
+                        false
+                    }
+                };
+                if !accepted {
+                    send(&incoming, json!({"id": id, "error": {"message": "Mistral steering requires nonempty input and the active turn ID"}})).await?;
+                    continue;
+                }
+                json!({"turnId": current_turn})
+            }
             Some("turn/interrupt") => {
                 if parameters["turnId"].as_str() != Some(current_turn.as_str()) {
                     send(&incoming, json!({"id": id, "result": {}})).await?;
@@ -214,6 +252,7 @@ async fn serve_with_client(
                 if let Some(task) = active.take() {
                     task.cancel().await;
                 }
+                finish_turn(&conversation)?;
                 send(&incoming, json!({"method": "turn/completed", "params": {"threadId": "mistral-local", "turn": {"id": current_turn, "status": "interrupted"}}})).await?;
                 json!({})
             }
@@ -232,6 +271,10 @@ async fn serve_with_client(
         };
         send(&incoming, json!({"id": id, "result": result})).await?;
     }
+    if let Some(task) = active.take() {
+        task.cancel().await;
+    }
+    finish_turn(&conversation)?;
     Ok(())
 }
 
@@ -440,6 +483,9 @@ async fn run_turn(
     ];
     save_progress(&conversation, &messages, &mut items)?;
     for step in 0..32 {
+        if apply_steering(&conversation, &mut messages, &mut items, false)? {
+            save_progress(&conversation, &messages, &mut items)?;
+        }
         let mut request = json!({"model": model, "messages": messages, "tools": tools, "stream": true, "parallel_tool_calls": false});
         if let Some(effort) = effort.filter(|_| !supported_efforts.is_empty()) {
             request["reasoning_effort"] = json!(effort);
@@ -500,6 +546,10 @@ async fn run_turn(
         send(incoming,json!({"method":"item/completed","params":{"threadId":"mistral-local","turnId":turn,"item":item}})).await?;
         items.push(item);
         if calls.is_empty() {
+            if apply_steering(&conversation, &mut messages, &mut items, true)? {
+                save_progress(&conversation, &messages, &mut items)?;
+                continue;
+            }
             save_progress(&conversation, &messages, &mut items)?;
             return Ok(());
         }
@@ -579,6 +629,41 @@ fn save_progress(
     Ok(())
 }
 
+fn apply_steering(
+    conversation: &SharedConversation,
+    messages: &mut Vec<Value>,
+    items: &mut Vec<Value>,
+    finishing: bool,
+) -> Result<bool> {
+    let mut state = conversation
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Mistral conversation lock failed"))?;
+    let has_steering = !state.steering.is_empty();
+    for item in state.steering.drain(..) {
+        messages.push(json!({"role": "user", "content": item["content"][0]["text"]}));
+        items.push(item);
+    }
+    if finishing && !has_steering {
+        state.active_turn = None;
+    }
+    Ok(has_steering)
+}
+
+fn finish_turn(conversation: &SharedConversation) -> Result<()> {
+    let mut state = conversation
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Mistral conversation lock failed"))?;
+    let steering = std::mem::take(&mut state.steering);
+    for item in steering {
+        state
+            .messages
+            .push(json!({"role": "user", "content": item["content"][0]["text"]}));
+        state.items.push(item);
+    }
+    state.active_turn = None;
+    Ok(())
+}
+
 fn read_skill(skills: &[Skill], tool: &str, arguments: &Value) -> Result<String> {
     let skill = skills
         .iter()
@@ -649,6 +734,105 @@ fn merge_calls(calls: &mut BTreeMap<usize, Value>, fragments: &Value) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn steering_reaches_the_next_request_in_the_same_turn() -> Result<()> {
+        smol::block_on(async {
+            let directory = tempfile::tempdir()?;
+            let (started, request_started) = channel::bounded(1);
+            let (release, released) = channel::bounded(1);
+            let count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let observed = count.clone();
+            let http = http_client::FakeHttpClient::create(move |mut request| {
+                let started = started.clone();
+                let released = released.clone();
+                let count = observed.clone();
+                async move {
+                    let mut bytes = Vec::new();
+                    request.body_mut().read_to_end(&mut bytes).await?;
+                    let body: Value = serde_json::from_slice(&bytes)?;
+                    let index = count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    if index == 0 {
+                        started.send(()).await?;
+                        released.recv().await?;
+                    } else {
+                        assert_eq!(index, 1);
+                        let messages = body["messages"].as_array().context("Messages")?;
+                        assert_eq!(
+                            messages.last().context("Steering input")?["content"],
+                            "Focus on tests"
+                        );
+                        assert!(messages.iter().any(|message| message["role"] == "assistant"
+                            && message["content"] == "Original response"));
+                    }
+                    let text = if index == 0 {
+                        "Original response"
+                    } else {
+                        "Steered response"
+                    };
+                    Ok(http_client::Response::builder().body(
+                        format!(
+                            "data: {}\n\ndata: [DONE]\n\n",
+                            json!({"choices": [{"delta": {"content": text}}]})
+                        )
+                        .into(),
+                    )?)
+                }
+            });
+            let conversation = SharedConversation::default();
+            let (outgoing, commands) = channel::unbounded();
+            let (incoming, events) = channel::unbounded();
+            let server = smol::spawn(serve_with_client(
+                Arc::new(Client {
+                    http,
+                    key: "test".into(),
+                    base: "https://api.mistral.ai/v1".into(),
+                }),
+                "devstral-latest".into(),
+                conversation.clone(),
+                directory.path().into(),
+                commands,
+                incoming,
+            ));
+            outgoing
+                .send(json!({"id": 1, "method": "turn/start", "params": {
+                    "input": [{"text": "Initial prompt"}], "sandboxPolicy": {"type": "readOnly"}
+                }}))
+                .await?;
+            let turn = events.recv().await??["result"]["turn"]["id"].clone();
+            request_started.recv().await?;
+            outgoing.send(json!({"id": 2, "method": "turn/steer", "params": {
+                "threadId": "mistral-local", "expectedTurnId": "stale", "input": [{"text": "Ignored"}]
+            }})).await?;
+            assert!(events.recv().await??.get("error").is_some());
+            outgoing.send(json!({"id": 3, "method": "turn/steer", "params": {
+                "threadId": "mistral-local", "expectedTurnId": turn, "input": [{"text": "Focus on tests"}]
+            }})).await?;
+            assert_eq!(events.recv().await??["result"]["turnId"], turn);
+            release.send(()).await?;
+            loop {
+                let event = events.recv().await??;
+                if event["method"] == "turn/completed" {
+                    assert_eq!(event["params"]["turn"]["id"], turn);
+                    assert_eq!(event["params"]["turn"]["status"], "completed");
+                    break;
+                }
+            }
+            outgoing.send(json!({"id": 4, "method": "turn/steer", "params": {
+                "threadId": "mistral-local", "expectedTurnId": turn, "input": [{"text": "Too late"}]
+            }})).await?;
+            assert!(events.recv().await??.get("error").is_some());
+            drop(outgoing);
+            server.await?;
+            let state = conversation
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Lock failed"))?;
+            assert!(state.items.iter().any(|item| item["type"] == "userMessage"
+                && item["content"][0]["text"] == "Focus on tests"));
+            assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 2);
+            Ok(())
+        })
+    }
 
     #[test]
     fn saved_api_key_takes_precedence_and_missing_key_points_to_settings() -> Result<()> {

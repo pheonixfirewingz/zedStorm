@@ -198,6 +198,9 @@ fn main() {
     let args = Args::parse();
 
     if let Some(directory) = &args.context_mcp {
+        if let Some(directory) = args.user_data_dir.as_deref() {
+            paths::set_custom_data_dir(directory);
+        }
         if let Err(error) = ai::serve_context_mcp(directory, args.context_mcp_write) {
             eprintln!("Context MCP: {error:#}");
             process::exit(1);
@@ -1329,11 +1332,11 @@ fn stdout_is_a_pty() -> bool {
 #[derive(Parser, Debug)]
 #[command(name = "zed", disable_version_flag = true, max_term_width = 100)]
 struct Args {
-    /// Serve compact project file tools over MCP stdio without starting the editor.
+    /// Serve project filesystem and live-editor semantic tools over MCP stdio.
     #[arg(long, value_name = "DIR")]
     context_mcp: Option<PathBuf>,
 
-    /// Allow revision-checked edits and deletes through the context MCP server.
+    /// Allow filesystem mutations, builds, and revision-checked semantic renames.
     #[arg(long, requires = "context_mcp")]
     context_mcp_write: bool,
 

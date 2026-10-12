@@ -1,6 +1,7 @@
 mod chat_store;
 mod codex_panel;
 mod codex_protocol;
+mod context_bridge;
 mod mistral_api;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

@@ -48,6 +48,12 @@
   "lsp": {
     "rust-analyzer": {
       "initialization_options": {
+        "cachePriming": {
+          "enable": false,
+        },
+        "lru": {
+          "capacity": 32,
+        },
         "procMacro": {
           "processes": 4,
         },

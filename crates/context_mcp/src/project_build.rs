@@ -46,7 +46,7 @@ fn default_timeout() -> u64 {
     600
 }
 fn default_budget() -> usize {
-    8192
+    crate::DEFAULT_OUTPUT_BYTES
 }
 
 #[derive(Debug)]

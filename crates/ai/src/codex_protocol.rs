@@ -231,6 +231,7 @@ enum RequestKind {
     StartThread,
     ResumeThread,
     StartTurn,
+    SteerTurn(u64),
     Interrupt,
     Login,
 }
@@ -243,6 +244,7 @@ pub struct Session {
     pub signing_in: bool,
     pub model: Option<String>,
     pub settings: SessionSettings,
+    flatpak_sandbox: bool,
     pub models: Vec<Model>,
     pub models_error: Option<String>,
     configured_model: Option<String>,
@@ -280,6 +282,8 @@ impl Session {
             signing_in: false,
             model: None,
             settings: SessionSettings::default(),
+            flatpak_sandbox: cfg!(target_os = "linux")
+                && std::path::Path::new("/.flatpak-info").is_file(),
             models: Vec::new(),
             models_error: None,
             configured_model: None,
@@ -356,6 +360,10 @@ impl Session {
         }
     }
 
+    pub fn uses_flatpak_sandbox(&self) -> bool {
+        self.flatpak_sandbox
+    }
+
     pub fn initialize(&mut self) -> Value {
         self.pending.clear();
         self.ready = false;
@@ -369,9 +377,38 @@ impl Session {
         }))
     }
 
+    pub fn can_steer(&self) -> bool {
+        self.ready
+            && self.busy
+            && !self.needs_sign_in
+            && !self.stop_requested
+            && self.thread_id.is_some()
+            && self.turn_id.is_some()
+    }
+
     pub fn send_prompt(&mut self, text: String) -> Option<Value> {
-        if !self.ready || self.busy || self.needs_sign_in || text.trim().is_empty() {
+        if !self.ready || self.needs_sign_in || text.trim().is_empty() {
             return None;
+        }
+        if self.busy {
+            if !self.can_steer() {
+                return None;
+            }
+            let thread_id = self.thread_id.clone()?;
+            let turn_id = self.turn_id.clone()?;
+            let message_id = self.next_id + 1;
+            self.error = None;
+            self.messages.push(Message {
+                id: format!("user-{message_id}"),
+                kind: MessageKind::User,
+                text: text.clone(),
+            });
+            return Some(self.request(
+                RequestKind::SteerTurn(message_id),
+                "turn/steer",
+                json!({"threadId": thread_id, "expectedTurnId": turn_id,
+                    "input": [{"type": "text", "text": text}]}),
+            ));
         }
         self.error = None;
         self.stopped = false;
@@ -419,27 +456,36 @@ impl Session {
         if let Some(effort) = self.selected_reasoning_effort() {
             params["effort"] = json!(effort);
         }
-        match self.settings.access {
-            AccessMode::Default => {
-                if let Some(approval) = &self.configured_approval {
-                    params["approvalPolicy"] = approval.clone();
+        if self.flatpak_sandbox {
+            if let Some(approval) = &self.configured_approval {
+                params["approvalPolicy"] = approval.clone();
+            }
+            // Flatpak blocks nested user namespaces, so it must provide the sandbox.
+            params["sandboxPolicy"] =
+                json!({"type": "externalSandbox", "networkAccess": "enabled"});
+        } else {
+            match self.settings.access {
+                AccessMode::Default => {
+                    if let Some(approval) = &self.configured_approval {
+                        params["approvalPolicy"] = approval.clone();
+                    }
+                    if let Some(sandbox) = &self.configured_sandbox {
+                        params["sandboxPolicy"] = sandbox.clone();
+                    }
                 }
-                if let Some(sandbox) = &self.configured_sandbox {
-                    params["sandboxPolicy"] = sandbox.clone();
+                AccessMode::ReadOnly => {
+                    params["approvalPolicy"] = json!("never");
+                    params["sandboxPolicy"] = json!({"type": "readOnly"});
                 }
-            }
-            AccessMode::ReadOnly => {
-                params["approvalPolicy"] = json!("never");
-                params["sandboxPolicy"] = json!({"type": "readOnly"});
-            }
-            AccessMode::WorkspaceWrite => {
-                params["approvalPolicy"] = json!("on-request");
-                params["sandboxPolicy"] =
-                    json!({"type": "workspaceWrite", "writableRoots": [self.directory]});
-            }
-            AccessMode::FullAccess => {
-                params["approvalPolicy"] = json!("never");
-                params["sandboxPolicy"] = json!({"type": "dangerFullAccess"});
+                AccessMode::WorkspaceWrite => {
+                    params["approvalPolicy"] = json!("on-request");
+                    params["sandboxPolicy"] =
+                        json!({"type": "workspaceWrite", "writableRoots": [self.directory]});
+                }
+                AccessMode::FullAccess => {
+                    params["approvalPolicy"] = json!("never");
+                    params["sandboxPolicy"] = json!({"type": "dangerFullAccess"});
+                }
             }
         }
         Some(self.request(RequestKind::StartTurn, "turn/start", params))
@@ -536,6 +582,17 @@ impl Session {
                     self.prompt = None;
                 }
                 RequestKind::Login => self.signing_in = false,
+                RequestKind::SteerTurn(message_id) => {
+                    if let Some(message) = self
+                        .messages
+                        .iter_mut()
+                        .find(|message| message.id == format!("user-{message_id}"))
+                    {
+                        message.kind = MessageKind::Activity;
+                        message.text =
+                            format!("Steering failed. Please resend:\n\n{}", message.text);
+                    }
+                }
                 _ => {}
             }
             return Vec::new();
@@ -695,7 +752,7 @@ impl Session {
                     .map(str::to_owned);
                 Vec::new()
             }
-            RequestKind::Interrupt => Vec::new(),
+            RequestKind::Interrupt | RequestKind::SteerTurn(_) => Vec::new(),
         }
     }
 
@@ -875,11 +932,19 @@ impl Session {
                 )];
             }
             "warning" | "configWarning" => {
-                self.error = params
+                let message = params
                     .get("message")
                     .or_else(|| params.get("summary"))
-                    .and_then(Value::as_str)
-                    .map(str::to_owned);
+                    .and_then(Value::as_str);
+                if self.flatpak_sandbox
+                    && message.is_some_and(|message| {
+                        message.starts_with("Codex could not find bubblewrap on PATH.")
+                    })
+                {
+                    log::debug!("Codex uses Flatpak isolation; inner sandbox warning: {message:?}");
+                } else {
+                    self.error = message.map(str::to_owned);
+                }
             }
             _ => {}
         }
@@ -1080,6 +1145,51 @@ impl Session {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn steering_targets_the_active_turn_and_keeps_it_running() -> Result<()> {
+        let mut session = running_session()?;
+        let request = session
+            .send_prompt("Focus on tests".into())
+            .context("steering request")?;
+        assert_eq!(request["method"], "turn/steer");
+        assert_eq!(
+            request["params"],
+            json!({
+                "threadId": "thread-1", "expectedTurnId": "turn-1",
+                "input": [{"type": "text", "text": "Focus on tests"}]
+            })
+        );
+        session.receive(json!({"id": request["id"], "result": {"turnId": "turn-1"}}));
+        assert!(session.busy);
+        assert_eq!(session.turn_id.as_deref(), Some("turn-1"));
+        assert_eq!(
+            session.messages.last().context("steering message")?.text,
+            "Focus on tests"
+        );
+        session.interrupt().context("interrupt")?;
+        assert!(session.send_prompt("Too late".into()).is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn rejected_steering_preserves_text_and_active_turn() -> Result<()> {
+        let mut session = running_session()?;
+        let request = session
+            .send_prompt("Focus on tests".into())
+            .context("steering request")?;
+        session
+            .receive(json!({"id": request["id"], "error": {"message": "Turn already completed"}}));
+        assert_eq!(session.error.as_deref(), Some("Turn already completed"));
+        assert!(session.busy);
+        let message = session.messages.last().context("failed steering")?;
+        assert_eq!(message.kind, MessageKind::Activity);
+        assert!(message.text.contains("Focus on tests"));
+        session.turn_id = None;
+        assert!(!session.can_steer());
+        assert!(session.send_prompt("Wait".into()).is_none());
+        Ok(())
+    }
+
     #[test]
     fn mcp_tool_calls_show_results_and_errors() -> Result<()> {
         let mut session = running_session()?;
@@ -1315,6 +1425,58 @@ mod tests {
     }
 
     #[test]
+    fn flatpak_turns_use_external_isolation_and_preserve_configured_approvals() -> Result<()> {
+        for access in AccessMode::ALL {
+            let mut session = ready_session();
+            session.flatpak_sandbox = true;
+            session.settings.access = access;
+            let request = session
+                .send_prompt("Hello".into())
+                .context("thread request")?;
+            let followups = session.receive(json!({"id": request["id"], "result": {
+                "thread": {"id": "thread-1"}, "approvalPolicy": "on-request",
+                "sandbox": {"type": "readOnly"}
+            }}));
+            let turn = followups.first().context("first turn")?;
+            assert_eq!(
+                turn["params"]["sandboxPolicy"],
+                json!({
+                    "type": "externalSandbox", "networkAccess": "enabled"
+                })
+            );
+            assert_eq!(turn["params"]["approvalPolicy"], "on-request");
+            session.receive(json!({"method": "turn/completed", "params": {
+                "threadId": "thread-1", "turn": {"status": "completed"}
+            }}));
+            let followup = session.send_prompt("Continue".into()).context("followup")?;
+            assert_eq!(
+                followup["params"]["sandboxPolicy"],
+                turn["params"]["sandboxPolicy"]
+            );
+            assert_eq!(followup["params"]["approvalPolicy"], "on-request");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn flatpak_ignores_only_the_unused_bubblewrap_warning() {
+        let warning = json!({"method": "warning", "params": {
+            "message": "Codex could not find bubblewrap on PATH. Install bubblewrap with your OS package manager."
+        }});
+        let mut session = ready_session();
+        session.receive(warning.clone());
+        assert!(session.error.is_some());
+        session.error = None;
+        session.flatpak_sandbox = true;
+        session.receive(warning);
+        assert!(session.error.is_none());
+        session.receive(json!({"method": "configWarning", "params": {
+            "summary": "Invalid configuration"
+        }}));
+        assert_eq!(session.error.as_deref(), Some("Invalid configuration"));
+    }
+
+    #[test]
     fn codex_settings_apply_to_turns_and_restore_configured_defaults() -> Result<()> {
         let mut session = ready_session();
         session.settings.model = Some("selected-model".into());
@@ -1381,6 +1543,7 @@ mod tests {
 
     fn ready_session() -> Session {
         let mut session = Session::new("/tmp/project".into());
+        session.flatpak_sandbox = false;
         let initialize = session.initialize();
         let followups = session.receive(json!({"id": initialize["id"], "result": {}}));
         assert_eq!(

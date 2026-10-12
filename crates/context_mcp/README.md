@@ -3,10 +3,10 @@
 ZedStorm includes a native stdio MCP server in its own executable. The Codex panel
 registers `zedstorm_context` automatically when it starts `codex app-server`.
 There is no separate server to install and no change to `~/.codex/config.toml`.
-Other configured MCP servers, including Serena, remain available.
+Other configured MCP servers remain available.
 
-The server abstracts common filesystem commands and project builds into eleven
-native tools. Filesystem tools do not invoke a shell. Build tools invoke the
+The server provides filesystem, build, and semantic navigation tools.
+Filesystem tools do not invoke a shell. Build tools invoke the
 project's installed build program and keep normal build logs out of model context.
 
 | Tool | Command abstraction | Result |
@@ -47,10 +47,15 @@ the server cannot start.
 ## Using less context
 
 Find paths first, search a specific directory, and read only the relevant range.
-The default output budget is 8 KiB per tool call; `max_bytes` accepts 256–32768.
+The default output budget is 4 KiB per tool call; `max_bytes` accepts 256–32768.
 This bounds UTF-8 response text, not an exact model token count or the JSON-RPC
 envelope. The server returns text once, without duplicating it in structured
 content. Edit/delete receipts do not echo file contents.
+
+Tool descriptions contain only tool-specific guidance. The server omits optional
+initialization instructions because clients may prepend them to every tool,
+multiplying their context cost. Position conventions, revision requirements,
+and continuation guidance remain in the relevant tool descriptions and schemas.
 
 For `list`, `files`, and `search`, pass `next_offset` back as `offset` with the same
 arguments. Use `list` with `depth: 1` for `ls` or a larger depth (up to eight) for
@@ -98,18 +103,120 @@ the destination was created and the source was retained. It is not an atomic ren
 The root and revision checks protect against accidental operations, but are not
 an OS sandbox: another process can change filesystem paths between checks and
 operations. The MCP process runs with the editor user's filesystem permissions.
-It works on disk and does not coordinate with unsaved editor buffers.
+Filesystem tools work on disk and do not coordinate with unsaved editor buffers.
+Use `read_buffer` for the editor's current source.
 
-RTK and Serena are complementary: use RTK for compact supported shell output and
-Serena for language-server symbol definitions/references. This built-in server
-does text search; it does not claim semantic code navigation or increase the
-model's context window. Savings depend on the model choosing focused tools and
-appropriate budgets.
+Use semantic tools for code navigation and RTK for compact supported shell output.
+Savings depend on the model choosing focused tools and appropriate budgets.
+
+## Semantic navigation and external clients
+
+Open the same project in an updated ZedStorm editor. Its workspace starts a local
+semantic bridge automatically; a Codex login or active chat is not required.
+The stdio MCP process discovers that bridge for its canonical project root and
+reconnects on each call. Closing the workspace stops the bridge. Filesystem tools
+continue working without the editor; semantic tools report an explicit error.
+If several editor windows open the same root, the most recently started bridge
+serves external clients. Use one window per root when querying unsaved changes.
+
+| Tool | Result |
+| --- | --- |
+| `semantic_status` | Running language servers, pending work and diagnostic activity |
+| `read_buffer` | Current source, including unsaved edits, with revision and continuation |
+| `symbols` | Document symbols, nested name paths, full ranges and selection ranges |
+| `workspace_symbols` | Symbols matching a query across running language servers |
+| `definitions`, `declarations`, `type_definitions` | Semantic target locations with source excerpts |
+| `references`, `implementations` | Referencing or implementing locations with source excerpts |
+| `hover` | Type information, signatures and documentation |
+| `incoming_calls`, `outgoing_calls` | Callers/callees and their call sites |
+| `rename` | Revision-checked symbol rename in undoable, unsaved editor buffers |
+
+Source positions use **one-based lines and zero-based UTF-16 columns**. These
+columns differ from filesystem search/read byte columns when a line contains
+non-ASCII characters. Pass a symbol's `selection_range.start` to navigation tools.
+`read_buffer` can start at `line` and `column`, or use a UTF-8 byte `offset` to
+continue; do not combine a position with a nonzero offset. Subsequent pages use
+`next_offset` alone. Other semantic tools paginate result records with `offset`.
+Restart pagination after source or language-server index changes.
+
+For example, call `symbols` with `{"path":"src/main.rs"}`, then `definitions`
+with `{"path":"src/main.rs","line":12,"column":4}`. Use `read_buffer` with
+`{"path":"src/main.rs","line":12}` to inspect live source around that result.
+Dependency locations can be absolute paths; tool inputs remain scoped to the
+selected project root. Results come from the first capable language server for
+position-based requests. Workspace symbol search queries all supporting servers.
+
+Language support follows the editor's configured language servers. Trust the
+project in the editor when prompted, then open a source
+file to start its server, then retry if it is still starting or indexing.
+Unsupported requests and server failures are errors, rather than fabricated
+text-search results. `semantic_status` exposes reported progress; a running server
+does not guarantee that its index is complete. Requests have a bounded timeout.
+
+`rename` requires both `--context-mcp-write` in the MCP client and
+`ZEDSTORM_CONTEXT_MCP_WRITE=1` in the editor. Read the source with `read_buffer`
+first and pass its `revision` along with `path`, `line`, `column`, and `new_name`.
+The server checks the source revision before preparation and rejects source
+changes during the rename request. It validates all proposed file paths before
+applying edits, rejecting changes outside the root, symlinks, Git metadata, and
+file creation/deletion/moves. A language server requiring a file rename must be
+used through the editor instead. Edited files open for review and remain unsaved;
+save or undo them in the editor. After a timeout or connection loss, inspect the
+editor before retrying a mutation. Filesystem race protection remains best-effort.
+
+External MCP clients use the same executable and stdio arguments:
+
+```json
+{
+  "mcpServers": {
+    "zedstorm_context": {
+      "command": "/absolute/path/to/zed",
+      "args": ["--context-mcp", "/absolute/project/path"]
+    }
+  }
+}
+```
+
+For T3 Code's Codex provider, configure the server in the Codex configuration
+loaded by that provider. A TOML entry has the following form:
+
+```toml
+[mcp_servers.zedstorm_context]
+command = "/absolute/path/to/zed"
+args = ["--context-mcp", "/absolute/project/path"]
+```
+
+Use the actual editor executable, not a launcher. The provider and editor must
+run on the same host/user account and share ZedStorm's data directory. Launch the
+client with `--user-data-dir /absolute/data/path` when the editor uses a custom
+data directory; the built-in panel passes its data directory automatically. Start a
+new provider session after changing its MCP configuration. A fixed root entry
+always queries that project, even from a thread in another directory. T3 Code
+versions that replace the per-thread `mcp_servers` table can discard servers added
+only through launch arguments; see the
+[upstream configuration issue](https://github.com/pingdotgg/t3code/issues/15828).
+This implementation supplies the stdio server; it does not modify T3 Code or the
+user's global provider configuration. Validate the loaded tools before disabling
+Serena. It replaces semantic navigation and symbol rename, not Serena's memory
+or arbitrary symbol-body editing features.
+
+The bridge listens only on loopback and authenticates requests with a random
+project-specific credential stored in a private endpoint file in ZedStorm's data
+directory. Credentials are not returned in tool output. Reopening a workspace
+publishes a fresh endpoint; stale processes report an unavailable bridge.
 
 ```sh
 cargo test -p context_mcp
 ./script/clippy -p context_mcp
+cargo test -p ai
+node script/test-semantic-mcp.mjs /absolute/path/to/zed
 ```
+
+The semantic smoke test requires Node.js, a graphical desktop session, and a
+working Rust language server. Pass an installed rust-analyzer path as an optional
+second argument to avoid downloading another server. It starts an isolated editor with a temporary data
+directory/project, tests two stdio clients and unsaved rename, and cleans up its
+own processes and fixtures. It does not use the user's current workspace.
 
 ## Project builds
 
@@ -126,7 +233,7 @@ it returns error diagnostics as an MCP tool error, excluding normal progress and
 warning logs. Cargo compiler diagnostics are extracted from its JSON output.
 For other builders, recognizable error lines and their indented details are
 extracted. A failure without a recognizable diagnostic reports the exit status.
-`max_bytes` bounds returned errors (default 8192); truncation is explicit.
+`max_bytes` bounds returned errors (default 4096); truncation is explicit.
 Percentages are not fabricated when a builder cannot report reliable progress.
 
 `timeout_seconds` defaults to 600 and accepts 1–1800; timed-out builds have their
@@ -159,5 +266,6 @@ The component restrictions follow
 
 The Windows build workflow runs crate tests and
 `script/test-context-mcp.ps1` against the actual release editor executable. The
-smoke test checks all eleven tools, successful/failed Cargo builds, UTF-8 paths,
+smoke test checks filesystem/build tools, semantic tool discovery and unavailable-editor
+errors, successful/failed Cargo builds, UTF-8 paths,
 CRLF, read-only copies, junction restrictions, piped stdio, and EOF shutdown.

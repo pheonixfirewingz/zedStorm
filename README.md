@@ -17,6 +17,13 @@ The **Build ZedStorm** GitHub Actions workflow builds Linux and Windows x86_64 v
 
 Linux produces a Flatpak bundle. Install it with `flatpak install --user zedstorm-linux-x86_64.flatpak` and launch it with `flatpak run dev.zedstorm.ZedStorm`. Install Codex CLI on your host to use the chat panel.
 
+In the Linux Flatpak build, Codex runs inside Flatpak and uses its isolation
+instead of creating a nested bubblewrap sandbox. The access control displays
+`Flatpak sandbox`; Codex's configured approval policy still applies. The package
+grants host filesystem and network access, so Codex can access those resources
+without per-workspace write restrictions. Windows, macOS, and native Linux builds
+continue using Codex's configured sandbox and access modes.
+
 On Windows, extract the ZIP and launch `zed.exe`, keeping the terminal helper files alongside it.
 
 To build a Flatpak locally, install Rust with rustup, `flatpak`, and `flatpak-builder`, then run:

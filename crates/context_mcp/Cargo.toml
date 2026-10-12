@@ -14,8 +14,10 @@ workspace = true
 [dependencies]
 anyhow.workspace = true
 ignore.workspace = true
+paths.workspace = true
 regex = { workspace = true, features = ["unicode"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 sha2.workspace = true
 tempfile.workspace = true
+uuid = { workspace = true, features = ["v4"] }

@@ -3804,6 +3804,7 @@ impl Project {
             new_name,
             push_to_history,
             language_server_id,
+            scope: None,
         };
         if let Some(server_id) = request.language_server_id {
             let server_is_capable = !self.is_local()

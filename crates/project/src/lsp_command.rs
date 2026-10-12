@@ -13,7 +13,9 @@ use async_trait::async_trait;
 use client::proto::{self, PeerId};
 use clock::Global;
 use collections::HashMap;
-use gpui::{App, AsyncApp, Entity, SharedString, Task, TaskExt, prelude::FluentBuilder};
+use gpui::{
+    App, AppContext as _, AsyncApp, Entity, SharedString, Task, TaskExt, prelude::FluentBuilder,
+};
 use language::{
     Anchor, Bias, Buffer, BufferSnapshot, CachedLspAdapter, CharKind, CharScopeContext,
     OffsetRangeExt, PointUtf16, SymbolKind, ToOffset, ToPointUtf16, Transaction, Unclipped,
@@ -34,7 +36,14 @@ use lsp::{
 use serde_json::Value;
 
 use signature_help::{lsp_to_proto_signature, proto_to_lsp_signature};
-use std::{cmp::Reverse, collections::hash_map, ops::Range, path::Path, str::FromStr, sync::Arc};
+use std::{
+    cmp::Reverse,
+    collections::hash_map,
+    ops::Range,
+    path::{Path, PathBuf},
+    str::FromStr,
+    sync::Arc,
+};
 use text::{BufferId, LineEnding};
 use util::rel_path::RelPath;
 use util::{ResultExt as _, debug_panic};
@@ -158,16 +167,23 @@ pub trait LspCommand: 'static + Sized + Send + std::fmt::Debug {
 }
 
 #[derive(Debug)]
-pub(crate) struct PrepareRename {
+pub struct PrepareRename {
     pub position: PointUtf16,
 }
 
 #[derive(Debug)]
-pub(crate) struct PerformRename {
+pub struct PerformRename {
     pub position: PointUtf16,
     pub new_name: String,
     pub push_to_history: bool,
     pub language_server_id: Option<LanguageServerId>,
+    pub scope: Option<RenameScope>,
+}
+
+#[derive(Debug)]
+pub struct RenameScope {
+    pub root: PathBuf,
+    pub source_version: Global,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -187,12 +203,12 @@ pub(crate) struct GetEditPredictionDefinitions {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct GetDeclarations {
+pub struct GetDeclarations {
     pub position: PointUtf16,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct GetTypeDefinitions {
+pub struct GetTypeDefinitions {
     pub position: PointUtf16,
 }
 
@@ -202,12 +218,12 @@ pub(crate) struct GetEditPredictionTypeDefinitions {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct GetImplementations {
+pub struct GetImplementations {
     pub position: PointUtf16,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct GetReferences {
+pub struct GetReferences {
     pub position: PointUtf16,
 }
 
@@ -217,7 +233,7 @@ pub(crate) struct GetDocumentHighlights {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub(crate) struct GetDocumentSymbols;
+pub struct GetDocumentSymbols;
 
 #[derive(Clone, Debug)]
 pub(crate) struct GetSignatureHelp {
@@ -225,7 +241,7 @@ pub(crate) struct GetSignatureHelp {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct GetHover {
+pub struct GetHover {
     pub position: PointUtf16,
 }
 
@@ -1134,6 +1150,75 @@ impl LspCommand for PrepareRename {
     }
 }
 
+fn validate_scoped_rename(edit: &lsp::WorkspaceEdit, root: &Path) -> Result<()> {
+    let root = util::paths::SanitizedPath::new(root).as_path();
+    let validate = |uri: &lsp::Uri| -> Result<()> {
+        let path = uri
+            .to_file_path()
+            .map_err(|_| anyhow::anyhow!("Rename target is not a file URI"))?;
+        let path = util::paths::SanitizedPath::new(&path).as_path();
+        let relative = path
+            .strip_prefix(root)
+            .context("Rename would edit outside the MCP project root")?;
+        let mut current = root.to_path_buf();
+        for component in relative.components() {
+            anyhow::ensure!(
+                matches!(component, std::path::Component::Normal(_)),
+                "Invalid rename target path"
+            );
+            anyhow::ensure!(
+                !component
+                    .as_os_str()
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(".git"),
+                "Rename cannot edit Git metadata"
+            );
+            current.push(component);
+            anyhow::ensure!(
+                !std::fs::symlink_metadata(&current)?
+                    .file_type()
+                    .is_symlink(),
+                "Rename cannot traverse symlinks"
+            );
+        }
+        anyhow::ensure!(
+            util::paths::SanitizedPath::new(&path.canonicalize()?)
+                .as_path()
+                .starts_with(root)
+                && path.is_file(),
+            "Rename target must be an existing project file"
+        );
+        Ok(())
+    };
+    if let Some(changes) = &edit.changes {
+        for uri in changes.keys() {
+            validate(uri)?;
+        }
+    }
+    if let Some(changes) = &edit.document_changes {
+        match changes {
+            lsp::DocumentChanges::Edits(edits) => {
+                for edit in edits {
+                    validate(&edit.text_document.uri)?;
+                }
+            }
+            lsp::DocumentChanges::Operations(operations) => {
+                for operation in operations {
+                    match operation {
+                        lsp::DocumentChangeOperation::Edit(edit) => {
+                            validate(&edit.text_document.uri)?
+                        }
+                        lsp::DocumentChangeOperation::Op(_) => anyhow::bail!(
+                            "MCP symbol rename cannot create, delete or rename files; use the editor for this operation"
+                        ),
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[async_trait(?Send)]
 impl LspCommand for PerformRename {
     type Response = ProjectTransaction;
@@ -1178,6 +1263,22 @@ impl LspCommand for PerformRename {
         mut cx: AsyncApp,
     ) -> Result<ProjectTransaction> {
         if let Some(edit) = message {
+            if let Some(scope) = &self.scope {
+                anyhow::ensure!(
+                    buffer.read_with(&cx, |buffer, _| buffer.version()) == scope.source_version,
+                    "Source buffer changed during rename; read_buffer again before retrying"
+                );
+                let edit_to_validate = edit.clone();
+                let root = scope.root.clone();
+                cx.background_spawn(
+                    async move { validate_scoped_rename(&edit_to_validate, &root) },
+                )
+                .await?;
+                anyhow::ensure!(
+                    buffer.read_with(&cx, |buffer, _| buffer.version()) == scope.source_version,
+                    "Source buffer changed while validating rename; read_buffer again before retrying"
+                );
+            }
             let (_, lsp_server) =
                 language_server_for_buffer(&lsp_store, &buffer, server_id, &mut cx)?;
             LocalLspStore::deserialize_workspace_edit(
@@ -1226,6 +1327,7 @@ impl LspCommand for PerformRename {
             new_name: message.new_name,
             push_to_history: false,
             language_server_id: message.language_server_id.map(LanguageServerId::from_proto),
+            scope: None,
         };
         if let Some(server_id) = request.language_server_id {
             // Only a store that runs the servers can judge the id; non-local stores forward

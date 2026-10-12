@@ -60,6 +60,11 @@ try {
     foreach ($name in @('list', 'stat', 'files', 'search', 'read', 'edit', 'delete', 'mkdir', 'copy', 'move', 'build')) {
         Assert-Condition ($tools.tools.name -contains $name) "Missing tool: $name"
     }
+    foreach ($name in @('semantic_status', 'read_buffer', 'symbols', 'workspace_symbols', 'definitions', 'declarations', 'type_definitions', 'references', 'implementations', 'hover', 'incoming_calls', 'outgoing_calls', 'rename')) {
+        Assert-Condition ($tools.tools.name -contains $name) "Missing semantic tool: $name"
+    }
+    $unavailable = Invoke-Tool 20 'semantic_status' @{} -ExpectError
+    Assert-Condition ($unavailable.content[0].text.Contains('Open this project in ZedStorm')) 'Missing unavailable-editor diagnostic'
     Invoke-Tool 3 'mkdir' @{ path = 'nested'; parents = $false } | Out-Null
     Invoke-Tool 4 'edit' @{ path = 'nested/é file.txt'; revision = 'new'; old_text = ''; new_text = "first`r`nsecond`r`n" } | Out-Null
     $read = Invoke-Tool 5 'read' @{ path = 'nested\é file.txt'; max_bytes = 256 }
@@ -108,7 +113,7 @@ try {
     $process.StandardInput.Close()
     Assert-Condition ($process.WaitForExit(10000)) 'MCP did not exit at EOF'
     Assert-Condition ($process.ExitCode -eq 0) "MCP exited with $($process.ExitCode): $($diagnostics.Result)"
-    Write-Output 'Native Windows MCP smoke passed: all eleven tools, build results, UTF-8 paths, CRLF, read-only copies, path restrictions, junctions, and stdio lifecycle'
+    Write-Output 'Native Windows MCP smoke passed: filesystem/build tools, semantic discovery and unavailable-editor errors, UTF-8 paths, CRLF, read-only copies, path restrictions, junctions, and stdio lifecycle'
 } finally {
     if ($null -ne $process) {
         if (-not $process.HasExited) { $process.Kill($true); $process.WaitForExit() }
