@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src https://embed.diagrams.net; script-src 'unsafe-inline'; style-src 'unsafe-inline'">
+  <title>diagrams.net</title>
+  <style>
+    :root { color-scheme: light dark; font: 14px system-ui, sans-serif; }
+    body { margin: 0; height: 100vh; display: flex; flex-direction: column; }
+    #status { margin: 0; padding: 10px 16px; overflow-wrap: anywhere; }
+    iframe { border: 0; flex: 1; width: 100%; min-height: 0; }
+    dialog { max-width: min(420px, 80vw); padding: 24px; border-radius: 8px; }
+    dialog::backdrop { background: rgb(0 0 0 / 50%); }
+    button { padding: 10px 16px; margin: 8px 8px 0 0; font: inherit; cursor: pointer; }
+    button:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; }
+  </style>
+</head>
+<body>
+  <p id="status" role="status" aria-live="polite">Loading diagrams.net…</p>
+  <iframe id="editor" title="diagrams.net diagram editor" src="https://embed.diagrams.net/?embed=1&amp;proto=json"></iframe>
+  <dialog id="close-dialog" aria-labelledby="close-title" aria-describedby="close-description">
+    <h2 id="close-title">Discard unsaved changes?</h2>
+    <p id="close-description">To keep your changes, cancel and select Save in the diagram editor.</p>
+    <button id="cancel-close" autofocus>Cancel</button>
+    <button id="discard-close">Discard and close</button>
+  </dialog>
+  <script>/* BRIDGE */</script>
+</body>
+</html>

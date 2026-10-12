@@ -14,9 +14,7 @@ use crate::solo_diff_view::SoloDiffView;
 use crate::staged_diff::StagedDiff;
 use crate::unstaged_diff::UnstagedDiff;
 use crate::{branch_picker, picker_prompt, render_remote_button};
-use crate::{
-    git_panel_settings::GitPanelSettings, git_status_icon, repository_selector::RepositorySelector,
-};
+use crate::{git_panel_settings::GitPanelSettings, git_status_icon};
 use anyhow::Context as _;
 use askpass::AskPassDelegate;
 use collections::{BTreeMap, HashMap, HashSet};
@@ -82,7 +80,7 @@ use time::OffsetDateTime;
 use ui::{
     ButtonLike, Checkbox, Chip, ContextMenu, ContextMenuEntry, DocumentationSide, ElevationIndex,
     IndentGuideColors, KeyBinding, PopoverMenu, PopoverMenuHandle, ProjectEmptyState, ScrollAxes,
-    Scrollbars, SplitButton, Tab, Tooltip, WithScrollbar, prelude::*,
+    Scrollbars, SplitButton, Tab, TabPosition, Tooltip, WithScrollbar, prelude::*,
 };
 use util::paths::PathStyle;
 use util::{ResultExt, TryFutureExt, markdown::MarkdownInlineCode, maybe};
@@ -5702,7 +5700,7 @@ impl GitPanel {
                         Box::new(cx.new(|cx| {
                             let mut editor =
                                 Editor::for_multibuffer(buffer, Some(project.clone()), window, cx);
-                            editor.set_breadcrumb_header(title);
+
                             editor.disable_mouse_wheel_zoom();
                             editor
                         })),
@@ -9376,10 +9374,30 @@ impl RenderOnce for PanelRepoFooter {
             })
             .unzip();
 
-        let single_repo = project
+        let mut repositories = project
             .as_ref()
-            .map(|project| project.read(cx).git_store().read(cx).repositories().len() == 1)
-            .unwrap_or(true);
+            .map(|project| {
+                project
+                    .read(cx)
+                    .git_store()
+                    .read(cx)
+                    .repositories()
+                    .values()
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        repositories.sort_by(|left, right| {
+            let left = left.read(cx);
+            let right = right.read(cx);
+            left.display_name()
+                .to_lowercase()
+                .cmp(&right.display_name().to_lowercase())
+                .then_with(|| {
+                    left.work_directory_abs_path
+                        .cmp(&right.work_directory_abs_path)
+                })
+        });
 
         const MAX_SHORT_SHA_LEN: usize = 8;
         let branch_name = self
@@ -9397,35 +9415,69 @@ impl RenderOnce for PanelRepoFooter {
             })
             .unwrap_or_else(|| " (no branch)".to_owned());
 
-        let active_repo_name = self.active_repository.clone();
-
-        let repo_selector = PopoverMenu::new("repository-switcher")
-            .menu({
-                let project = project;
-                move |window, cx| {
-                    let project = project.clone()?;
-                    Some(cx.new(|cx| RepositorySelector::new(project, rems(20.), window, cx)))
-                }
-            })
-            .trigger_with_tooltip(
-                Button::new("repo-selector", active_repo_name)
-                    .size(ButtonSize::None)
-                    .label_size(LabelSize::Small)
-                    .truncate(true),
-                move |_, cx| {
-                    if single_repo {
-                        cx.new(|_| Empty).into()
-                    } else {
-                        Tooltip::simple("Switch Active Repository", cx)
-                    }
-                },
-            )
-            .anchor(Anchor::TopLeft)
-            .offset(gpui::Point {
-                x: px(0.0),
-                y: px(2.0),
-            })
-            .into_any_element();
+        let repository_navigation = if repositories.len() > 1 {
+            let active_repository = repo.as_ref().and_then(|repository| repository.as_ref());
+            let selected_index = repositories
+                .iter()
+                .position(|repository| Some(repository) == active_repository)
+                .unwrap_or(0);
+            let repository_count = repositories.len();
+            h_flex()
+                .w_full()
+                .flex_wrap()
+                .children(
+                    repositories
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, repository)| {
+                            let repository_state = repository.read(cx);
+                            let name = repository_state.display_name();
+                            let path = repository_state
+                                .work_directory_abs_path
+                                .to_string_lossy()
+                                .into_owned();
+                            let selected = Some(&repository) == active_repository;
+                            let position = if index == 0 {
+                                TabPosition::First
+                            } else if index + 1 == repository_count {
+                                TabPosition::Last
+                            } else {
+                                TabPosition::Middle(index.cmp(&selected_index))
+                            };
+                            Tab::new(("repository-tab", repository.entity_id()))
+                                .position(position)
+                                .toggle_state(selected)
+                                .start_slot(Icon::new(IconName::Folder).size(IconSize::Small))
+                                .child(
+                                    div()
+                                        .max_w(rems(12.))
+                                        .overflow_hidden()
+                                        .child(Label::new(name).size(LabelSize::Small).truncate()),
+                                )
+                                .tooltip(move |_, cx| Tooltip::simple(path.clone(), cx))
+                                .on_click(move |_, _, cx| {
+                                    repository.update(cx, |repository, cx| {
+                                        repository.set_as_active_repository(cx);
+                                    });
+                                })
+                        }),
+                )
+                .into_any_element()
+        } else {
+            h_flex()
+                .gap_1p5()
+                .child(
+                    Icon::new(IconName::Folder)
+                        .size(IconSize::Small)
+                        .color(Color::Muted),
+                )
+                .child(
+                    Label::new(self.active_repository)
+                        .size(LabelSize::Small)
+                        .truncate(),
+                )
+                .into_any_element()
+        };
 
         let branch_selector_button = Button::new("branch-selector", branch_name)
             .size(ButtonSize::None)
@@ -9457,16 +9509,7 @@ impl RenderOnce for PanelRepoFooter {
             .py_1p5()
             .justify_between()
             .gap_1()
-            .child(
-                h_flex()
-                    .gap_1p5()
-                    .child(
-                        Icon::new(IconName::Folder)
-                            .size(IconSize::Small)
-                            .color(Color::Muted),
-                    )
-                    .child(div().min_w_0().child(repo_selector)),
-            )
+            .child(repository_navigation)
             .child(
                 h_flex()
                     .w_full()

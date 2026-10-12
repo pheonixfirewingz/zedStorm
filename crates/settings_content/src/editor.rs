@@ -379,10 +379,6 @@ pub struct CursorAnimationSettingsContent {
 #[with_fallible_options]
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq, Eq)]
 pub struct ToolbarContent {
-    /// Whether to display breadcrumbs in the editor toolbar.
-    ///
-    /// Default: true
-    pub breadcrumbs: Option<bool>,
     /// Whether to display quick action buttons in the editor toolbar.
     ///
     /// Default: true

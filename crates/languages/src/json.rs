@@ -31,8 +31,8 @@ use std::{
 };
 use task::{TaskTemplate, TaskTemplates, VariableName};
 use util::{
-    ResultExt, archive::extract_zip, fs::remove_matching, maybe,
-    paths::PathStyle, rel_path::RelPath, union_json_value_into,
+    ResultExt, archive::extract_zip, fs::remove_matching, maybe, paths::PathStyle,
+    rel_path::RelPath, union_json_value_into,
 };
 
 use crate::PackageJsonData;

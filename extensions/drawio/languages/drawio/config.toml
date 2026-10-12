@@ -1,0 +1,4 @@
+name = "Draw.io"
+path_suffixes = ["drawio"]
+tab_size = 2
+

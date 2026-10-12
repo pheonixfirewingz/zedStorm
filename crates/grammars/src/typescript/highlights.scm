@@ -71,6 +71,20 @@
       (statement_block) @nested
     ]))
 
+(import_clause
+  (identifier) @function)
+
+(import_specifier
+  name: (identifier) @function)
+
+(import_specifier
+  alias: (identifier) @function)
+
+(import_statement
+  "type"
+  (import_clause
+    (identifier) @type))
+
 ; Inline type imports: import { type Foo } or import { type Foo as Bar }
 (import_specifier
   "type"
@@ -142,8 +156,8 @@
   ] @function.method)
 
 (method_definition
-  name: (property_identifier) @constructor
-  (#eq? @constructor "constructor"))
+  name: (property_identifier) @keyword
+  (#eq? @keyword "constructor"))
 
 (pair
   key: [
@@ -370,7 +384,20 @@
   ">" @punctuation.bracket)
 
 (decorator
-  "@" @punctuation.special)
+  "@" @attribute
+  [
+    (identifier) @attribute
+    (member_expression
+      object: (identifier) @attribute
+      property: (property_identifier) @attribute)
+    (call_expression
+      function: [
+        (identifier) @attribute
+        (member_expression
+          object: (identifier) @attribute
+          property: (property_identifier) @attribute)
+      ])
+  ])
 
 (union_type
   "|" @punctuation.special)

@@ -14,12 +14,12 @@ use fs::MTime;
 use futures::{channel::oneshot, future::try_join_all};
 use git::status::GitSummary;
 use gpui::{
-    AnyElement, App, AsyncWindowContext, Context, Entity, EntityId, EventEmitter, Font,
-    IntoElement, ParentElement, Pixels, SharedString, Styled, Task, WeakEntity, Window, point,
+    AnyElement, App, AsyncWindowContext, Context, Entity, EntityId, EventEmitter, IntoElement,
+    ParentElement, Pixels, SharedString, Styled, Task, WeakEntity, Window, point,
 };
 use language::{
-    Bias, Buffer, BufferRow, CharKind, CharScopeContext, HighlightedText, LocalFile, PLAIN_TEXT,
-    Point, SelectionGoal,
+    Bias, Buffer, BufferRow, CharKind, CharScopeContext, LocalFile, PLAIN_TEXT, Point,
+    SelectionGoal,
     language_settings::{FormatOnSave, LanguageSettings},
     proto::serialize_anchor as serialize_text_anchor,
 };
@@ -53,8 +53,8 @@ use util::{
 };
 use workspace::item::{Dedup, ItemSettings, SerializableItem, TabContentParams};
 use workspace::{
-    CollaboratorId, ItemId, ItemNavHistory, OpenOptions, OpenVisible, ToolbarItemLocation, ViewId,
-    Workspace, WorkspaceId,
+    CollaboratorId, ItemId, ItemNavHistory, OpenOptions, OpenVisible, ViewId, Workspace,
+    WorkspaceId,
     invalid_item_view::InvalidItemView,
     item::{FollowableItem, Item, ItemBufferKind, ItemEvent, ProjectItem, SaveOptions},
     searchable::{
@@ -63,7 +63,7 @@ use workspace::{
     },
 };
 use workspace::{
-    Pane, TabBarSettings, WorkspaceSettings,
+    Pane, WorkspaceSettings,
     item::{FollowEvent, ProjectItemKind},
     searchable::SearchOptions,
 };
@@ -783,20 +783,6 @@ impl Item for Editor {
             entry_label_color(params.selected)
         };
 
-        let description = params.detail.and_then(|detail| {
-            let path = path_for_buffer(&self.buffer, detail, false, cx)?;
-            let description = path.trim();
-
-            if description.is_empty() {
-                return None;
-            }
-
-            Some(util::truncate_and_trailoff(
-                description,
-                params.max_title_len.unwrap_or(MAX_TAB_TITLE_LEN),
-            ))
-        });
-
         // Whether the file was saved in the past but is now deleted.
         let was_deleted: bool = self
             .buffer()
@@ -828,17 +814,6 @@ impl Item for Editor {
                 .when(params.preview, |this| this.italic())
                 .when(was_deleted, |this| this.strikethrough()),
             )
-            .when_some(description, |this, description| {
-                this.child(
-                    Label::new(description)
-                        .single_line()
-                        .size(LabelSize::XSmall)
-                        .when(params.truncate_title_middle, |this| {
-                            this.truncate_start().flex_shrink()
-                        })
-                        .color(Color::Muted),
-                )
-            })
             .into_any_element()
     }
 
@@ -1088,40 +1063,6 @@ impl Item for Editor {
         self.pixel_position_of_newest_cursor
     }
 
-    fn breadcrumb_location(&self, cx: &App) -> ToolbarItemLocation {
-        if self.breadcrumbs_visible() && self.buffer().read(cx).is_singleton() {
-            ToolbarItemLocation::PrimaryLeft
-        } else {
-            ToolbarItemLocation::Hidden
-        }
-    }
-
-    // In a non-singleton case, the breadcrumbs are actually shown on sticky file headers of the multibuffer.
-    fn breadcrumbs(&self, cx: &App) -> Option<(Vec<HighlightedText>, Option<Font>)> {
-        if self.buffer.read(cx).is_singleton() {
-            let font = theme_settings::ThemeSettings::get_global(cx)
-                .buffer_font
-                .clone();
-            Some((self.breadcrumbs_inner(cx)?, Some(font)))
-        } else {
-            None
-        }
-    }
-
-    fn breadcrumb_prefix(
-        &self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<gpui::AnyElement> {
-        (!TabBarSettings::get_global(cx).show && ItemSettings::get_global(cx).file_icons)
-            .then(|| {
-                path_for_buffer(&self.buffer, 0, true, cx)
-                    .and_then(|path| FileIcons::get_icon(Path::new(&*path), cx))
-            })
-            .flatten()
-            .map(|icon_path| Icon::from_path(icon_path).into_any_element())
-    }
-
     fn added_to_workspace(
         &mut self,
         workspace: &mut Workspace,
@@ -1180,19 +1121,6 @@ impl Item for Editor {
         match event {
             EditorEvent::Saved | EditorEvent::TitleChanged => {
                 f(ItemEvent::UpdateTab);
-                f(ItemEvent::UpdateBreadcrumbs);
-            }
-
-            EditorEvent::Reparsed(_) => {
-                f(ItemEvent::UpdateBreadcrumbs);
-            }
-
-            EditorEvent::SelectionsChanged { local } if *local => {
-                f(ItemEvent::UpdateBreadcrumbs);
-            }
-
-            EditorEvent::BreadcrumbsChanged | EditorEvent::OutlineSymbolsChanged => {
-                f(ItemEvent::UpdateBreadcrumbs);
             }
 
             EditorEvent::DirtyChanged | EditorEvent::CapabilityChanged => {
@@ -1201,7 +1129,6 @@ impl Item for Editor {
 
             EditorEvent::BufferEdited => {
                 f(ItemEvent::Edit);
-                f(ItemEvent::UpdateBreadcrumbs);
             }
 
             EditorEvent::BufferRangesUpdated { .. } | EditorEvent::BuffersRemoved { .. } => {

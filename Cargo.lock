@@ -1353,6 +1353,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ade8366b8bd5ba243f0a58f036cc0ca8a2f069cff1a2351ef1cac6b083e16fc0"
 
 [[package]]
+name = "calculator_panel"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gpui",
+ "settings",
+ "theme",
+ "theme_settings",
+ "ui",
+ "workspace",
+]
+
+[[package]]
 name = "call_hierarchy"
 version = "0.1.0"
 dependencies = [
@@ -5792,16 +5805,24 @@ name = "image_viewer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-channel 2.5.0",
+ "base64 0.22.1",
  "db",
  "editor",
  "file_icons",
  "fs",
+ "futures",
  "gpui",
+ "image",
  "language",
  "log",
  "menu",
+ "paths",
  "project",
+ "serde_json",
  "settings",
+ "smallvec",
+ "smol",
  "theme",
  "theme_settings",
  "ui",
@@ -16785,6 +16806,7 @@ dependencies = [
  "askpass",
  "assets",
  "breadcrumbs",
+ "calculator_panel",
  "call_hierarchy",
  "chrono",
  "clap",

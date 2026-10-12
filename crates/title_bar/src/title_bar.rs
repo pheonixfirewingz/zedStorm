@@ -7,7 +7,6 @@ pub use platform_title_bar::{
     self, DraggedWindowTab, MergeAllWindows, MoveTabToNewWindow, PlatformTitleBar,
     ShowNextWindowTab, ShowPreviousWindowTab,
 };
-use project::repo_identity_path;
 #[cfg(test)]
 use project::{linked_worktree_short_name, repo_identity_path_if_local};
 
@@ -19,13 +18,10 @@ use crate::application_menu::{
 use command_palette_hooks::CommandPaletteFilter;
 
 use gpui::{
-    Action, AnyElement, App, Context, Entity, Focusable, InteractiveElement, IntoElement,
-    MouseButton, ParentElement, Render, Styled, Subscription, WeakEntity, Window, actions, div,
+    Action, AnyElement, App, Context, Entity, InteractiveElement, IntoElement, MouseButton,
+    ParentElement, Render, Styled, Subscription, WeakEntity, Window, actions, div,
 };
-use project::{
-    Project, git_store::GitStoreEvent,
-    trusted_worktrees::TrustedWorktrees,
-};
+use project::{Project, git_store::GitStoreEvent, trusted_worktrees::TrustedWorktrees};
 use settings::{Settings as _, SettingsStore};
 
 use std::any::TypeId;
@@ -34,9 +30,7 @@ use std::path::Path;
 use title_bar_settings::TitleBarSettings;
 use ui::{PopoverMenu, TintColor, Tooltip, prelude::*, utils::platform_title_bar_height};
 use util::ResultExt;
-use workspace::{AccessibleMode, MultiWorkspace, ToggleWorktreeSecurity, Workspace};
-
-const MAX_PROJECT_NAME_LENGTH: usize = 40;
+use workspace::{MultiWorkspace, ToggleWorktreeSecurity, Workspace};
 
 #[cfg(test)]
 fn linked_worktree_name_anchor<'a>(
@@ -260,79 +254,15 @@ impl Render for TitleBar {
 
         let mut children = <ArrayVec<_, 5>>::new();
 
-        let mut project_name = None;
-        if let Some(worktree) = self.effective_active_worktree(cx) {
-            let repository = self.get_repository_for_worktree(&worktree, cx);
-            let worktree_abs_path = worktree.read(cx).abs_path();
-            project_name = worktree
-                .read(cx)
-                .root_name()
-                .file_name()
-                .map(|name| SharedString::from(name.to_string()));
-            if let Some(repo) = &repository {
-                let repo = repo.read(cx);
-                let identity = repo_identity_path(&repo.common_dir_abs_path, repo.path_style);
-
-                let display_name = if identity.extension() == Some(std::ffi::OsStr::new("git")) {
-                    identity.file_stem()
-                } else {
-                    repo.path_style.file_name(identity)
-                };
-
-                if let Some(repo_name) = display_name.and_then(|n| n.to_str()) {
-                    let visible_worktrees_in_repo = self.visible_worktrees_in_repository(repo, cx);
-                    let name = if visible_worktrees_in_repo == 1 {
-                        if let Ok(relative) =
-                            worktree_abs_path.strip_prefix(&*repo.work_directory_abs_path)
-                        {
-                            if relative.as_os_str().is_empty() {
-                                repo_name.to_string()
-                            } else {
-                                format!("{}/{}", repo_name, relative.display())
-                            }
-                        } else {
-                            repo_name.to_string()
-                        }
-                    } else {
-                        repo_name.to_string()
-                    };
-                    project_name = Some(SharedString::from(name));
-                }
-            }
-        }
-
         children.push(
             h_flex()
                 .h_full()
                 .gap_0p5()
-                .map(|title_bar| {
-                    let mut render_project_items = title_bar_settings.show_project_items;
-                    title_bar
-                        .when_some(
-                            self.application_menu.clone().filter(|_| !show_menus),
-                            |title_bar, menu| {
-                                // Hide the project/branch items to make room when the
-                                // menu bar is expanded -- except in accessible mode,
-                                // where the menu bar is always expanded but those
-                                // controls must still remain reachable.
-                                render_project_items &= !menu
-                                    .update(cx, |menu, cx| menu.all_menus_shown(cx))
-                                    || cx.accessible_mode();
-                                title_bar.child(menu)
-                            },
-                        )
-                        .children(self.render_restricted_mode(cx))
-                        .when(render_project_items, |title_bar| {
-                            title_bar
-                                .when(title_bar_settings.show_project_items, |title_bar| {
-                                    title_bar.child(self.render_project_name(
-                                        project_name,
-                                        window,
-                                        cx,
-                                    ))
-                                })
-                        })
-                })
+                .when_some(
+                    self.application_menu.clone().filter(|_| !show_menus),
+                    |title_bar, menu| title_bar.child(menu),
+                )
+                .children(self.render_restricted_mode(cx))
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .into_any_element(),
         );
@@ -632,10 +562,6 @@ impl TitleBar {
         }
     }
 
-    fn worktree_count(&self, cx: &App) -> usize {
-        self.project.read(cx).visible_worktrees(cx).count()
-    }
-
     /// Returns the worktree to display in the title bar.
     /// - Prefer the worktree owning the project's active repository
     /// - Fall back to the first visible worktree
@@ -655,42 +581,6 @@ impl TitleBar {
         }
 
         project.visible_worktrees(cx).next()
-    }
-
-    fn get_repository_for_worktree(
-        &self,
-        worktree: &Entity<project::Worktree>,
-        cx: &App,
-    ) -> Option<Entity<project::git_store::Repository>> {
-        let project = self.project.read(cx);
-        let git_store = project.git_store().read(cx);
-        let worktree_path = worktree.read(cx).abs_path();
-
-        git_store
-            .repositories()
-            .values()
-            .filter(|repo| {
-                let repo_path = &repo.read(cx).work_directory_abs_path;
-                worktree_path == *repo_path || worktree_path.starts_with(repo_path.as_ref())
-            })
-            .max_by_key(|repo| repo.read(cx).work_directory_abs_path.as_os_str().len())
-            .cloned()
-    }
-
-    fn visible_worktrees_in_repository(
-        &self,
-        repository: &project::git_store::Repository,
-        cx: &App,
-    ) -> usize {
-        let repo_path = &repository.work_directory_abs_path;
-        self.project
-            .read(cx)
-            .visible_worktrees(cx)
-            .filter(|worktree| {
-                let worktree_path = worktree.read(cx).abs_path();
-                worktree_path == *repo_path || worktree_path.starts_with(repo_path.as_ref())
-            })
-            .count()
     }
 
     pub fn render_restricted_mode(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -734,139 +624,6 @@ impl TitleBar {
             Some(button.into_any_element())
         }
     }
-
-    fn render_project_name(
-        &self,
-        name: Option<SharedString>,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let workspace = self.workspace.clone();
-
-        let is_project_selected = name.is_some();
-
-        let display_name = if let Some(ref name) = name {
-            util::truncate_and_trailoff(name, MAX_PROJECT_NAME_LENGTH)
-        } else {
-            "Open Recent Project".to_string()
-        };
-
-        let is_sidebar_open = self
-            .multi_workspace
-            .as_ref()
-            .and_then(|mw| mw.upgrade())
-            .map(|mw| mw.read(cx).sidebar_open())
-            .unwrap_or(false)
-            && PlatformTitleBar::is_multi_workspace_enabled(cx);
-
-        let is_threads_list_view_active = self
-            .multi_workspace
-            .as_ref()
-            .and_then(|mw| mw.upgrade())
-            .map(|mw| mw.read(cx).is_threads_list_view_active(cx))
-            .unwrap_or(false);
-
-        if is_sidebar_open && is_threads_list_view_active {
-            return self
-                .render_recent_projects_popover(display_name, is_project_selected, cx)
-                .into_any_element();
-        }
-
-        let focus_handle = workspace
-            .upgrade()
-            .map(|w| w.read(cx).focus_handle(cx))
-            .unwrap_or_else(|| cx.focus_handle());
-
-        let window_project_groups: Vec<_> = self
-            .multi_workspace
-            .as_ref()
-            .and_then(|mw| mw.upgrade())
-            .map(|mw| mw.read(cx).project_group_keys())
-            .unwrap_or_default();
-
-        PopoverMenu::new("recent-projects-menu")
-            .menu(move |window, cx| {
-                Some(recent_projects::RecentProjects::popover(
-                    workspace.clone(),
-                    window_project_groups.clone(),
-                    None,
-                    focus_handle.clone(),
-                    window,
-                    cx,
-                ))
-            })
-            .trigger_with_tooltip(
-                Button::new("project_name_trigger", display_name)
-                    .label_size(LabelSize::Small)
-                    .tab_index(0isize)
-                    .when(self.worktree_count(cx) > 1, |this| {
-                        this.end_icon(
-                            Icon::new(IconName::ChevronDown)
-                                .size(IconSize::XSmall)
-                                .color(Color::Muted),
-                        )
-                    })
-                    .selected_style(ButtonStyle::Tinted(TintColor::Accent))
-                    .when(!is_project_selected, |s| s.color(Color::Muted)),
-                move |_window, cx| {
-                    Tooltip::for_action("Recent Projects", &zed_actions::OpenRecent::default(), cx)
-                },
-            )
-            .anchor(gpui::Anchor::TopLeft)
-            .into_any_element()
-    }
-
-    fn render_recent_projects_popover(
-        &self,
-        display_name: String,
-        is_project_selected: bool,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let workspace = self.workspace.clone();
-
-        let focus_handle = workspace
-            .upgrade()
-            .map(|w| w.read(cx).focus_handle(cx))
-            .unwrap_or_else(|| cx.focus_handle());
-
-        let window_project_groups: Vec<_> = self
-            .multi_workspace
-            .as_ref()
-            .and_then(|mw| mw.upgrade())
-            .map(|mw| mw.read(cx).project_group_keys())
-            .unwrap_or_default();
-
-        PopoverMenu::new("sidebar-title-recent-projects-menu")
-            .menu(move |window, cx| {
-                Some(recent_projects::RecentProjects::popover(
-                    workspace.clone(),
-                    window_project_groups.clone(),
-                    None,
-                    focus_handle.clone(),
-                    window,
-                    cx,
-                ))
-            })
-            .trigger_with_tooltip(
-                Button::new("project_name_trigger", display_name)
-                    .label_size(LabelSize::Small)
-                    .tab_index(0isize)
-                    .when(self.worktree_count(cx) > 1, |this| {
-                        this.end_icon(
-                            Icon::new(IconName::ChevronDown)
-                                .size(IconSize::XSmall)
-                                .color(Color::Muted),
-                        )
-                    })
-                    .selected_style(ButtonStyle::Tinted(TintColor::Accent))
-                    .when(!is_project_selected, |s| s.color(Color::Muted)),
-                move |_window, cx| {
-                    Tooltip::for_action("Recent Projects", &zed_actions::OpenRecent::default(), cx)
-                },
-            )
-            .anchor(gpui::Anchor::TopLeft)
-    }
-
 }
 
 #[cfg(test)]

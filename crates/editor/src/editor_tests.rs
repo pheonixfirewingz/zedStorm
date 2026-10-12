@@ -76,7 +76,7 @@ use util::{
 };
 use workspace::{
     CloseActiveItem, CloseAllItems, CloseOtherItems, MultiWorkspace, NavigationEntry, OpenOptions,
-    Pane, SplitDirection, ToolbarItemLocation, ViewId, Workspace,
+    Pane, SplitDirection, ViewId, Workspace,
     item::{FollowEvent, FollowableItem, Item, ItemHandle, SaveOptions},
     register_project_item,
 };
@@ -1159,49 +1159,6 @@ fiveˇ
 }
 
 #[gpui::test]
-fn test_toggle_breadcrumb_does_not_change_settings(cx: &mut TestAppContext) {
-    init_test(cx, |_| {});
-    update_test_editor_settings(cx, &|settings| {
-        settings.toolbar.get_or_insert_default().breadcrumbs = Some(true);
-    });
-
-    let editor = cx.add_window(|window, cx| {
-        let buffer = MultiBuffer::build_simple("hello", cx);
-        build_editor(buffer, window, cx)
-    });
-
-    _ = editor.update(cx, |editor, window, cx| {
-        assert!(EditorSettings::get_global(cx).toolbar.breadcrumbs);
-        assert_eq!(
-            editor.breadcrumb_location(cx),
-            ToolbarItemLocation::PrimaryLeft
-        );
-
-        editor.toggle_breadcrumb(&ToggleBreadcrumb, window, cx);
-        assert!(EditorSettings::get_global(cx).toolbar.breadcrumbs);
-        assert_eq!(editor.breadcrumb_location(cx), ToolbarItemLocation::Hidden);
-    });
-
-    // Changing unrelated settings should not affect breadcrumbs visibility.
-    update_test_editor_settings(cx, &|settings| {
-        settings.vertical_scroll_margin = Some(4.0);
-    });
-    cx.run_until_parked();
-
-    _ = editor.update(cx, |editor, window, cx| {
-        assert!(EditorSettings::get_global(cx).toolbar.breadcrumbs);
-        assert_eq!(editor.breadcrumb_location(cx), ToolbarItemLocation::Hidden);
-
-        editor.toggle_breadcrumb(&ToggleBreadcrumb, window, cx);
-        assert!(EditorSettings::get_global(cx).toolbar.breadcrumbs);
-        assert_eq!(
-            editor.breadcrumb_location(cx),
-            ToolbarItemLocation::PrimaryLeft
-        );
-    });
-}
-
-#[gpui::test]
 async fn test_navigation_history(cx: &mut TestAppContext) {
     init_test(cx, |_| {});
 
@@ -1434,8 +1391,38 @@ async fn test_fold_import_blocks(cx: &mut TestAppContext) {
         ),
         (
             typescript.clone(),
+            "const first = require('first');\nconst { second } = require('second');\nrequire('third');\n\nconst value = first;\n",
+            "const first = require('first');⋯\n\nconst value = first;\n",
+        ),
+        (
+            typescript.clone(),
+            "const first = require('first');\nconst value = calculate();\nconst second = require('second');\n",
+            "const first = require('first');\nconst value = calculate();\nconst second = require('second');\n",
+        ),
+        (
+            typescript.clone(),
             "import {\n    first,\n} from 'first';\n\nimport 'second';\n// Keep this comment visible\nimport 'third';\nconst value = first;\n",
-            "import {⋯\n// Keep this comment visible\nimport 'third';\nconst value = first;\n",
+            "import {⋯\n\nimport 'second';\n// Keep this comment visible\nimport 'third';\nconst value = first;\n",
+        ),
+        (
+            typescript.clone(),
+            "import 'first';\n// A separate import group\n\nimport 'second';\n// Keep this trailing comment visible\nconst value = 1;\n",
+            "import 'first';\n// A separate import group\n\nimport 'second';\n// Keep this trailing comment visible\nconst value = 1;\n",
+        ),
+        (
+            language("c", tree_sitter_c::LANGUAGE.into()),
+            "#include <stdio.h>\n#include <stdlib.h>\n\nint main(void) {}\n",
+            "#include <stdio.h>⋯\n\nint main(void) {}\n",
+        ),
+        (
+            language("go", tree_sitter_go::LANGUAGE.into()),
+            "package main\n\nimport \"fmt\"\nimport (\n    \"os\"\n)\n\nfunc main() {}\n",
+            "package main\n\nimport \"fmt\"⋯\n\nfunc main() {}\n",
+        ),
+        (
+            language("python", tree_sitter_python::LANGUAGE.into()),
+            "from __future__ import annotations\nimport os\nfrom pathlib import (\n    Path,\n)\n\nvalue = Path('.')\n",
+            "from __future__ import annotations⋯\n\nvalue = Path('.')\n",
         ),
         (
             rust_lang(),
@@ -1453,12 +1440,32 @@ async fn test_fold_import_blocks(cx: &mut TestAppContext) {
         cx.set_state(&format!("ˇ{source}"));
         cx.run_until_parked();
         cx.update_editor(|editor, window, cx| {
-            editor.fold_at(MultiBufferRow(0), window, cx);
+            let row = if source.starts_with("package main") { 2 } else { 0 };
+            editor.fold_at(MultiBufferRow(row), window, cx);
             assert_eq!(editor.display_text(cx), folded);
             editor.unfold_all(&UnfoldAll, window, cx);
             assert_eq!(editor.display_text(cx), source);
         });
     }
+}
+
+#[gpui::test]
+async fn test_fold_import_blocks_separated_by_comments_and_blank_lines(cx: &mut TestAppContext) {
+    init_test(cx, |_| {});
+    let mut cx = EditorTestContext::new(cx).await;
+    cx.update_buffer(|buffer, cx| buffer.set_language(Some(rust_lang()), cx));
+    let source = "use std::fmt;\nuse std::fs;\n// Threading\nuse std::sync::{Arc, Mutex};\nuse std::thread;\nuse std::time::{Duration, Instant};\n\nuse std::io;\nuse std::path::Path;\n// Keep this comment visible\nfn main() {}\n";
+    cx.set_state(&format!("ˇ{source}"));
+    cx.run_until_parked();
+    cx.update_editor(|editor, window, cx| {
+        editor.fold_at(MultiBufferRow(3), window, cx);
+        assert_eq!(editor.display_text(cx), "use std::fmt;\nuse std::fs;\n// Threading\nuse std::sync::{Arc, Mutex};⋯\n\nuse std::io;\nuse std::path::Path;\n// Keep this comment visible\nfn main() {}\n");
+        editor.fold_at(MultiBufferRow(0), window, cx);
+        editor.fold_at(MultiBufferRow(7), window, cx);
+        assert_eq!(editor.display_text(cx), "use std::fmt;⋯\n// Threading\nuse std::sync::{Arc, Mutex};⋯\n\nuse std::io;⋯\n// Keep this comment visible\nfn main() {}\n");
+        editor.unfold_all(&UnfoldAll, window, cx);
+        assert_eq!(editor.display_text(cx), source);
+    });
 }
 
 #[gpui::test]

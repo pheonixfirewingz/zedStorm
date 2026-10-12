@@ -57,6 +57,7 @@ askpass.workspace = true
 assets.workspace = true
 breadcrumbs.workspace = true
 call_hierarchy.workspace = true
+calculator_panel.workspace = true
 chrono.workspace = true
 clap.workspace = true
 cli.workspace = true

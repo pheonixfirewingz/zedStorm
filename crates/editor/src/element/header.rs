@@ -24,12 +24,9 @@ use ui::{
     right_click_menu, text_for_keystroke, utils::WithRemSize,
 };
 use util::ResultExt;
-use workspace::{ItemHandle, ItemSettings, OpenInTerminal, OpenTerminal, RevealInProjectPanel};
+use workspace::{ItemSettings, OpenInTerminal, OpenTerminal, RevealInProjectPanel};
 
-use super::{
-    BlockLayout, EditorElement, EditorLayout, LineWithInvisibles, layout_line,
-    render_breadcrumb_text,
-};
+use super::{BlockLayout, EditorElement, EditorLayout, LineWithInvisibles, layout_line};
 use crate::{
     BUFFER_HEADER_PADDING, DisplayRow, Editor, EditorSettings, EditorSnapshot, FILE_HEADER_HEIGHT,
     GutterDimensions, JumpData, MULTI_BUFFER_EXCERPT_HEADER_HEIGHT, OpenExcerpts, Point, RowExt,
@@ -644,15 +641,8 @@ pub(crate) fn render_buffer_header(
     let editor_read = editor.read(cx);
     let multi_buffer = editor_read.buffer.read(cx);
     let is_read_only = editor_read.read_only(cx);
-    let editor_handle: &dyn ItemHandle = editor;
     let multibuffer_snapshot = multi_buffer.snapshot(cx);
     let buffer = for_excerpt.buffer(&multibuffer_snapshot);
-
-    let breadcrumbs = if is_selected {
-        editor_read.breadcrumbs_inner(cx)
-    } else {
-        None
-    };
 
     let file_status = multi_buffer
         .all_diff_hunks_expanded()
@@ -903,20 +893,6 @@ pub(crate) fn render_buffer_header(
                                     })
                                     .when(!buffer.capability.editable(), |el| {
                                         el.child(Icon::new(IconName::FileLock).color(Color::Muted))
-                                    })
-                                    .when_some(breadcrumbs, |then, breadcrumbs| {
-                                        let font = theme_settings::ThemeSettings::get_global(cx)
-                                            .buffer_font
-                                            .clone();
-                                        then.child(render_breadcrumb_text(
-                                            breadcrumbs,
-                                            Some(font),
-                                            None,
-                                            editor_handle,
-                                            true,
-                                            window,
-                                            cx,
-                                        ))
                                     })
                             },
                         ))

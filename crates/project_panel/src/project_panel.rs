@@ -5950,6 +5950,11 @@ impl ProjectPanel {
         }
 
         let filename_text_color = details.filename_text_color;
+        let icon_color = if kind.is_dir() {
+            filename_text_color
+        } else {
+            Color::Muted
+        };
         let diagnostic_severity = details.diagnostic_severity;
         let diagnostic_mark = details.diagnostic_mark;
         let reserves_chevron_slot = details.reserves_chevron_slot;
@@ -6510,7 +6515,7 @@ impl ProjectPanel {
                                          decoration_kind: IconDecorationKind,
                                          color: Color| {
                             DecoratedIcon::new(
-                                Icon::from_path(glyph).color(Color::Muted),
+                                Icon::from_path(glyph).color(icon_color),
                                 Some(
                                     IconDecoration::new(decoration_kind, bg_color, cx)
                                         .group_name(Some(GROUP_NAME.into()))
@@ -6531,7 +6536,7 @@ impl ProjectPanel {
                                     div().child(decorated(icon.clone(), decoration_kind, color))
                                 }
                                 _ => h_flex()
-                                    .child(Icon::from_path(icon.to_string()).color(Color::Muted)),
+                                    .child(Icon::from_path(icon.to_string()).color(icon_color)),
                             })
                         } else if let Some(DiagnosticMark::Standalone(icon_name)) = diagnostic_mark
                         {
@@ -6561,7 +6566,7 @@ impl ProjectPanel {
                                     decorated(chevron, decoration_kind, color)
                                 }
                                 _ => Icon::from_path(chevron)
-                                    .color(Color::Muted)
+                                    .color(icon_color)
                                     .into_any_element(),
                             });
 
@@ -6978,8 +6983,11 @@ impl ProjectPanel {
         let reserves_chevron_slot =
             chevron.is_none() && folder_indicator.shows_chevron() && folder_indicator.shows_icon();
 
-        let filename_text_color =
-            entry_git_aware_label_color(git_status, entry.is_ignored, is_marked);
+        let filename_text_color = if entry.is_dir() {
+            Color::Custom(gpui::rgb(if entry.is_ignored { 0xffa500 } else { 0xffffff }).into())
+        } else {
+            entry_git_aware_label_color(git_status, entry.is_ignored, is_marked)
+        };
 
         let is_cut = self
             .clipboard

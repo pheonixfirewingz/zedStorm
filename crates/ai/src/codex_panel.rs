@@ -55,6 +55,7 @@ pub struct CodexPanel {
     event_task: Option<Task<()>>,
     markdown: HashMap<String, Entity<Markdown>>,
     expanded_activity_groups: HashSet<String>,
+    expanded_activities: HashSet<String>,
     scroll_handle: ScrollHandle,
     question_request_id: Option<Value>,
     questions: Vec<QuestionInput>,
@@ -125,6 +126,7 @@ impl CodexPanel {
             event_task: None,
             markdown: HashMap::new(),
             expanded_activity_groups: HashSet::new(),
+            expanded_activities: HashSet::new(),
             scroll_handle: ScrollHandle::new(),
             question_request_id: None,
             questions: Vec::new(),
@@ -485,6 +487,7 @@ impl CodexPanel {
         self.session.settings = settings;
         self.markdown.clear();
         self.expanded_activity_groups.clear();
+        self.expanded_activities.clear();
         self.questions.clear();
         self.question_request_id = None;
         self.connect(cx);
@@ -538,6 +541,7 @@ impl CodexPanel {
         self.mistral_conversation = entry.mistral_conversation;
         self.markdown.clear();
         self.expanded_activity_groups.clear();
+        self.expanded_activities.clear();
         self.questions.clear();
         self.question_request_id = None;
         self.connect(cx);
@@ -597,6 +601,7 @@ impl CodexPanel {
                         }
                         panel.markdown.clear();
                         panel.expanded_activity_groups.clear();
+                        panel.expanded_activities.clear();
                         panel.questions.clear();
                         panel.question_request_id = None;
                         panel.connect(cx);
@@ -885,6 +890,7 @@ impl CodexPanel {
         self.chat_identity = Rc::new(());
         self.markdown.clear();
         self.expanded_activity_groups.clear();
+        self.expanded_activities.clear();
         self.questions.clear();
         self.question_request_id = None;
         self.connect(cx);
@@ -1316,15 +1322,76 @@ impl Render for CodexPanel {
                                         .gap_2()
                                         .children(messages.iter().enumerate().map(
                                             |(activity_index, message)| {
-                                                div()
+                                                let activity_id = message.id.clone();
+                                                let activity_expanded =
+                                                    self.expanded_activities.contains(&activity_id);
+                                                let summary = message
+                                                    .text
+                                                    .lines()
+                                                    .next()
+                                                    .unwrap_or("Activity")
+                                                    .to_owned();
+                                                v_flex()
                                                     .id(("codex-activity-output", activity_index))
                                                     .min_w_0()
-                                                    .p_2()
-                                                    .rounded_md()
-                                                    .bg(cx.theme().colors().element_background)
-                                                    .text_sm()
-                                                    .text_color(cx.theme().colors().text_muted)
-                                                    .child(message.text.clone())
+                                                    .gap_1()
+                                                    .child(
+                                                        Button::new(
+                                                            (
+                                                                "codex-activity-toggle-item",
+                                                                activity_index,
+                                                            ),
+                                                            summary.clone(),
+                                                        )
+                                                        .style(ButtonStyle::Transparent)
+                                                        .size(ButtonSize::Compact)
+                                                        .label_size(LabelSize::Small)
+                                                        .color(Color::Muted)
+                                                        .truncate(true)
+                                                        .tooltip(Tooltip::text(summary))
+                                                        .start_icon(
+                                                            Icon::new(if activity_expanded {
+                                                                IconName::ChevronDown
+                                                            } else {
+                                                                IconName::ChevronRight
+                                                            })
+                                                            .size(IconSize::Small)
+                                                            .color(Color::Muted),
+                                                        )
+                                                        .aria_expanded(activity_expanded)
+                                                        .on_click(cx.listener(
+                                                            move |panel, _, _, cx| {
+                                                                if !panel
+                                                                    .expanded_activities
+                                                                    .remove(&activity_id)
+                                                                {
+                                                                    panel
+                                                                        .expanded_activities
+                                                                        .insert(
+                                                                            activity_id.clone(),
+                                                                        );
+                                                                }
+                                                                cx.notify();
+                                                            },
+                                                        )),
+                                                    )
+                                                    .when(activity_expanded, |element| {
+                                                        element.child(
+                                                            div()
+                                                                .min_w_0()
+                                                                .p_2()
+                                                                .rounded_md()
+                                                                .bg(cx
+                                                                    .theme()
+                                                                    .colors()
+                                                                    .element_background)
+                                                                .text_sm()
+                                                                .text_color(
+                                                                    cx.theme().colors().text_muted,
+                                                                )
+                                                                .child(message.text.clone()),
+                                                        )
+                                                    })
                                             },
                                         )),
                                 )

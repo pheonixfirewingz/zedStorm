@@ -22,7 +22,7 @@ use crate::{Editor, LSP_REQUEST_DEBOUNCE_TIMEOUT};
 impl Editor {
     /// Returns all document outline items for a buffer, using LSP or
     /// tree-sitter based on the `document_symbols` setting.
-    /// External consumers (outline modal, outline panel, breadcrumbs) should use this.
+    /// External consumers (outline modal, outline panel) should use this.
     pub fn buffer_outline_items(
         &self,
         buffer_id: BufferId,
@@ -139,7 +139,7 @@ impl Editor {
     /// Fetches document symbols from the LSP for buffers that have the setting
     /// enabled. Called from `update_lsp_data` on edits, server events, etc.
     /// When the fetch completes, stores results in `self.lsp_document_symbols`
-    /// and triggers `refresh_outline_symbols_at_cursor` so breadcrumbs pick up the new data.
+    /// and triggers `refresh_outline_symbols_at_cursor` so outline consumers pick up the new data.
     pub(super) fn refresh_document_symbols(
         &mut self,
         for_buffer: Option<BufferId>,
@@ -379,8 +379,7 @@ mod tests {
 
     use futures::StreamExt as _;
     use gpui::{
-        App, AppContext as _, FontWeight, HighlightStyle, Hsla, SharedString, TestAppContext, font,
-        px,
+        AppContext as _, FontWeight, HighlightStyle, Hsla, SharedString, TestAppContext, font, px,
     };
     use language::{Buffer, Capability, OutlineItem, highlight_ranges_from_text};
     use languages::rust_lang;
@@ -391,7 +390,6 @@ mod tests {
     use text::Point;
     use theme::SyntaxTheme;
     use util::path;
-    use workspace::item::{Item, ItemEvent};
     use zed_actions::editor::MoveDown;
 
     use super::highlights_from_buffer;
@@ -412,16 +410,6 @@ mod tests {
             .1
             .iter()
             .map(|s| s.text.as_str())
-            .collect()
-    }
-
-    fn breadcrumb_texts(editor: &Editor, cx: &App) -> Vec<String> {
-        editor
-            .breadcrumbs(cx)
-            .expect("Should have breadcrumbs")
-            .0
-            .into_iter()
-            .map(|segment| segment.text.to_string())
             .collect()
     }
 
@@ -796,7 +784,7 @@ mod tests {
         cx.set_state("fn maˇin() {\n    let x = 1;\n}\n");
         cx.run_until_parked();
 
-        // Step 1: With tree-sitter (default), breadcrumbs use tree-sitter outline
+        // Step 1: With tree-sitter (default), cursor symbols use the tree-sitter outline
         cx.update_editor(|editor, _window, _cx| {
             assert_eq!(
                 outline_symbol_names(editor),
@@ -940,7 +928,7 @@ mod tests {
     }
 
     #[gpui::test]
-    async fn test_breadcrumbs_use_lsp_symbols(cx: &mut TestAppContext) {
+    async fn test_outline_symbols_at_cursor_use_lsp_symbols(cx: &mut TestAppContext) {
         init_test(cx, |_| {});
 
         update_test_language_settings(cx, &|settings| {
@@ -1184,7 +1172,7 @@ mod tests {
         cx.run_until_parked();
         cx.update_editor(|editor, _window, _cx| {
             // With LSP enabled but empty response, outline_symbols_at_cursor should be None
-            // (no symbols to show in breadcrumbs)
+            // (no outline symbols at the cursor)
             assert!(
                 editor.outline_symbols_at_cursor.is_none(),
                 "Empty LSP response should result in no outline symbols"
@@ -1239,131 +1227,6 @@ mod tests {
             request_count.load(atomic::Ordering::Acquire),
             0,
             "Should not have made any LSP document symbol requests when setting is off"
-        );
-    }
-
-    #[gpui::test]
-    async fn test_breadcrumbs_keep_file_name_without_lsp_symbols(cx: &mut TestAppContext) {
-        init_test(cx, |_| {});
-
-        update_test_language_settings(cx, &|settings| {
-            settings.defaults.document_symbols = Some(DocumentSymbols::On);
-        });
-
-        let mut cx = EditorLspTestContext::new_rust(
-            lsp::ServerCapabilities {
-                document_symbol_provider: Some(lsp::OneOf::Left(true)),
-                ..lsp::ServerCapabilities::default()
-            },
-            cx,
-        )
-        .await;
-        let mut symbol_request = cx
-            .set_request_handler::<lsp::request::DocumentSymbolRequest, _, _>(
-                move |_, _, _| async move {
-                    Ok(Some(lsp::DocumentSymbolResponse::Nested(Vec::new())))
-                },
-            );
-
-        cx.set_state("fn maˇin() {\n    let x = 1;\n}\n");
-        assert!(symbol_request.next().await.is_some());
-        cx.run_until_parked();
-
-        cx.update_editor(|editor, _window, cx| {
-            assert_eq!(
-                breadcrumb_texts(editor, cx),
-                vec![path!("dir/file.rs").to_string()],
-                "Breadcrumbs should fall back to the file name when the language server returns no symbols"
-            );
-
-            editor.set_breadcrumb_header("Last 1000 lines in the log".to_string());
-            assert_eq!(
-                breadcrumb_texts(editor, cx),
-                vec!["Last 1000 lines in the log".to_string()],
-                "A custom breadcrumb header should never disappear"
-            );
-        });
-    }
-
-    #[gpui::test]
-    async fn test_breadcrumbs_refresh_on_document_symbols_setting_change(cx: &mut TestAppContext) {
-        init_test(cx, |_| {});
-
-        let mut cx = EditorLspTestContext::new_rust(
-            lsp::ServerCapabilities {
-                document_symbol_provider: Some(lsp::OneOf::Left(true)),
-                ..lsp::ServerCapabilities::default()
-            },
-            cx,
-        )
-        .await;
-        let mut symbol_request = cx
-            .set_request_handler::<lsp::request::DocumentSymbolRequest, _, _>(
-                move |_, _, _| async move {
-                    Ok(Some(lsp::DocumentSymbolResponse::Nested(Vec::new())))
-                },
-            );
-
-        cx.set_state("fn maˇin() {\n    let x = 1;\n}\n");
-        cx.run_until_parked();
-
-        cx.update_editor(|editor, _window, cx| {
-            assert_eq!(
-                breadcrumb_texts(editor, cx),
-                vec![path!("dir/file.rs").to_string(), "fn main".to_string()],
-                "With tree-sitter symbols, breadcrumbs should show the file name and the symbol"
-            );
-        });
-
-        let breadcrumb_updates = Arc::new(atomic::AtomicUsize::new(0));
-        let editor = cx.editor.clone();
-        let _subscription = cx.update(|_, cx| {
-            cx.subscribe(&editor, {
-                let breadcrumb_updates = breadcrumb_updates.clone();
-                move |_, event, _| {
-                    Editor::to_item_events(event, &mut |item_event| {
-                        if item_event == ItemEvent::UpdateBreadcrumbs {
-                            breadcrumb_updates.fetch_add(1, atomic::Ordering::AcqRel);
-                        }
-                    });
-                }
-            })
-        });
-
-        update_test_language_settings(&mut cx.cx.cx, &|settings| {
-            settings.defaults.document_symbols = Some(DocumentSymbols::On);
-        });
-        assert!(symbol_request.next().await.is_some());
-        cx.run_until_parked();
-
-        cx.update_editor(|editor, _window, cx| {
-            assert_eq!(
-                breadcrumb_texts(editor, cx),
-                vec![path!("dir/file.rs").to_string()],
-                "After enabling LSP symbols that return nothing, breadcrumbs should keep the file name"
-            );
-        });
-        assert!(
-            breadcrumb_updates.load(atomic::Ordering::Acquire) > 0,
-            "Breadcrumbs should refresh on the setting change, without extra selection changes"
-        );
-
-        breadcrumb_updates.store(0, atomic::Ordering::Release);
-        update_test_language_settings(&mut cx.cx.cx, &|settings| {
-            settings.defaults.document_symbols = Some(DocumentSymbols::Off);
-        });
-        cx.run_until_parked();
-
-        cx.update_editor(|editor, _window, cx| {
-            assert_eq!(
-                breadcrumb_texts(editor, cx),
-                vec![path!("dir/file.rs").to_string(), "fn main".to_string()],
-                "After disabling LSP symbols, tree-sitter breadcrumbs should return"
-            );
-        });
-        assert!(
-            breadcrumb_updates.load(atomic::Ordering::Acquire) > 0,
-            "Breadcrumbs should refresh on the setting change, without extra selection changes"
         );
     }
 }

@@ -10,6 +10,7 @@ members = [
     "crates/breadcrumbs",
     "crates/buffer_diff",
     "crates/call_hierarchy",
+    "crates/calculator_panel",
     "crates/cli",
     "crates/client",
     "crates/clock",
@@ -194,6 +195,7 @@ members = [
 ]
 default-members = ["crates/zed"]
 exclude = [
+    "extensions/drawio",
     "extensions/glsl",
     "extensions/html",
     "extensions/mermaid",
@@ -219,6 +221,7 @@ bench_metrics = { path = "crates/bench_metrics" }
 breadcrumbs = { path = "crates/breadcrumbs" }
 buffer_diff = { path = "crates/buffer_diff" }
 call_hierarchy = { path = "crates/call_hierarchy" }
+calculator_panel = { path = "crates/calculator_panel" }
 cli = { path = "crates/cli", default-features = false }
 client = { path = "crates/client" }
 clock = { path = "crates/clock" }

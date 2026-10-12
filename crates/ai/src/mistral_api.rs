@@ -235,13 +235,40 @@ async fn serve_with_client(
     Ok(())
 }
 
+fn reasoning_efforts(model: &str) -> &'static [&'static str] {
+    // The models endpoint does not advertise adjustable reasoning; older instruct
+    // models must not receive reasoning_effort. These hybrid models accept none/high.
+    match model {
+        "mistral-small-latest"
+        | "mistral-small-2603"
+        | "mistral-medium-3-5"
+        | "mistral-large-4-0" => &["none", "high"],
+        _ => &[],
+    }
+}
+
 fn model_list(data: &Value) -> Vec<Value> {
-    data["data"].as_array().into_iter().flatten().filter(|model| {
-        model["capabilities"]["completion_chat"] == true && model["capabilities"]["function_calling"] == true
-    }).filter_map(|model| {
-        let id = model["id"].as_str()?;
-        Some(json!({"model": id, "displayName": format!("Mistral · {id}"), "defaultReasoningEffort": "none", "supportedReasoningEfforts": []}))
-    }).collect()
+    data["data"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|model| {
+            model["capabilities"]["completion_chat"] == true
+                && model["capabilities"]["function_calling"] == true
+        })
+        .filter_map(|model| {
+            let id = model["id"].as_str()?;
+            let efforts = reasoning_efforts(id);
+            Some(json!({
+                "model": id,
+                "displayName": format!("Mistral · {id}"),
+                "defaultReasoningEffort": "none",
+                "supportedReasoningEfforts": efforts.iter().map(|effort| {
+                    json!({"reasoningEffort": effort})
+                }).collect::<Vec<_>>()
+            }))
+        })
+        .collect()
 }
 
 async fn send(incoming: &channel::Sender<Result<Value>>, message: Value) -> Result<()> {
@@ -359,6 +386,15 @@ async fn run_turn(
 ) -> Result<()> {
     let writable = parameters["sandboxPolicy"]["type"] != "readOnly";
     let auto_approve = parameters["sandboxPolicy"]["type"] == "dangerFullAccess";
+    let effort = parameters["effort"].as_str();
+    let supported_efforts = reasoning_efforts(&model);
+    if let Some(effort) = effort {
+        ensure!(
+            supported_efforts.contains(&effort)
+                || (effort == "none" && supported_efforts.is_empty()),
+            "Reasoning level {effort} is not supported by {model}"
+        );
+    }
     let (mut server, definitions, system, skills) = smol::unblock({
         let directory = directory.clone();
         move || -> Result<_> {
@@ -404,11 +440,17 @@ async fn run_turn(
     ];
     save_progress(&conversation, &messages, &mut items)?;
     for step in 0..32 {
-        let mut response = client.request("chat/completions", Some(json!({"model": model, "messages": messages, "tools": tools, "stream": true, "parallel_tool_calls": false}))).await?;
+        let mut request = json!({"model": model, "messages": messages, "tools": tools, "stream": true, "parallel_tool_calls": false});
+        if let Some(effort) = effort.filter(|_| !supported_efforts.is_empty()) {
+            request["reasoning_effort"] = json!(effort);
+        }
+        let mut response = client.request("chat/completions", Some(request)).await?;
         let message_id = format!("{turn}-message-{step}");
         let mut reader = BufReader::new(response.body_mut());
         let mut line = String::new();
         let mut text = String::new();
+        let mut content_chunks = Vec::new();
+        let mut has_thinking = false;
         let mut calls: BTreeMap<usize, Value> = BTreeMap::new();
         let mut finished = false;
         while reader.read_line(&mut line).await? != 0 {
@@ -427,6 +469,12 @@ async fn run_turn(
                     bail!("Mistral stream: {error}");
                 }
                 let delta = &chunk["choices"][0]["delta"];
+                if let Some(chunks) = delta["content"].as_array() {
+                    has_thinking |= chunks.iter().any(|chunk| chunk["type"] == "thinking");
+                    content_chunks.extend(chunks.iter().cloned());
+                } else if let Some(text) = delta["content"].as_str() {
+                    content_chunks.push(json!({"type": "text", "text": text}));
+                }
                 let content = content_text(&delta["content"]);
                 if !content.is_empty() {
                     text.push_str(&content);
@@ -441,6 +489,9 @@ async fn run_turn(
             "Mistral stream ended before completion. Retry the message."
         );
         let mut assistant = json!({"role":"assistant", "content":text});
+        if has_thinking {
+            assistant["content"] = json!(content_chunks);
+        }
         if !calls.is_empty() {
             assistant["tool_calls"] = json!(calls.values().collect::<Vec<_>>());
         }
@@ -506,7 +557,7 @@ async fn run_turn(
                 result?
             };
             messages.push(json!({"role":"tool","name":name,"tool_call_id":call_id,"content":serde_json::to_string(&output)?}));
-            let item = json!({"id":format!("{turn}-{call_id}"),"type":"mcpToolCall","server":"zedstorm","tool":name,"status":if output["isError"] == true {"failed"} else {"completed"}});
+            let item = json!({"id":format!("{turn}-{call_id}"),"type":"mcpToolCall","server":"zedstorm","tool":name,"status":if output["isError"] == true {"failed"} else {"completed"},"result":output});
             send(incoming,json!({"method":"item/completed","params":{"threadId":"mistral-local","turnId":turn,"item":item}})).await?;
             items.push(item);
         }
@@ -660,6 +711,39 @@ mod tests {
             models.first().map(|model| &model["model"]),
             Some(&json!("coding"))
         );
+        assert_eq!(
+            models
+                .first()
+                .map(|model| &model["supportedReasoningEfforts"]),
+            Some(&json!([]))
+        );
+    }
+
+    #[test]
+    fn model_catalog_exposes_only_supported_reasoning_levels() -> Result<()> {
+        for (model, efforts) in [
+            ("mistral-small-latest", vec!["none", "high"]),
+            ("mistral-small-2603", vec!["none", "high"]),
+            ("mistral-medium-3-5", vec!["none", "high"]),
+            ("mistral-large-4-0", vec!["none", "high"]),
+            ("mistral-small-2506", vec![]),
+            ("mistral-medium-2508", vec![]),
+            ("devstral-latest", vec![]),
+        ] {
+            let models = model_list(&json!({"data": [{
+                "id": model,
+                "capabilities": {"completion_chat": true, "function_calling": true}
+            }]}));
+            let model = models.first().context("Missing chat model")?;
+            let actual = model["supportedReasoningEfforts"]
+                .as_array()
+                .context("Missing reasoning levels")?
+                .iter()
+                .filter_map(|effort| effort["reasoningEffort"].as_str())
+                .collect::<Vec<_>>();
+            assert_eq!(actual, efforts);
+        }
+        Ok(())
     }
 
     #[test]
@@ -691,6 +775,45 @@ mod tests {
     }
 
     #[test]
+    fn unsupported_reasoning_fails_before_sending_a_request() -> Result<()> {
+        smol::block_on(async {
+            let directory = tempfile::tempdir()?;
+            let client = Arc::new(Client {
+                http: http_client::FakeHttpClient::create(|_| async {
+                    bail!("Unexpected HTTP request")
+                }),
+                key: "test-key".into(),
+                base: "https://api.mistral.ai/v1".into(),
+            });
+            let (incoming, _receiver) = channel::unbounded();
+            let (_approvals, approval_receiver) = channel::unbounded();
+            for (model, effort) in [
+                ("devstral-latest", "high"),
+                ("mistral-small-latest", "low"),
+                ("mistral-medium-3-5", "medium"),
+            ] {
+                let result = run_turn(
+                    client.clone(),
+                    SharedConversation::default(),
+                    directory.path().into(),
+                    json!({"effort": effort}),
+                    model.into(),
+                    "unsupported",
+                    &incoming,
+                    approval_receiver.clone(),
+                )
+                .await;
+                let error = result.err().context("Unsupported reasoning must fail")?;
+                assert_eq!(
+                    error.to_string(),
+                    format!("Reasoning level {effort} is not supported by {model}")
+                );
+            }
+            Ok(())
+        })
+    }
+
+    #[test]
     fn api_tool_loop_preserves_followup_history() -> Result<()> {
         smol::block_on(async {
             let directory = tempfile::tempdir()?;
@@ -712,8 +835,16 @@ mod tests {
                     request.body_mut().read_to_end(&mut bytes).await?;
                     let body: Value = serde_json::from_slice(&bytes)?;
                     let index = count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    match index {
+                        0 | 1 => assert_eq!(body["reasoning_effort"], "high"),
+                        2 => assert_eq!(body["reasoning_effort"], "none"),
+                        _ => assert!(body.get("reasoning_effort").is_none()),
+                    }
                     let delta = if index == 0 {
-                        json!({"tool_calls":[{"index":0,"id":"call1","type":"function","function":{"name":"read","arguments":"{\"path\":\"hello.txt\"}"}}]})
+                        json!({
+                            "content": [{"type": "thinking", "thinking": [{"type": "text", "text": "Read the file first."}]}],
+                            "tool_calls":[{"index":0,"id":"call1","type":"function","function":{"name":"read","arguments":"{\"path\":\"hello.txt\"}"}}]
+                        })
                     } else {
                         let messages = body["messages"].as_array().context("Missing messages")?;
                         assert!(messages.iter().any(|message| {
@@ -722,12 +853,23 @@ mod tests {
                                     .as_str()
                                     .is_some_and(|text| text.contains("hello"))
                         }));
+                        assert!(messages.iter().any(|message| {
+                            message["role"] == "assistant"
+                                && message["content"][0]["type"] == "thinking"
+                                && message["content"][0]["thinking"][0]["text"]
+                                    == "Read the file first."
+                                && content_text(&message["content"]) == "Reading."
+                        }));
                         json!({"content":"Done"})
                     };
-                    let stream = format!(
-                        "data: {}\n\ndata: [DONE]\n\n",
-                        json!({"choices":[{"delta":delta}]})
-                    );
+                    let mut stream = format!("data: {}\n\n", json!({"choices":[{"delta":delta}]}));
+                    if index == 0 {
+                        stream.push_str(&format!(
+                            "data: {}\n\n",
+                            json!({"choices": [{"delta": {"content": "Reading."}}]})
+                        ));
+                    }
+                    stream.push_str("data: [DONE]\n\n");
                     Ok(http_client::Response::builder().body(stream.into())?)
                 }
             });
@@ -739,21 +881,48 @@ mod tests {
             let conversation = SharedConversation::default();
             let (incoming, receiver) = channel::unbounded();
             let (_approvals, approval_receiver) = channel::unbounded();
-            for turn in ["first", "followup"] {
+            for (turn, effort) in [
+                ("first", Some("high")),
+                ("followup", Some("none")),
+                ("default", None),
+            ] {
+                let mut parameters =
+                    json!({"input":[{"text":"Read hello"}],"sandboxPolicy":{"type":"readOnly"}});
+                if let Some(effort) = effort {
+                    parameters["effort"] = json!(effort);
+                }
                 run_turn(
                     client.clone(),
                     conversation.clone(),
                     directory.path().into(),
-                    json!({"input":[{"text":"Read hello"}],"sandboxPolicy":{"type":"readOnly"}}),
-                    "devstral-latest".into(),
+                    parameters,
+                    "mistral-small-latest".into(),
                     turn,
                     &incoming,
                     approval_receiver.clone(),
                 )
                 .await?;
             }
-            assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 3);
+            assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 4);
             assert!(!receiver.is_empty());
+            let state = conversation
+                .lock()
+                .map_err(|_| anyhow::anyhow!("Lock failed"))?;
+            let tool = state
+                .items
+                .iter()
+                .find(|item| item["type"] == "mcpToolCall")
+                .context("Saved tool call")?;
+            assert!(
+                tool["result"]["content"]
+                    .as_array()
+                    .context("Tool result content")?
+                    .iter()
+                    .any(|part| part["text"]
+                        .as_str()
+                        .is_some_and(|text| text.contains("hello")))
+            );
+            drop(state);
             assert_eq!(
                 conversation
                     .lock()
@@ -762,7 +931,7 @@ mod tests {
                     .iter()
                     .filter(|message| message["role"] == "user")
                     .count(),
-                2
+                3
             );
             Ok(())
         })

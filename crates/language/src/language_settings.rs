@@ -110,7 +110,7 @@ pub struct LanguageSettings {
     /// Controls whether folding ranges from language servers are used instead of
     /// tree-sitter and indent-based folding.
     pub document_folding_ranges: DocumentFoldingRanges,
-    /// Controls the source of document symbols used for outlines and breadcrumbs.
+    /// Controls the source of document symbols used for outlines.
     pub document_symbols: DocumentSymbols,
     /// Controls where the `editor::Rewrap` action is allowed for this language.
     ///

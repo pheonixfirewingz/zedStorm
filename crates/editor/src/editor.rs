@@ -184,10 +184,9 @@ use itertools::{Either, Itertools};
 use language::{
     AutoindentMode, BlockCommentConfig, BracketMatch, BracketPair, Buffer, BufferRow,
     BufferSnapshot, Capability, CharClassifier, CharKind, CharScopeContext, CodeLabel, CursorShape,
-    DiagnosticEntryRef, DiffOptions, HighlightedText, IndentKind, IndentSize, Language,
-    LanguageAwareStyling, LanguageName, LanguageRegistry, LanguageScope, LocalFile, OffsetRangeExt,
-    OutlineItem, Point, Selection, SelectionGoal, TextObject, TransactionId, TreeSitterOptions,
-    WordsQuery,
+    DiagnosticEntryRef, DiffOptions, IndentKind, IndentSize, Language, LanguageAwareStyling,
+    LanguageName, LanguageRegistry, LanguageScope, LocalFile, OffsetRangeExt, OutlineItem, Point,
+    Selection, SelectionGoal, TextObject, TransactionId, TreeSitterOptions, WordsQuery,
     language_settings::{
         self, AllLanguageSettings, LanguageSettings, LspInsertMode, RewrapBehavior, SoftWrapIndent,
         WordsCompletionMode,
@@ -727,40 +726,6 @@ impl MinimapVisibility {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct BreadcrumbsVisibility {
-    setting_configuration: bool,
-    toggle_override: bool,
-}
-
-impl BreadcrumbsVisibility {
-    fn from_settings(cx: &App) -> Self {
-        Self::new(EditorSettings::get_global(cx).toolbar.breadcrumbs)
-    }
-
-    fn new(setting_configuration: bool) -> Self {
-        Self {
-            setting_configuration,
-            toggle_override: false,
-        }
-    }
-
-    fn settings_visibility(&self) -> bool {
-        self.setting_configuration
-    }
-
-    fn visible(&self) -> bool {
-        self.setting_configuration ^ self.toggle_override
-    }
-
-    fn toggle_visibility(&self) -> Self {
-        Self {
-            setting_configuration: self.setting_configuration,
-            toggle_override: !self.toggle_override,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BufferSerialization {
     All,
@@ -1010,7 +975,6 @@ pub struct Editor {
     hovered_cursors: HashMap<HoveredCursor, Task<()>>,
     pub show_local_selections: bool,
     mode: EditorMode,
-    breadcrumbs_visibility: BreadcrumbsVisibility,
     show_gutter: bool,
     show_scrollbars: ScrollbarAxes,
     minimap_visibility: MinimapVisibility,
@@ -1164,7 +1128,6 @@ pub struct Editor {
     pull_diagnostics_task: Task<()>,
     in_project_search: bool,
     previous_search_ranges: Option<Arc<[Range<Anchor>]>>,
-    breadcrumb_header: Option<String>,
     focused_block: Option<FocusedBlock>,
     next_scroll_position: NextScrollCursorCenterTopBottom,
     addons: TypeIdHashMap<Box<dyn Addon>>,
@@ -2383,7 +2346,6 @@ impl Editor {
             },
             minimap_visibility: MinimapVisibility::for_mode(&mode, cx),
             offset_content: !matches!(mode, EditorMode::SingleLine),
-            breadcrumbs_visibility: BreadcrumbsVisibility::from_settings(cx),
             show_gutter: full_mode,
             search_results_hold: None,
             show_line_numbers: (!full_mode).then_some(false),
@@ -2537,7 +2499,6 @@ impl Editor {
             linked_edit_ranges: Default::default(),
             in_project_search: false,
             previous_search_ranges: None,
-            breadcrumb_header: None,
             focused_block: None,
             next_scroll_position: NextScrollCursorCenterTopBottom::default(),
             addons: Default::default(),
@@ -9428,10 +9389,6 @@ impl Editor {
         )
     }
 
-    pub fn set_breadcrumb_header(&mut self, new_header: String) {
-        self.breadcrumb_header = Some(new_header);
-    }
-
     pub fn clear_search_within_ranges(&mut self, cx: &mut Context<Self>) {
         self.clear_background_highlights(HighlightKey::SearchWithinRange, cx);
     }
@@ -10208,26 +10165,15 @@ impl Editor {
         self.refresh_inline_values(cx);
 
         let old_cursor_shape = self.cursor_shape;
-        let old_breadcrumbs_visible = self.breadcrumbs_visible();
 
         {
             let editor_settings = EditorSettings::get_global(cx);
             self.scroll_manager.vertical_scroll_margin = editor_settings.vertical_scroll_margin;
-            if self.breadcrumbs_visibility.settings_visibility()
-                != editor_settings.toolbar.breadcrumbs
-            {
-                self.breadcrumbs_visibility =
-                    BreadcrumbsVisibility::new(editor_settings.toolbar.breadcrumbs);
-            }
             self.cursor_shape = editor_settings.cursor_shape.unwrap_or_default();
         }
 
         if old_cursor_shape != self.cursor_shape {
             cx.emit(EditorEvent::CursorShapeChanged);
-        }
-
-        if old_breadcrumbs_visible != self.breadcrumbs_visible() {
-            cx.emit(EditorEvent::BreadcrumbsChanged);
         }
 
         let (restore_unsaved_buffers, show_inline_diagnostics, inline_blame_enabled) = {
@@ -11363,47 +11309,6 @@ impl Editor {
         }
     }
 
-    fn breadcrumbs_inner(&self, cx: &App) -> Option<Vec<HighlightedText>> {
-        let multi_buffer = self.buffer().read(cx);
-        // In a multi-buffer layout, we don't want to include the filename in the breadcrumbs
-        let mut breadcrumbs = if let Some(buffer) = multi_buffer.as_singleton() {
-            let text = self.breadcrumb_header.clone().unwrap_or_else(|| {
-                buffer
-                    .read(cx)
-                    .snapshot()
-                    .resolve_file_path(
-                        self.project
-                            .as_ref()
-                            .map(|project| project.read(cx).visible_worktrees(cx).count() > 1)
-                            .unwrap_or_default(),
-                        cx,
-                    )
-                    .unwrap_or_else(|| multi_buffer.title(cx).to_string())
-            });
-            vec![HighlightedText {
-                text: text.into(),
-                highlights: vec![],
-            }]
-        } else {
-            Vec::new()
-        };
-
-        if let Some((buffer_id, symbols)) = self.outline_symbols_at_cursor.as_ref()
-            && multi_buffer.buffer(*buffer_id).is_some()
-        {
-            breadcrumbs.extend(symbols.iter().map(|symbol| HighlightedText {
-                text: symbol.text.clone(),
-                highlights: symbol.highlight_ranges.clone(),
-            }));
-        }
-
-        if breadcrumbs.is_empty() {
-            None
-        } else {
-            Some(breadcrumbs)
-        }
-    }
-
     fn disable_lsp_data(&mut self) {
         self.enable_lsp_data = false;
     }
@@ -12449,7 +12354,6 @@ pub enum EditorEvent {
         transaction_id: clock::Lamport,
     },
     CursorShapeChanged,
-    BreadcrumbsChanged,
     OutlineSymbolsChanged,
     PushedToNavHistory {
         anchor: Anchor,

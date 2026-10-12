@@ -1,40 +1,28 @@
 mod preview;
 mod repl_menu;
 
-use editor::actions::{
-    AddSelectionAbove, AddSelectionBelow, CodeActionSource, DuplicateLineDown, GoToDiagnostic,
-    GoToHunk, GoToPreviousDiagnostic, GoToPreviousHunk, MoveLineDown, MoveLineUp, SelectAll,
-    SelectLargerSyntaxNode, SelectNext, SelectSmallerSyntaxNode, ToggleCodeActions,
-    ToggleDiagnostics, ToggleGoToLine, ToggleInlineDiagnostics,
-};
+use editor::actions::{CodeActionSource, ToggleCodeActions};
 use editor::code_context_menus::{CodeContextMenu, ContextMenuOrigin};
 use editor::{Editor, EditorSettings};
 use gpui::{
     Action, Anchor, AnchoredPositionMode, ClickEvent, Context, ElementId, Entity, EventEmitter,
-    FocusHandle, Focusable, InteractiveElement, ParentElement, Render, Styled, Subscription,
-    WeakEntity, Window, anchored, deferred, point,
+    FocusHandle, InteractiveElement, ParentElement, Render, Styled, Subscription, WeakEntity,
+    Window, anchored, deferred, point,
 };
-use project::project_settings::{DiagnosticSeverity, ProjectSettings};
 use search::BufferSearchBar;
-use settings::{GitDiffBaseSetting, Settings, SettingsStore, update_settings_file};
-use ui::{
-    ButtonStyle, ContextMenu, ContextMenuEntry, DocumentationSide, IconButton, IconName, IconSize,
-    PopoverMenu, PopoverMenuHandle, Tooltip, prelude::*,
-};
+use settings::{Settings, SettingsStore};
+use ui::{ButtonStyle, IconButton, IconName, IconSize, Tooltip, prelude::*};
 use workspace::{
     ToolbarItemEvent, ToolbarItemLocation, ToolbarItemView, Workspace, item::ItemHandle,
 };
-use zed_actions::outline::ToggleOutline;
 
 const MAX_CODE_ACTION_MENU_LINES: u32 = 16;
 
 pub struct QuickActionBar {
-    _inlay_hints_enabled_subscription: Option<Subscription>,
+    _active_editor_subscription: Option<Subscription>,
     active_item: Option<Box<dyn ItemHandle>>,
     _buffer_search_bar: Entity<BufferSearchBar>,
     show: bool,
-    toggle_selections_handle: PopoverMenuHandle<ContextMenu>,
-    toggle_settings_handle: PopoverMenuHandle<ContextMenu>,
     workspace: WeakEntity<Workspace>,
 }
 
@@ -45,12 +33,10 @@ impl QuickActionBar {
         cx: &mut Context<Self>,
     ) -> Self {
         let mut this = Self {
-            _inlay_hints_enabled_subscription: None,
+            _active_editor_subscription: None,
             active_item: None,
             _buffer_search_bar: buffer_search_bar,
             show: true,
-            toggle_selections_handle: Default::default(),
-            toggle_settings_handle: Default::default(),
             workspace: workspace.weak_handle(),
         };
         this.apply_settings(cx);
@@ -69,14 +55,20 @@ impl QuickActionBar {
         let new_show = EditorSettings::get_global(cx).toolbar.quick_actions;
         if new_show != self.show {
             self.show = new_show;
-            cx.emit(ToolbarItemEvent::ChangeLocation(
-                self.get_toolbar_item_location(),
-            ));
+            let location = self.get_toolbar_item_location(cx);
+            cx.emit(ToolbarItemEvent::ChangeLocation(location));
         }
     }
 
-    fn get_toolbar_item_location(&self) -> ToolbarItemLocation {
-        if self.show && self.active_editor().is_some() {
+    fn get_toolbar_item_location(&self, cx: &mut Context<Self>) -> ToolbarItemLocation {
+        let Some(editor) = self.active_editor().filter(|_| self.show) else {
+            return ToolbarItemLocation::Hidden;
+        };
+
+        if editor.read(cx).code_actions_enabled_for_toolbar(cx)
+            || self.render_preview_button(cx).is_some()
+            || self.render_repl_menu(cx).is_some()
+        {
             ToolbarItemLocation::PrimaryRight
         } else {
             ToolbarItemLocation::Hidden
@@ -90,27 +82,7 @@ impl Render for QuickActionBar {
             return div().id("empty quick action bar");
         };
 
-        let supports_inlay_hints = editor.update(cx, |editor, cx| editor.supports_inlay_hints(cx));
-        let supports_semantic_tokens =
-            editor.update(cx, |editor, cx| editor.supports_semantic_tokens(cx));
-        let supports_code_lens = editor.update(cx, |editor, cx| editor.supports_code_lens(cx));
         let editor_value = editor.read(cx);
-        let selection_menu_enabled = editor_value.selection_menu_enabled(cx);
-        let inlay_hints_enabled = editor_value.inlay_hints_enabled();
-        let inline_values_enabled = editor_value.inline_values_enabled();
-        let semantic_highlights_enabled = editor_value.semantic_highlights_enabled();
-        let code_lens_enabled = editor_value.code_lens_enabled();
-        let is_full = editor_value.mode().is_full();
-        let diagnostics_enabled = editor_value.diagnostics_enabled()
-            && editor_value.diagnostics_max_severity != DiagnosticSeverity::Off;
-        let supports_inline_diagnostics = editor_value.inline_diagnostics_enabled();
-        let inline_diagnostics_enabled = editor_value.show_inline_diagnostics();
-        let git_blame_inline_enabled = editor_value.git_blame_inline_enabled();
-        let show_git_blame_gutter = editor_value.show_git_blame_gutter();
-        let auto_signature_help_enabled = editor_value.auto_signature_help_enabled(cx);
-        let show_line_numbers = editor_value.line_numbers_enabled(cx);
-        let supports_minimap = editor_value.supports_minimap(cx);
-        let minimap_enabled = supports_minimap && editor_value.minimap().is_some();
         let has_available_code_actions = editor_value.has_available_code_actions_for_selection();
         let code_action_enabled = editor_value.code_actions_enabled_for_toolbar(cx);
         let code_actions_dropdown = code_action_enabled.then(|| {
@@ -181,402 +153,12 @@ impl Render for QuickActionBar {
                 }))
         });
 
-        let editor_selections_dropdown = selection_menu_enabled.then(|| {
-            let has_diff_hunks = editor
-                .read(cx)
-                .buffer()
-                .read(cx)
-                .snapshot(cx)
-                .has_diff_hunks();
-            let focus = editor.focus_handle(cx);
-
-            PopoverMenu::new("editor-selections-dropdown")
-                .trigger_with_tooltip(
-                    IconButton::new("toggle_editor_selections_icon", IconName::CursorIBeam)
-                        .icon_size(IconSize::Small)
-                        .style(ButtonStyle::Subtle)
-                        .toggle_state(self.toggle_selections_handle.is_deployed()),
-                    Tooltip::text("Selection Controls"),
-                )
-                .with_handle(self.toggle_selections_handle.clone())
-                .anchor(Anchor::TopRight)
-                .menu(move |window, cx| {
-                    let focus = focus.clone();
-                    let menu = ContextMenu::build(window, cx, move |menu, _, _| {
-                        menu.context(focus.clone())
-                            .action("Select All", Box::new(SelectAll))
-                            .action(
-                                "Select Next Occurrence",
-                                Box::new(SelectNext {
-                                    replace_newest: false,
-                                }),
-                            )
-                            .action("Expand Selection", Box::new(SelectLargerSyntaxNode))
-                            .action("Shrink Selection", Box::new(SelectSmallerSyntaxNode))
-                            .action(
-                                "Add Cursor Above",
-                                Box::new(AddSelectionAbove {
-                                    skip_soft_wrap: true,
-                                }),
-                            )
-                            .action(
-                                "Add Cursor Below",
-                                Box::new(AddSelectionBelow {
-                                    skip_soft_wrap: true,
-                                }),
-                            )
-                            .separator()
-                            .action("Go to Symbol", Box::new(ToggleOutline))
-                            .action("Go to Line/Column", Box::new(ToggleGoToLine))
-                            .separator()
-                            .action("Next Problem", Box::new(GoToDiagnostic::default()))
-                            .action(
-                                "Previous Problem",
-                                Box::new(GoToPreviousDiagnostic::default()),
-                            )
-                            .separator()
-                            .action_disabled_when(!has_diff_hunks, "Next Hunk", Box::new(GoToHunk))
-                            .action_disabled_when(
-                                !has_diff_hunks,
-                                "Previous Hunk",
-                                Box::new(GoToPreviousHunk),
-                            )
-                            .separator()
-                            .action("Move Line Up", Box::new(MoveLineUp))
-                            .action("Move Line Down", Box::new(MoveLineDown))
-                            .action("Duplicate Selection", Box::new(DuplicateLineDown))
-                    });
-                    Some(menu)
-                })
-        });
-
-        let editor_focus_handle = editor.focus_handle(cx);
-        let editor = editor.downgrade();
-        let editor_settings_dropdown = {
-            let diff_against_default_branch =
-                ProjectSettings::get_global(cx).git.diff_base == GitDiffBaseSetting::DefaultBranch;
-            let fs = self
-                .workspace
-                .upgrade()
-                .map(|workspace| workspace.read(cx).app_state().fs.clone());
-
-            PopoverMenu::new("editor-settings")
-                .trigger_with_tooltip(
-                    IconButton::new("toggle_editor_settings_icon", IconName::Filter)
-                        .icon_size(IconSize::Small)
-                        .toggle_state(self.toggle_settings_handle.is_deployed()),
-                    Tooltip::text("Editor Controls"),
-                )
-                .anchor(Anchor::TopRight)
-                .with_handle(self.toggle_settings_handle.clone())
-                .menu(move |window, cx| {
-                    let menu = ContextMenu::build(window, cx, {
-                        let focus_handle = editor_focus_handle.clone();
-                        |mut menu, _, _| {
-                            menu = menu.context(focus_handle);
-
-                            if supports_inlay_hints {
-                                menu = menu.toggleable_entry(
-                                    "Inlay Hints",
-                                    inlay_hints_enabled,
-                                    IconPosition::Start,
-                                    Some(editor::actions::ToggleInlayHints.boxed_clone()),
-                                    {
-                                        let editor = editor.clone();
-                                        move |window, cx| {
-                                            editor
-                                                .update(cx, |editor, cx| {
-                                                    editor.toggle_inlay_hints(
-                                                        &editor::actions::ToggleInlayHints,
-                                                        window,
-                                                        cx,
-                                                    );
-                                                })
-                                                .ok();
-                                        }
-                                    },
-                                );
-
-                                menu = menu.toggleable_entry(
-                                    "Inline Values",
-                                    inline_values_enabled,
-                                    IconPosition::Start,
-                                    Some(editor::actions::ToggleInlineValues.boxed_clone()),
-                                    {
-                                        let editor = editor.clone();
-                                        move |window, cx| {
-                                            editor
-                                                .update(cx, |editor, cx| {
-                                                    editor.toggle_inline_values(
-                                                        &editor::actions::ToggleInlineValues,
-                                                        window,
-                                                        cx,
-                                                    );
-                                                })
-                                                .ok();
-                                        }
-                                    }
-                                );
-                            }
-
-                            if supports_semantic_tokens {
-                                menu = menu.toggleable_entry(
-                                    "Semantic Highlights",
-                                    semantic_highlights_enabled,
-                                    IconPosition::Start,
-                                    Some(editor::actions::ToggleSemanticHighlights.boxed_clone()),
-                                    {
-                                        let editor = editor.clone();
-                                        move |window, cx| {
-                                            editor
-                                                .update(cx, |editor, cx| {
-                                                    editor.toggle_semantic_highlights(
-                                                        &editor::actions::ToggleSemanticHighlights,
-                                                        window,
-                                                        cx,
-                                                    );
-                                                })
-                                                .ok();
-                                        }
-                                    },
-                                );
-                            }
-
-                            if supports_code_lens {
-                                menu = menu.toggleable_entry(
-                                    "Code Lens",
-                                    code_lens_enabled,
-                                    IconPosition::Start,
-                                    Some(editor::actions::ToggleCodeLens.boxed_clone()),
-                                    {
-                                        let editor = editor.clone();
-                                        move |window, cx| {
-                                            editor
-                                                .update(cx, |editor, cx| {
-                                                    editor.toggle_code_lens_action(
-                                                        &editor::actions::ToggleCodeLens,
-                                                        window,
-                                                        cx,
-                                                    );
-                                                })
-                                                .ok();
-                                        }
-                                    },
-                                );
-                            }
-
-                            if supports_minimap {
-                                menu = menu.toggleable_entry("Minimap", minimap_enabled, IconPosition::Start, Some(editor::actions::ToggleMinimap.boxed_clone()), {
-                                    let editor = editor.clone();
-                                    move |window, cx| {
-                                        editor
-                                            .update(cx, |editor, cx| {
-                                                editor.toggle_minimap(
-                                                    &editor::actions::ToggleMinimap,
-                                                    window,
-                                                    cx,
-                                                );
-                                            })
-                                            .ok();
-                                    }
-                                },)
-                            }
-
-                            menu = menu.separator();
-
-                            if is_full {
-                                menu = menu.toggleable_entry(
-                                    "Diagnostics",
-                                    diagnostics_enabled,
-                                    IconPosition::Start,
-                                    Some(ToggleDiagnostics.boxed_clone()),
-                                    {
-                                        let editor = editor.clone();
-                                        move |window, cx| {
-                                            editor
-                                                .update(cx, |editor, cx| {
-                                                    editor.toggle_diagnostics(
-                                                        &ToggleDiagnostics,
-                                                        window,
-                                                        cx,
-                                                    );
-                                                })
-                                                .ok();
-                                        }
-                                    },
-                                );
-
-                                if supports_inline_diagnostics {
-                                    let mut inline_diagnostics_item = ContextMenuEntry::new("Inline Diagnostics")
-                                        .toggleable(IconPosition::Start, diagnostics_enabled && inline_diagnostics_enabled)
-                                        .action(ToggleInlineDiagnostics.boxed_clone())
-                                        .handler({
-                                            let editor = editor.clone();
-                                            move |window, cx| {
-                                                editor
-                                                    .update(cx, |editor, cx| {
-                                                        editor.toggle_inline_diagnostics(
-                                                            &ToggleInlineDiagnostics,
-                                                            window,
-                                                            cx,
-                                                        );
-                                                    })
-                                                    .ok();
-                                            }
-                                        });
-                                    if !diagnostics_enabled {
-                                        inline_diagnostics_item = inline_diagnostics_item.disabled(true).documentation_aside(DocumentationSide::Left, |_|  Label::new("Inline diagnostics are not available until regular diagnostics are enabled.").into_any_element());
-                                    }
-                                    menu = menu.item(inline_diagnostics_item)
-                                }
-
-                                menu = menu.separator();
-                            }
-
-                            menu = menu.toggleable_entry(
-                                "Line Numbers",
-                                show_line_numbers,
-                                IconPosition::Start,
-                                Some(editor::actions::ToggleLineNumbers.boxed_clone()),
-                                {
-                                    let editor = editor.clone();
-                                    move |window, cx| {
-                                        editor
-                                            .update(cx, |editor, cx| {
-                                                editor.toggle_line_numbers(
-                                                    &editor::actions::ToggleLineNumbers,
-                                                    window,
-                                                    cx,
-                                                );
-                                            })
-                                            .ok();
-                                    }
-                                },
-                            );
-
-                            menu = menu.toggleable_entry(
-                                "Selection Menu",
-                                selection_menu_enabled,
-                                IconPosition::Start,
-                                Some(editor::actions::ToggleSelectionMenu.boxed_clone()),
-                                {
-                                    let editor = editor.clone();
-                                    move |window, cx| {
-                                        editor
-                                            .update(cx, |editor, cx| {
-                                                editor.toggle_selection_menu(
-                                                    &editor::actions::ToggleSelectionMenu,
-                                                    window,
-                                                    cx,
-                                                )
-                                            })
-                                            .ok();
-                                    }
-                                },
-                            );
-
-                            menu = menu.toggleable_entry(
-                                "Auto Signature Help",
-                                auto_signature_help_enabled,
-                                IconPosition::Start,
-                                Some(editor::actions::ToggleAutoSignatureHelp.boxed_clone()),
-                                {
-                                    let editor = editor.clone();
-                                    move |window, cx| {
-                                        editor
-                                            .update(cx, |editor, cx| {
-                                                editor.toggle_auto_signature_help_menu(
-                                                    &editor::actions::ToggleAutoSignatureHelp,
-                                                    window,
-                                                    cx,
-                                                );
-                                            })
-                                            .ok();
-                                    }
-                                },
-                            );
-
-                            menu = menu.separator();
-
-                            menu = menu.toggleable_entry(
-                                "Inline Git Blame",
-                                git_blame_inline_enabled,
-                                IconPosition::Start,
-                                Some(editor::actions::ToggleGitBlameInline.boxed_clone()),
-                                {
-                                    let editor = editor.clone();
-                                    move |window, cx| {
-                                        editor
-                                            .update(cx, |editor, cx| {
-                                                editor.toggle_git_blame_inline(
-                                                    &editor::actions::ToggleGitBlameInline,
-                                                    window,
-                                                    cx,
-                                                )
-                                            })
-                                            .ok();
-                                    }
-                                },
-                            );
-
-                            menu = menu.toggleable_entry(
-                                "Column Git Blame",
-                                show_git_blame_gutter,
-                                IconPosition::Start,
-                                Some(git::Blame.boxed_clone()),
-                                {
-                                    let editor = editor.clone();
-                                    move |window, cx| {
-                                        editor
-                                            .update(cx, |editor, cx| {
-                                                editor.toggle_git_blame(
-                                                    &git::Blame,
-                                                    window,
-                                                    cx,
-                                                )
-                                            })
-                                            .ok();
-                                    }
-                                },
-                            );
-
-                            if let Some(fs) = fs.clone() {
-                                menu = menu.toggleable_entry(
-                                    "Diff Against Default Branch",
-                                    diff_against_default_branch,
-                                    IconPosition::Start,
-                                    None,
-                                    {
-                                        move |_window, cx| {
-                                            let diff_base = if diff_against_default_branch {
-                                                GitDiffBaseSetting::Head
-                                            } else {
-                                                GitDiffBaseSetting::DefaultBranch
-                                            };
-                                            update_settings_file(fs.clone(), cx, move |settings, _| {
-                                                settings.git.get_or_insert_default().diff_base =
-                                                    Some(diff_base);
-                                            });
-                                        }
-                                    },
-                                );
-                            }
-
-                            menu
-                        }
-                    });
-                    Some(menu)
-                })
-        };
-
         h_flex()
             .id("quick action bar")
             .gap(DynamicSpacing::Base01.rems(cx))
             .children(self.render_repl_menu(cx))
             .children(self.render_preview_button(cx))
             .children(code_actions_dropdown)
-            .children(editor_selections_dropdown)
-            .child(editor_settings_dropdown)
     }
 }
 
@@ -641,46 +223,14 @@ impl ToolbarItemView for QuickActionBar {
         cx: &mut Context<Self>,
     ) -> ToolbarItemLocation {
         self.active_item = active_pane_item.map(ItemHandle::boxed_clone);
-        if let Some(active_item) = active_pane_item {
-            self._inlay_hints_enabled_subscription.take();
-
-            if let Some(editor) = active_item.downcast::<Editor>() {
-                let (
-                    mut inlay_hints_enabled,
-                    mut supports_inlay_hints,
-                    mut supports_semantic_tokens,
-                ) = editor.update(cx, |editor, cx| {
-                    (
-                        editor.inlay_hints_enabled(),
-                        editor.supports_inlay_hints(cx),
-                        editor.supports_semantic_tokens(cx),
-                    )
-                });
-                self._inlay_hints_enabled_subscription =
-                    Some(cx.observe(&editor, move |_, editor, cx| {
-                        let (
-                            new_inlay_hints_enabled,
-                            new_supports_inlay_hints,
-                            new_supports_semantic_tokens,
-                        ) = editor.update(cx, |editor, cx| {
-                            (
-                                editor.inlay_hints_enabled(),
-                                editor.supports_inlay_hints(cx),
-                                editor.supports_semantic_tokens(cx),
-                            )
-                        });
-                        let should_notify = inlay_hints_enabled != new_inlay_hints_enabled
-                            || supports_inlay_hints != new_supports_inlay_hints
-                            || supports_semantic_tokens != new_supports_semantic_tokens;
-                        inlay_hints_enabled = new_inlay_hints_enabled;
-                        supports_inlay_hints = new_supports_inlay_hints;
-                        supports_semantic_tokens = new_supports_semantic_tokens;
-                        if should_notify {
-                            cx.notify()
-                        }
-                    }));
-            }
+        self._active_editor_subscription.take();
+        if let Some(editor) = self.active_editor() {
+            self._active_editor_subscription = Some(cx.observe(&editor, |this, _, cx| {
+                let location = this.get_toolbar_item_location(cx);
+                cx.emit(ToolbarItemEvent::ChangeLocation(location));
+                cx.notify();
+            }));
         }
-        self.get_toolbar_item_location()
+        self.get_toolbar_item_location(cx)
     }
 }

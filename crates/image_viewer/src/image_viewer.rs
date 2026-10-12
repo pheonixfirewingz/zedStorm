@@ -1,3 +1,5 @@
+#[cfg(target_os = "linux")]
+mod drawio;
 mod image_info;
 mod image_viewer_settings;
 
@@ -5,17 +7,16 @@ use std::{path::Path, sync::Arc};
 
 use anyhow::Context as _;
 use editor::{
-    Editor, EditorEvent, EditorSettings, RevealInFileManager, actions::SelectAll,
+    Editor, EditorEvent, RevealInFileManager, actions::SelectAll,
     items::entry_git_aware_label_color,
 };
 use file_icons::FileIcons;
 use gpui::{
     AnyElement, App, Bounds, Context, DispatchPhase, Element, ElementId, Entity, EventEmitter,
-    FocusHandle, Focusable, Font, GlobalElementId, InspectorElementId, InteractiveElement,
-    IntoElement, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    ParentElement, PinchEvent, Pixels, Point, Render, RenderImage, ScrollDelta, ScrollWheelEvent,
-    Style, Styled, Subscription, Task, WeakEntity, Window, actions, checkerboard, div, img, point,
-    px, size,
+    FocusHandle, Focusable, GlobalElementId, InspectorElementId, InteractiveElement, IntoElement,
+    LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, PinchEvent,
+    Pixels, Point, Render, RenderImage, ScrollDelta, ScrollWheelEvent, Style, Styled, Subscription,
+    Task, WeakEntity, Window, actions, checkerboard, div, img, point, px, size,
 };
 use language::File as _;
 use persistence::ImageViewerDb;
@@ -23,14 +24,13 @@ use project::{
     ImageItem, Project, ProjectPath, git_store::GitStoreEvent, image_store::ImageItemEvent,
 };
 use settings::Settings;
-use theme_settings::ThemeSettings;
 use ui::{Tooltip, prelude::*};
 use util::{ResultExt as _, paths::PathExt};
 use workspace::{
     ItemId, ItemSettings, Pane, ToolbarItemEvent, ToolbarItemLocation, ToolbarItemView, Workspace,
     WorkspaceId, delete_unloaded_items,
     invalid_item_view::InvalidItemView,
-    item::{HighlightedText, Item, ItemHandle, ProjectItem, SerializableItem, TabContentParams},
+    item::{Item, ItemHandle, ProjectItem, SerializableItem, TabContentParams},
 };
 
 pub use crate::image_info::*;
@@ -544,7 +544,6 @@ impl Item for ImageView {
         match event {
             ImageViewEvent::TitleChanged => {
                 f(workspace::item::ItemEvent::UpdateTab);
-                f(workspace::item::ItemEvent::UpdateBreadcrumbs);
             }
         }
     }
@@ -612,28 +611,6 @@ impl Item for ImageView {
             .map(Icon::from_path)
     }
 
-    fn breadcrumb_location(&self, cx: &App) -> ToolbarItemLocation {
-        let show_breadcrumb = EditorSettings::get_global(cx).toolbar.breadcrumbs;
-        if show_breadcrumb {
-            ToolbarItemLocation::PrimaryLeft
-        } else {
-            ToolbarItemLocation::Hidden
-        }
-    }
-
-    fn breadcrumbs(&self, cx: &App) -> Option<(Vec<HighlightedText>, Option<Font>)> {
-        let text = breadcrumbs_text_for_image(self.project.read(cx), self.image_item.read(cx), cx);
-        let font = ThemeSettings::get_global(cx).buffer_font.clone();
-
-        Some((
-            vec![HighlightedText {
-                text: text.into(),
-                highlights: vec![],
-            }],
-            Some(font),
-        ))
-    }
-
     fn can_split(&self) -> bool {
         true
     }
@@ -667,17 +644,6 @@ impl Item for ImageView {
     fn buffer_kind(&self, _: &App) -> workspace::item::ItemBufferKind {
         workspace::item::ItemBufferKind::Singleton
     }
-}
-
-fn breadcrumbs_text_for_image(project: &Project, image: &ImageItem, cx: &App) -> String {
-    let mut path = image.file.path().to_rel_path_buf();
-    if project.visible_worktrees(cx).count() > 1
-        && let Some(worktree) = project.worktree_for_id(image.project_path(cx).worktree_id, cx)
-    {
-        path = worktree.read(cx).root_name().join(&path);
-    }
-
-    path.display(project.path_style(cx)).to_string()
 }
 
 impl SerializableItem for ImageView {
@@ -1082,6 +1048,8 @@ impl ToolbarItemView for ImageViewToolbarControls {
 pub fn init(cx: &mut App) {
     workspace::register_project_item::<ImageView>(cx);
     workspace::register_serializable_item::<ImageView>(cx);
+    #[cfg(target_os = "linux")]
+    drawio::init(cx);
 }
 
 #[cfg(test)]

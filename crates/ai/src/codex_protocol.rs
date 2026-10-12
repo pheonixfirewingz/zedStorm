@@ -1019,17 +1019,46 @@ impl Session {
                     ),
                 )
             }
-            "mcpToolCall" => (
-                MessageKind::Activity,
-                format!(
+            "mcpToolCall" => {
+                let mut text = format!(
                     "{} / {}: {}",
                     item.get("server").and_then(Value::as_str).unwrap_or("MCP"),
                     item.get("tool").and_then(Value::as_str).unwrap_or("Tool"),
                     item.get("status")
                         .and_then(Value::as_str)
                         .unwrap_or("inProgress")
-                ),
-            ),
+                );
+                if let Some(result) = item.get("result").filter(|result| !result.is_null()) {
+                    text.push_str("\n\nResult:\n");
+                    if let Some(content) = result.get("content").and_then(Value::as_array) {
+                        for (index, part) in content.iter().enumerate() {
+                            if index > 0 {
+                                text.push('\n');
+                            }
+                            if let Some(part_text) = part.get("text").and_then(Value::as_str) {
+                                text.push_str(part_text);
+                            } else {
+                                text.push_str(&format!("{part:#}"));
+                            }
+                        }
+                    }
+                    if let Some(structured) = result
+                        .get("structuredContent")
+                        .filter(|value| !value.is_null())
+                    {
+                        text.push_str(&format!("\n{structured:#}"));
+                    }
+                }
+                if let Some(error) = item.get("error").filter(|error| !error.is_null()) {
+                    text.push_str("\n\nError:\n");
+                    if let Some(message) = error.get("message").and_then(Value::as_str) {
+                        text.push_str(message);
+                    } else {
+                        text.push_str(&format!("{error:#}"));
+                    }
+                }
+                (MessageKind::Activity, text)
+            }
             "webSearch" => (
                 MessageKind::Activity,
                 format!(
@@ -1051,6 +1080,52 @@ impl Session {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn mcp_tool_calls_show_results_and_errors() -> Result<()> {
+        let mut session = running_session()?;
+        let mut item = json!({
+            "id": "tool-1", "type": "mcpToolCall", "server": "zedstorm",
+            "tool": "read", "status": "inProgress", "result": null, "error": null
+        });
+        session.item(&item, false);
+        assert_eq!(
+            session.messages.last().context("started tool")?.text,
+            "zedstorm / read: inProgress"
+        );
+
+        item["status"] = json!("completed");
+        item["result"] = json!({
+            "content": [{"type": "text", "text": "hello\nworld"}],
+            "structuredContent": {"lines": 2}
+        });
+        session.item(&item, true);
+        let text = &session.messages.last().context("completed tool")?.text;
+        assert!(text.starts_with("zedstorm / read: completed\n\nResult:\nhello\nworld"));
+        assert!(text.contains("\"lines\": 2"));
+        assert_eq!(
+            session
+                .messages
+                .iter()
+                .filter(|message| message.id == "tool-1")
+                .count(),
+            1
+        );
+
+        let mut resumed = ready_session();
+        resumed.item(&item, true);
+        assert_eq!(&resumed.messages.last().context("resumed tool")?.text, text);
+
+        item["status"] = json!("failed");
+        item["result"] = Value::Null;
+        item["error"] = json!({"message": "File not found"});
+        session.item(&item, true);
+        assert_eq!(
+            session.messages.last().context("failed tool")?.text,
+            "zedstorm / read: failed\n\nError:\nFile not found"
+        );
+        Ok(())
+    }
+
     #[test]
     fn context_usage_tracks_current_thread_and_latest_request() {
         let mut session = super::Session::new(std::path::PathBuf::from("/tmp"));

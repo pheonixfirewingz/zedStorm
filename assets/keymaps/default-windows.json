@@ -1,4 +1,15 @@
 [
+  {
+    "context": "CalculatorPanel",
+    "bindings": {
+      "escape": "calculator::Clear",
+      "delete": "calculator::ClearEntry",
+      "backspace": "calculator::Backspace",
+      "enter": "calculator::Equals",
+      "f9": "calculator::Negate",
+      "ctrl-c": "calculator::CopyResult"
+    }
+  },
   // Standard Windows bindings
   {
     "use_key_equivalents": true,

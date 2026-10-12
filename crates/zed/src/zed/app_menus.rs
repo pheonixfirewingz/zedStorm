@@ -1,7 +1,6 @@
 use gpui::{App, Menu, MenuItem, OsAction};
 use release_channel::ReleaseChannel;
-use terminal_view::terminal_panel;
-use zed_actions::{debug_panel, dev, git_panel, project_panel};
+use zed_actions::dev;
 
 pub fn app_menus(cx: &mut App) -> Vec<Menu> {
     let mut view_items = vec![
@@ -27,6 +26,39 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
         MenuItem::action("Toggle Bottom Dock", workspace::ToggleBottomDock),
         MenuItem::action("Toggle All Docks", workspace::ToggleAllDocks),
         MenuItem::submenu(Menu {
+            name: "Editor Controls".into(),
+            disabled: false,
+            items: vec![
+                MenuItem::action("Inlay Hints", editor::actions::ToggleInlayHints),
+                MenuItem::action("Inline Values", editor::actions::ToggleInlineValues),
+                MenuItem::action(
+                    "Semantic Highlights",
+                    editor::actions::ToggleSemanticHighlights,
+                ),
+                MenuItem::action("Code Lens", editor::actions::ToggleCodeLens),
+                MenuItem::action("Minimap", editor::actions::ToggleMinimap),
+                MenuItem::separator(),
+                MenuItem::action("Diagnostics", editor::actions::ToggleDiagnostics),
+                MenuItem::action(
+                    "Inline Diagnostics",
+                    editor::actions::ToggleInlineDiagnostics,
+                ),
+                MenuItem::separator(),
+                MenuItem::action("Line Numbers", editor::actions::ToggleLineNumbers),
+                MenuItem::action(
+                    "Auto Signature Help",
+                    editor::actions::ToggleAutoSignatureHelp,
+                ),
+                MenuItem::separator(),
+                MenuItem::action("Inline Git Blame", editor::actions::ToggleGitBlameInline),
+                MenuItem::action("Column Git Blame", git::Blame),
+                MenuItem::action(
+                    "Diff Against Default Branch",
+                    git_ui::project_diff::ToggleDiffBase,
+                ),
+            ],
+        }),
+        MenuItem::submenu(Menu {
             name: "Editor Layout".into(),
             disabled: false,
             items: vec![
@@ -36,16 +68,9 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
                 MenuItem::action("Split Right", workspace::SplitRight::default()),
             ],
         }),
-        MenuItem::separator(),
-        MenuItem::action("Project Panel", project_panel::ToggleFocus),
-        MenuItem::action("Outline Panel", outline_panel::ToggleFocus),
-        MenuItem::action("Terminal Panel", terminal_panel::Toggle),
-        MenuItem::action("Codex Chat", zed_actions::OpenCodex),
-        MenuItem::action("Debugger Panel", debug_panel::ToggleFocus),
     ];
 
     view_items.extend([
-        MenuItem::action("Git Panel", git_panel::ToggleFocus),
         MenuItem::separator(),
         MenuItem::action("Diagnostics", diagnostics::Deploy),
         MenuItem::separator(),

@@ -133,43 +133,36 @@ impl ApplicationMenu {
             let menu = menu.when_some(window.focused(cx), |menu, focused| menu.context(focused));
             let sanitized_items = Self::sanitize_menu_items(entry.menu.items);
 
-            sanitized_items
-                .into_iter()
-                .fold(menu, |menu, item| match item {
-                    OwnedMenuItem::Separator => menu.separator(),
-                    OwnedMenuItem::Action {
-                        name,
-                        action,
-                        checked,
-                        disabled,
-                        ..
-                    } => menu.action_checked_with_disabled(name, action, checked, disabled),
-                    OwnedMenuItem::Submenu(submenu) => {
-                        submenu
-                            .items
-                            .into_iter()
-                            .fold(menu, |menu, item| match item {
-                                OwnedMenuItem::Separator => menu.separator(),
-                                OwnedMenuItem::Action {
-                                    name,
-                                    action,
-                                    checked,
-                                    disabled,
-                                    ..
-                                } => menu
-                                    .action_checked_with_disabled(name, action, checked, disabled),
-                                OwnedMenuItem::Submenu(_) => menu,
-                                OwnedMenuItem::SystemMenu(_) => {
-                                    // A system menu doesn't make sense in this context, so ignore it
-                                    menu
-                                }
-                            })
-                    }
-                    OwnedMenuItem::SystemMenu(_) => {
-                        // A system menu doesn't make sense in this context, so ignore it
-                        menu
-                    }
+            Self::append_menu_items(menu, sanitized_items, window.focused(cx))
+        })
+    }
+
+    fn append_menu_items(
+        menu: ContextMenu,
+        items: Vec<OwnedMenuItem>,
+        focus: Option<gpui::FocusHandle>,
+    ) -> ContextMenu {
+        items.into_iter().fold(menu, |menu, item| match item {
+            OwnedMenuItem::Separator => menu.separator(),
+            OwnedMenuItem::Action {
+                name,
+                action,
+                checked,
+                disabled,
+                ..
+            } => menu.action_checked_with_disabled(name, action, checked, disabled),
+            OwnedMenuItem::Submenu(submenu) => {
+                let focus = focus.clone();
+                menu.submenu(submenu.name, move |menu, _, _| {
+                    let menu = menu.when_some(focus.clone(), |menu, focus| menu.context(focus));
+                    Self::append_menu_items(
+                        menu,
+                        Self::sanitize_menu_items(submenu.items.clone()),
+                        focus.clone(),
+                    )
                 })
+            }
+            OwnedMenuItem::SystemMenu(_) => menu,
         })
     }
 

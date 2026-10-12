@@ -696,6 +696,8 @@ fn initialize_panels(
         let outline_panel = OutlinePanel::load(workspace_handle.clone(), cx.clone());
         let terminal_panel = TerminalPanel::load(workspace_handle.clone(), cx.clone());
         let git_panel = GitPanel::load(workspace_handle.clone(), cx.clone());
+        let calculator_panel =
+            calculator_panel::CalculatorPanel::load(workspace_handle.clone(), cx.clone());
         let debug_panel = DebugPanel::load(workspace_handle.clone(), cx);
 
         async fn add_panel_when_ready(
@@ -719,6 +721,7 @@ fn initialize_panels(
             add_panel_when_ready(terminal_panel, workspace_handle.clone(), cx.clone()),
             add_panel_when_ready(git_panel, workspace_handle.clone(), cx.clone()),
             add_panel_when_ready(debug_panel, workspace_handle.clone(), cx.clone()),
+            add_panel_when_ready(calculator_panel, workspace_handle.clone(), cx.clone()),
         );
 
         workspace_handle.update(cx, |workspace, cx| {
@@ -838,14 +841,7 @@ fn register_actions(
                             MultiBuffer::singleton(buffer, cx).with_title(title.clone())
                         });
                         let editor = cx.new(|cx| {
-                            let mut editor = Editor::for_multibuffer(
-                                buffer,
-                                Some(project),
-                                window,
-                                cx,
-                            );
-                            editor.set_breadcrumb_header(title);
-                            editor
+                            Editor::for_multibuffer(buffer, Some(project), window, cx)
                         });
                         workspace.add_item_to_active_pane(
                             Box::new(editor),
@@ -1632,11 +1628,6 @@ fn open_log_file(workspace: &mut Workspace, window: &mut Window, cx: &mut Contex
                 .new_window_entity(|window, cx| {
                     let mut editor = Editor::for_multibuffer(buffer, Some(project), window, cx);
                     editor.set_read_only(true);
-                    editor.set_breadcrumb_header(format!(
-                        "Last {} lines in {}",
-                        MAX_LINES,
-                        paths::log_file().display()
-                    ));
                     let last_multi_buffer_offset = editor.buffer().read(cx).len(cx);
                     editor.change_selections(Default::default(), window, cx, |s| {
                         s.select_ranges(Some(last_multi_buffer_offset..last_multi_buffer_offset));
@@ -2375,7 +2366,6 @@ fn open_bundled_file(
                                 );
                                 editor.set_read_only(true);
                                 editor.set_should_serialize(false, cx);
-                                editor.set_breadcrumb_header(title.into());
                                 editor
                             })),
                             None,
@@ -5469,6 +5459,7 @@ mod tests {
             git_ui::init(cx);
             project_panel::init(cx);
             outline_panel::init(cx);
+            calculator_panel::init(cx);
             terminal_view::init(cx);
             image_viewer::init(cx);
             repl::init(app_state.fs.clone(), cx);
@@ -7425,8 +7416,8 @@ mod tests {
                 "legacy settings must not restore the Zed Agent Panel"
             );
             assert!(
-                has_view_item(cx, "Codex Chat"),
-                "Codex CLI must remain available in the View menu"
+                !has_view_item(cx, "Codex Chat"),
+                "panel entries must remain absent from the View menu"
             );
             assert!(
                 has_view_item(cx, "Diagnostics"),
@@ -7450,8 +7441,8 @@ mod tests {
                 "legacy settings must not restore the Zed Agent Panel"
             );
             assert!(
-                has_view_item(cx, "Codex Chat"),
-                "Codex CLI must remain available in the View menu"
+                !has_view_item(cx, "Codex Chat"),
+                "panel entries must remain absent from the View menu"
             );
             assert!(
                 has_view_item(cx, "Diagnostics"),
@@ -7473,8 +7464,8 @@ mod tests {
                 "legacy settings must not restore the Zed Agent Panel"
             );
             assert!(
-                has_view_item(cx, "Codex Chat"),
-                "Codex CLI must remain available in the View menu"
+                !has_view_item(cx, "Codex Chat"),
+                "panel entries must remain absent from the View menu"
             );
             assert!(
                 has_view_item(cx, "Diagnostics"),
@@ -7494,8 +7485,8 @@ mod tests {
                 "legacy settings must not restore the Zed Agent Panel"
             );
             assert!(
-                has_view_item(cx, "Codex Chat"),
-                "Codex CLI must remain available in the View menu"
+                !has_view_item(cx, "Codex Chat"),
+                "panel entries must remain absent from the View menu"
             );
             assert!(
                 has_view_item(cx, "Diagnostics"),
@@ -7543,8 +7534,8 @@ mod tests {
                 "legacy settings must not restore the Zed Agent Panel"
             );
             assert!(
-                has_view_item(cx, "Codex Chat"),
-                "Codex CLI must remain available in the View menu"
+                !has_view_item(cx, "Codex Chat"),
+                "panel entries must remain absent from the View menu"
             );
             assert!(
                 has_view_item(cx, "Diagnostics"),
@@ -7569,8 +7560,8 @@ mod tests {
                 "legacy settings must not restore the Zed Agent Panel"
             );
             assert!(
-                has_view_item(cx, "Codex Chat"),
-                "Codex CLI must remain available in the View menu"
+                !has_view_item(cx, "Codex Chat"),
+                "panel entries must remain absent from the View menu"
             );
             assert!(
                 has_view_item(cx, "Diagnostics"),

@@ -631,6 +631,7 @@ fn main() {
         project_symbols::init(cx);
         project_panel::init(cx);
         outline_panel::init(cx);
+        calculator_panel::init(cx);
         tasks_ui::init(cx);
         snippets_ui::init(cx);
         search::init(cx);

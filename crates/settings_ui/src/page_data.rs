@@ -2569,34 +2569,9 @@ fn editor_page() -> SettingsPage {
         ]
     }
 
-    fn toolbar_section() -> [SettingsPageItem; 5] {
+    fn toolbar_section() -> [SettingsPageItem; 4] {
         [
             SettingsPageItem::SectionHeader("Toolbar"),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "Breadcrumbs",
-                description: "Show breadcrumbs.",
-                field: Box::new(SettingField {
-                    organization_override: None,
-                    json_path: Some("toolbar.breadcrumbs"),
-                    pick: |settings_content| {
-                        settings_content
-                            .editor
-                            .toolbar
-                            .as_ref()?
-                            .breadcrumbs
-                            .as_ref()
-                    },
-                    write: |settings_content, value, _| {
-                        settings_content
-                            .editor
-                            .toolbar
-                            .get_or_insert_default()
-                            .breadcrumbs = value;
-                    },
-                }),
-                metadata: None,
-                files: USER,
-            }),
             SettingsPageItem::SettingItem(SettingItem {
                 title: "Quick Actions",
                 description: "Show quick action buttons (e.g., search, selection, editor controls, etc.).",
@@ -9343,7 +9318,7 @@ fn non_editor_language_settings_data() -> Box<[SettingsPageItem]> {
             }),
             SettingsPageItem::SettingItem(SettingItem {
                 title: "LSP Document Symbols",
-                description: "When enabled, use the language server's document symbols for outlines and breadcrumbs instead of tree-sitter.",
+                description: "When enabled, use the language server's document symbols for outlines instead of tree-sitter.",
                 field: Box::new(SettingField {
                     organization_override: None,
                     json_path: Some("languages.$(language).document_symbols"),

@@ -154,7 +154,7 @@ To disable this behavior use:
   },
 
   // Layout mode of the bottom dock: contained, full, left_aligned, right_aligned
-  "bottom_dock_layout": "contained",
+  "bottom_dock_layout": "full",
 
   // Whether to resize all the panels in a dock when resizing the dock.
   // Can be a combination of "left", "right" and "bottom".
@@ -257,7 +257,6 @@ TBD: Centered layout related settings
 ```json [settings]
   // Editor toolbar related settings
   "toolbar": {
-    "breadcrumbs": true, // Whether to show breadcrumbs.
     "quick_actions": true, // Whether to show quick action buttons.
     "selections_menu": true, // Whether to show the Selections menu
     "agent_review": true, // Whether to show agent review buttons

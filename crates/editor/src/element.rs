@@ -605,11 +605,11 @@ impl EditorElement {
         register_action(editor, window, Editor::open_excerpts_in_split);
         register_action(editor, window, Editor::toggle_soft_wrap);
         register_action(editor, window, Editor::toggle_tab_bar);
-        register_action(editor, window, Editor::toggle_breadcrumb);
         register_action(editor, window, Editor::toggle_line_numbers);
         register_action(editor, window, Editor::toggle_relative_line_numbers);
         register_action(editor, window, Editor::toggle_indent_guides);
         register_action(editor, window, Editor::toggle_inline_values);
+        register_action(editor, window, Editor::toggle_auto_signature_help_menu);
         if editor.read(cx).lsp_data_enabled() {
             register_action(editor, window, Editor::toggle_inlay_hints);
             register_action(editor, window, Editor::toggle_code_lens_action);

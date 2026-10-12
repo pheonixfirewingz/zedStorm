@@ -52,7 +52,7 @@ Non-negative `float` values
 
 - Description: Control the layout of the bottom dock, relative to the left and right docks.
 - Setting: `bottom_dock_layout`
-- Default: `"contained"`
+- Default: `"full"`
 
 **Options**
 
@@ -1914,7 +1914,6 @@ When trusted, project settings are synchronized automatically, language and MCP 
 ```json [settings]
 {
   "toolbar": {
-    "breadcrumbs": true,
     "quick_actions": true,
     "selections_menu": true,
     "agent_review": true,
@@ -3434,7 +3433,7 @@ These values take in the same options as the root-level settings with the same n
 
 ### Document Symbols
 
-- Description: Controls the source of document symbols used for outlines and breadcrumbs.
+- Description: Controls the source of document symbols used for outlines.
 - Setting: `document_symbols`
 - Default: `off`
 
@@ -4290,7 +4289,7 @@ To enable LSP folding ranges for a specific language:
 
 ## LSP Document Symbols
 
-- Description: Controls the source of document symbols used for outlines and breadcrumbs. This is an LSP feature — when enabled, tree-sitter is not used for document symbols, and the language server's `textDocument/documentSymbol` response is used instead.
+- Description: Controls the source of document symbols used for outlines. This is an LSP feature — when enabled, tree-sitter is not used for document symbols, and the language server's `textDocument/documentSymbol` response is used instead.
 - Setting: `document_symbols`
 - Default: `off`
 
@@ -5752,7 +5751,7 @@ Available variables:
 {
   "project_panel": {
     "indent_guides": {
-      "show": "always"
+      "show": "never"
     }
   }
 }
@@ -6241,8 +6240,7 @@ Example:
         "buffer_font_size": 15.0,
         "theme": "Catppuccin Frappé - No Italics",
         "ui_font_size": 15.0,
-        "tab_bar": { "show": false },
-        "toolbar": { "breadcrumbs": false }
+        "tab_bar": { "show": false }
       }
     }
   }

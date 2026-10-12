@@ -2295,7 +2295,17 @@ impl DisplaySnapshot {
     pub fn crease_for_buffer_row(&self, buffer_row: MultiBufferRow) -> Option<Crease<Point>> {
         let start =
             MultiBufferPoint::new(buffer_row.0, self.buffer_snapshot().line_len(buffer_row));
-        if let Some(crease) = self
+        if !self.is_line_folded(buffer_row)
+            && let Some(range) = self.import_fold_range(buffer_row)
+        {
+            Some(Crease::Inline {
+                range,
+                placeholder: self.fold_placeholder.clone(),
+                render_toggle: None,
+                render_trailer: None,
+                metadata: None,
+            })
+        } else if let Some(crease) = self
             .crease_snapshot
             .query_row(buffer_row, self.buffer_snapshot())
         {
@@ -2329,17 +2339,6 @@ impl DisplaySnapshot {
                     render_toggle: render_toggle.clone(),
                 }),
             }
-        } else if !self.use_lsp_folding_ranges
-            && !self.is_line_folded(buffer_row)
-            && let Some(range) = self.import_fold_range(buffer_row)
-        {
-            Some(Crease::Inline {
-                range,
-                placeholder: self.fold_placeholder.clone(),
-                render_toggle: None,
-                render_trailer: None,
-                metadata: None,
-            })
         } else if !self.use_lsp_folding_ranges
             && self.starts_indent(MultiBufferRow(start.row))
             && !self.is_line_folded(MultiBufferRow(start.row))
@@ -2423,16 +2422,126 @@ impl DisplaySnapshot {
         let column = self.line_indent_for_buffer_row(buffer_row).raw_len();
         let position = Point::new(buffer_row.0, column);
         let (mut node, mut range) = snapshot.syntax_ancestor(position..position)?;
-        let is_import = |kind: &str| {
-            matches!(
-                kind,
-                "import_statement"
-                    | "import_from_statement"
-                    | "import_declaration"
-                    | "use_declaration"
+        let source_start = node.start_byte();
+        let mapped_start = range.start.0;
+        let node_text = |node: language::Node<'_>| {
+            let start = if node.start_byte() >= source_start {
+                mapped_start.checked_add(node.start_byte() - source_start)?
+            } else {
+                mapped_start.checked_sub(source_start - node.start_byte())?
+            };
+            let end = start.checked_add(node.byte_range().len())?;
+            if end > snapshot.len().0 {
+                return None;
+            }
+            Some(
+                snapshot
+                    .text_for_range(MultiBufferOffset(start)..MultiBufferOffset(end))
+                    .collect::<String>(),
             )
         };
-        while !is_import(node.kind()) {
+        fn is_import_node(
+            node: language::Node<'_>,
+            node_text: &impl Fn(language::Node<'_>) -> Option<String>,
+        ) -> bool {
+            if !node.is_named() {
+                return false;
+            }
+            match node.kind() {
+                "call" | "call_expression" | "function_call" | "builtin_function" => {
+                    if node.child_by_field_name("receiver").is_some() {
+                        return false;
+                    }
+                    let function = node
+                        .child_by_field_name("function")
+                        .or_else(|| node.child_by_field_name("method"))
+                        .or_else(|| node.child_by_field_name("name"))
+                        .or_else(|| {
+                            node.named_child(0)
+                                .filter(|child| child.kind() == "builtin_identifier")
+                        });
+                    return function.and_then(node_text).is_some_and(|name| {
+                        matches!(name.as_str(), "require" | "require_relative" | "@import")
+                    });
+                }
+                "expression_statement" => {
+                    return node.named_child_count() == 1
+                        && node
+                            .named_child(0)
+                            .is_some_and(|child| is_import_node(child, node_text));
+                }
+                "variable_declarator" => {
+                    return node
+                        .child_by_field_name("value")
+                        .is_some_and(|value| is_import_node(value, node_text));
+                }
+                "lexical_declaration" | "variable_declaration" => {
+                    if node.named_child_count() == 2
+                        && node
+                            .named_child(0)
+                            .is_some_and(|child| child.kind() == "identifier")
+                        && node.named_child(1).is_some_and(|child| {
+                            child.kind() == "builtin_function" && is_import_node(child, node_text)
+                        })
+                    {
+                        return true;
+                    }
+                    let mut cursor = node.walk();
+                    return node.named_child_count() > 0
+                        && node.named_children(&mut cursor).all(|child| {
+                            matches!(child.kind(), "variable_declarator" | "assignment_statement")
+                                && is_import_node(child, node_text)
+                        });
+                }
+                "assignment_statement" => {
+                    return node
+                        .named_child(1)
+                        .filter(|child| child.kind() == "expression_list")
+                        .is_some_and(|values| {
+                            let mut cursor = values.walk();
+                            values.named_child_count() > 0
+                                && values
+                                    .named_children(&mut cursor)
+                                    .all(|value| is_import_node(value, node_text))
+                        });
+                }
+                _ => {}
+            }
+            matches!(
+                node.kind(),
+                "import_statement"
+                    | "import_from_statement"
+                    | "future_import_statement"
+                    | "import_declaration"
+                    | "import_header"
+                    | "import_directive"
+                    | "import"
+                    | "namespace_use_declaration"
+                    | "using_directive"
+                    | "using_declaration"
+                    | "preproc_include"
+                    | "use_declaration"
+            ) || (node.kind() == "import_or_export"
+                && node
+                    .named_child(0)
+                    .is_some_and(|child| child.kind() == "library_import"))
+        }
+        let is_import = |node| is_import_node(node, &node_text);
+        let is_contiguous = |end: MultiBufferOffset, start: MultiBufferOffset| {
+            let mut at_line_start = end.to_point(snapshot).column == 0;
+            snapshot.text_for_range(end..start).all(|chunk| {
+                chunk.chars().all(|character| {
+                    if character == '\n' {
+                        if at_line_start {
+                            return false;
+                        }
+                        at_line_start = true;
+                    }
+                    character.is_whitespace()
+                })
+            })
+        };
+        while !is_import(node) || node.parent().is_some_and(is_import) {
             let parent = node.parent()?;
             range.start.0 = range
                 .start
@@ -2453,13 +2562,19 @@ impl DisplaySnapshot {
         // Sibling nodes keep grouping within one syntactic scope. Requiring the
         // mapped range to have an ancestor also prevents crossing excerpt edges.
         if let Some(previous) = node.prev_named_sibling()
-            && is_import(previous.kind())
+            && is_import(previous)
+            && let Some(previous_end) = node
+                .start_byte()
+                .checked_sub(previous.end_byte())
+                .and_then(|distance| range.start.0.checked_sub(distance))
+                .map(MultiBufferOffset)
+            && is_contiguous(previous_end, range.start)
         {
             return None;
         }
         let first_start = range.start;
         while let Some(next) = node.next_named_sibling() {
-            if !is_import(next.kind()) {
+            if !is_import(next) {
                 break;
             }
             let next_start = MultiBufferOffset(range.end.0 + next.start_byte() - node.end_byte());
@@ -2470,17 +2585,20 @@ impl DisplaySnapshot {
             {
                 break;
             }
-            if !snapshot
-                .text_for_range(range.end..next_start)
-                .all(|chunk| chunk.chars().all(char::is_whitespace))
-            {
+            if !is_contiguous(range.end, next_start) {
                 break;
             }
             range.end = next_end;
             node = next;
         }
         let start = Point::new(buffer_row.0, snapshot.line_len(buffer_row));
-        let end = range.end.to_point(snapshot);
+        let mut end = range.end.to_point(snapshot);
+        // Preprocessor includes consume their newline in the syntax tree.
+        // Leave that newline visible so folding does not join the following code.
+        if end.column == 0 && end.row > start.row {
+            end.row -= 1;
+            end.column = snapshot.line_len(MultiBufferRow(end.row));
+        }
         (end.row > start.row).then_some(start..end)
     }
 

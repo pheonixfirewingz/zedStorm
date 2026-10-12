@@ -4,7 +4,9 @@ use crate::{
     debugger_panel::DebugPanel, persistence::SerializedLayout, session::running::DebugTerminal,
 };
 use dap::client::SessionId;
-use gpui::{App, Axis, Entity, EventEmitter, FocusHandle, Focusable, Subscription, Task, WeakEntity};
+use gpui::{
+    App, Axis, Entity, EventEmitter, FocusHandle, Focusable, Subscription, Task, WeakEntity,
+};
 use project::debugger::session::Session;
 
 use project::{Project, debugger::session::SessionQuirks};

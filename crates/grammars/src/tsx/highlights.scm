@@ -18,6 +18,42 @@
 
 (private_property_identifier) @property
 
+(import_clause
+  (identifier) @function)
+
+(import_specifier
+  name: (identifier) @function)
+
+(import_specifier
+  alias: (identifier) @function)
+
+(import_specifier
+  "type"
+  name: (identifier) @type)
+
+(import_specifier
+  "type"
+  alias: (identifier) @type)
+
+(import_statement
+  "type"
+  (import_clause
+    (identifier) @type))
+
+(import_statement
+  "type"
+  (import_clause
+    (named_imports
+      (import_specifier
+        name: (identifier) @type))))
+
+(import_statement
+  "type"
+  (import_clause
+    (named_imports
+      (import_specifier
+        alias: (identifier) @type))))
+
 ; Function and method calls
 (call_expression
   function: (identifier) @function)
@@ -49,8 +85,8 @@
   ] @function.method)
 
 (method_definition
-  name: (property_identifier) @constructor
-  (#eq? @constructor "constructor"))
+  name: (property_identifier) @keyword
+  (#eq? @keyword "constructor"))
 
 (pair
   key: [
@@ -375,7 +411,20 @@
   ">" @punctuation.bracket)
 
 (decorator
-  "@" @punctuation.special)
+  "@" @attribute
+  [
+    (identifier) @attribute
+    (member_expression
+      object: (identifier) @attribute
+      property: (property_identifier) @attribute)
+    (call_expression
+      function: [
+        (identifier) @attribute
+        (member_expression
+          object: (identifier) @attribute
+          property: (property_identifier) @attribute)
+      ])
+  ])
 
 (union_type
   "|" @punctuation.special)

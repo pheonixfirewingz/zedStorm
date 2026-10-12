@@ -30,6 +30,7 @@ pub enum IconName {
     Book,
     Box,
     BoxOpen,
+    Calculator,
     CaseSensitive,
     Chat,
     Check,

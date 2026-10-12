@@ -8,11 +8,11 @@ use collections::HashMap;
 
 use fs::Fs;
 use gpui::{
-    Action, AnyElement, Entity, EventEmitter, Focusable, Font, Pixels, Subscription, WeakEntity,
-    canvas, prelude::*,
+    Action, AnyElement, Entity, EventEmitter, Focusable, Pixels, Subscription, WeakEntity, canvas,
+    prelude::*,
 };
 
-use language::{Buffer, Capability, HighlightedText};
+use language::{Buffer, Capability};
 use multi_buffer::{
     Anchor, AnchorRangeExt as _, BufferOffset, ExcerptRange, ExpandExcerptDirection, MultiBuffer,
     MultiBufferPoint, MultiBufferSnapshot, PathKey,
@@ -29,7 +29,7 @@ use crate::{
 };
 use ui::{Toggleable as _, Tooltip, prelude::*, render_modifiers};
 use workspace::{
-    ActivatePaneLeft, ActivatePaneRight, Item, ToolbarItemLocation, Workspace,
+    ActivatePaneLeft, ActivatePaneRight, Item, Workspace,
     item::{ItemBufferKind, ItemEvent, SaveOptions, TabContentParams},
     searchable::{SearchEvent, SearchToken, SearchableItem, SearchableItemHandle},
 };
@@ -2064,14 +2064,6 @@ impl Item for SplittableEditor {
         _: &App,
     ) -> Option<Box<dyn SearchableItemHandle>> {
         Some(Box::new(handle.clone()))
-    }
-
-    fn breadcrumb_location(&self, cx: &App) -> ToolbarItemLocation {
-        self.rhs_editor.read(cx).breadcrumb_location(cx)
-    }
-
-    fn breadcrumbs(&self, cx: &App) -> Option<(Vec<HighlightedText>, Option<Font>)> {
-        self.rhs_editor.read(cx).breadcrumbs(cx)
     }
 
     fn pixel_position_of_cursor(&self, cx: &App) -> Option<gpui::Point<gpui::Pixels>> {

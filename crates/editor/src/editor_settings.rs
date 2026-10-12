@@ -101,7 +101,6 @@ pub struct StickyScroll {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Toolbar {
-    pub breadcrumbs: bool,
     pub quick_actions: bool,
     pub selections_menu: bool,
     pub agent_review: bool,
@@ -240,7 +239,6 @@ impl Settings for EditorSettings {
             hover_popover_sticky: editor.hover_popover_sticky.unwrap(),
             hover_popover_hiding_delay: editor.hover_popover_hiding_delay.unwrap(),
             toolbar: Toolbar {
-                breadcrumbs: toolbar.breadcrumbs.unwrap(),
                 quick_actions: toolbar.quick_actions.unwrap(),
                 selections_menu: toolbar.selections_menu.unwrap(),
                 agent_review: toolbar.agent_review.unwrap(),

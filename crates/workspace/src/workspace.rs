@@ -11588,7 +11588,10 @@ mod tests {
             });
         });
         cx.executor().run_until_parked();
-        assert_eq!(cx.window_title().as_deref(), Some("ZedStorm — root1, root2"));
+        assert_eq!(
+            cx.window_title().as_deref(),
+            Some("ZedStorm — root1, root2")
+        );
 
         let item = cx.new(|cx| {
             TestItem::new(cx).with_project_items(&[TestProjectItem::new_in_worktree(

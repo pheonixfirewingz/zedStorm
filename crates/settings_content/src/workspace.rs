@@ -358,9 +358,9 @@ pub struct ActivePaneModifiers {
 #[serde(rename_all = "snake_case")]
 pub enum BottomDockLayout {
     /// Contained between the left and right docks
-    #[default]
     Contained,
     /// Takes up the full width of the window
+    #[default]
     Full,
     /// Extends under the left dock while snapping to the right dock
     LeftAligned,
@@ -1184,12 +1184,12 @@ impl DocumentFoldingRanges {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum DocumentSymbols {
-    /// Use tree-sitter queries to compute document symbols for outlines and breadcrumbs (default).
+    /// Use tree-sitter queries to compute document symbols for outlines (default).
     #[default]
     #[serde(alias = "tree_sitter")]
     Off,
-    /// Use the language server's `textDocument/documentSymbol` LSP response for outlines and
-    /// breadcrumbs. When enabled, tree-sitter is not used for document symbols.
+    /// Use the language server's `textDocument/documentSymbol` LSP response for outlines.
+    /// When enabled, tree-sitter is not used for document symbols.
     #[serde(alias = "language_server")]
     On,
 }
