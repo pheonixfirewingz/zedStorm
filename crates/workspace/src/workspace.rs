@@ -324,6 +324,8 @@ static ZED_WINDOW_POSITION: LazyLock<Option<Point<Pixels>>> = LazyLock::new(|| {
 });
 
 pub trait TerminalProvider {
+    fn stop_task(&self, _task_id: &task::TaskId, _cx: &mut App) {}
+
     fn spawn(
         &self,
         task: SpawnInTerminal,
@@ -1484,6 +1486,11 @@ impl DelayedDebouncedEditAction {
 }
 
 pub enum Event {
+    TaskScheduled {
+        task: Box<task::ResolvedTask>,
+        omit_history: bool,
+    },
+    TaskFinished(task::TaskId),
     PaneAdded(Entity<Pane>),
     PaneRemoved,
     ItemAdded {
@@ -1617,6 +1624,7 @@ pub struct Workspace {
     _items_serializer: Task<Result<()>>,
     session_id: Option<String>,
     scheduled_tasks: Vec<Task<()>>,
+    task_cancellations: HashMap<task::TaskId, Vec<std::rc::Rc<std::cell::Cell<bool>>>>,
     last_open_dock_positions: Vec<DockPosition>,
     removing: bool,
     open_in_dev_container: bool,
@@ -2082,6 +2090,7 @@ impl Workspace {
             session_id: Some(session_id),
 
             scheduled_tasks: Vec::new(),
+            task_cancellations: HashMap::default(),
             last_open_dock_positions: Vec::new(),
             removing: false,
             sidebar_focus_handle: None,

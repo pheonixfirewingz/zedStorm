@@ -1110,7 +1110,7 @@ impl ExtensionsPage {
                 "https://zed.dev/docs/ai/external-agents#claude-agent",
             ),
             Feature::AgentCodex => self.render_feature_upsell_banner(
-                "Codex CLI support is built-in to ZedStorm!",
+                "Codex support is built-in to ZedStorm!",
                 "https://zed.dev/docs/ai/external-agents#codex-cli",
             ),
             Feature::AgentGemini => self.render_feature_upsell_banner(

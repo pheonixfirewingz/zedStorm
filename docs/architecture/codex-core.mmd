@@ -5,7 +5,8 @@ flowchart LR
         Panel[Native GPUI chat panel] --> Protocol[Thread and turn state / approvals]
         Protocol --> MCP[context_mcp integration]
     end
-    Protocol <-->|JSONL over stdio| Server[Installed codex app-server]
+    Protocol <-->|In-memory channels| Runtime[codex_runtime crate]
+    Runtime --> Server[Embedded codex-app-server / codex-core]
     Server --> Config[Codex credentials and configuration]
     Server --> Tools[Project files and commands]
     Server --> History[Codex thread history]

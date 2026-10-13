@@ -11,7 +11,7 @@ use task::{
     TaskHook, TaskTemplate, TaskVariables, VariableName,
 };
 use ui::Window;
-use util::TryFutureExt;
+use util::{ResultExt, TryFutureExt};
 
 use crate::{SaveIntent, Toast, Workspace, notifications::NotificationId};
 
@@ -26,6 +26,17 @@ pub enum ScheduledTaskResult {
 type TaskCompletionHandler = Box<dyn FnOnce(ScheduledTaskResult, &mut AsyncWindowContext)>;
 
 impl Workspace {
+    pub fn stop_task(&mut self, task_id: &task::TaskId, cx: &mut Context<Self>) {
+        if let Some(cancellations) = self.task_cancellations.get(task_id) {
+            for cancellation in cancellations {
+                cancellation.set(true);
+            }
+        }
+        if let Some(provider) = &self.terminal_provider {
+            provider.stop_task(task_id, cx);
+        }
+    }
+
     pub fn schedule_task(
         self: &mut Workspace,
         task_source_kind: TaskSourceKind,
@@ -108,6 +119,12 @@ impl Workspace {
         cx: &mut Context<Workspace>,
     ) {
         let spawn_in_terminal = resolved_task.resolved.clone();
+        if self.terminal_provider.is_some() {
+            cx.emit(crate::Event::TaskScheduled {
+                task: Box::new(resolved_task.clone()),
+                omit_history,
+            });
+        }
         if !omit_history {
             if let Some(debugger_provider) = self.debugger_provider.as_ref() {
                 debugger_provider.task_scheduled(cx);
@@ -125,10 +142,19 @@ impl Workspace {
         }
 
         if self.terminal_provider.is_some() {
+            let task_id = spawn_in_terminal.id.clone();
+            let cancellation = std::rc::Rc::new(std::cell::Cell::new(false));
+            self.task_cancellations
+                .entry(task_id.clone())
+                .or_default()
+                .push(cancellation.clone());
             let task = cx.spawn_in(window, async move |workspace, cx| {
                 Self::save_for_task(&workspace, spawn_in_terminal.save, cx).await;
 
                 let spawn_task = workspace.update_in(cx, |workspace, window, cx| {
+                    if cancellation.get() {
+                        return None;
+                    }
                     workspace
                         .terminal_provider
                         .as_ref()
@@ -167,6 +193,19 @@ impl Workspace {
                 } else if let Some(on_complete) = on_complete {
                     on_complete(ScheduledTaskResult::Cancelled, cx);
                 }
+                workspace
+                    .update(cx, |workspace, cx| {
+                        if let Some(cancellations) = workspace.task_cancellations.get_mut(&task_id)
+                        {
+                            cancellations
+                                .retain(|pending| !std::rc::Rc::ptr_eq(pending, &cancellation));
+                            if cancellations.is_empty() {
+                                workspace.task_cancellations.remove(&task_id);
+                            }
+                        }
+                        cx.emit(crate::Event::TaskFinished(task_id));
+                    })
+                    .log_err();
             });
             self.scheduled_tasks.push(task);
         }

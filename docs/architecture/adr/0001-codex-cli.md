@@ -1,5 +1,7 @@
 # Use Codex App Server for the integrated chat panel
 
+Superseded by [Embed codex-core](0005-codex-core.md).
+
 Status: Accepted
 
 ZedStorm needs a native chat interface backed by Codex CLI without Zed accounts or a second model-provider configuration flow. Run the installed `codex app-server` process and use its structured thread, turn, item, authentication, and approval messages over stdio.

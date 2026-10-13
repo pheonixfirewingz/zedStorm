@@ -13,21 +13,18 @@ use std::{
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tool {
     Git,
-    Codex,
 }
 
 impl Tool {
     fn name(self) -> &'static str {
         match self {
             Self::Git => "git",
-            Self::Codex => "codex",
         }
     }
 
     fn repository(self) -> &'static str {
         match self {
             Self::Git => "desktop/dugite-native",
-            Self::Codex => "openai/codex",
         }
     }
 
@@ -35,8 +32,6 @@ impl Tool {
         match (self, operating_system) {
             (Self::Git, "windows") => PathBuf::from("cmd/git.exe"),
             (Self::Git, _) => PathBuf::from("bin/git"),
-            (Self::Codex, "windows") => PathBuf::from("bin/codex.exe"),
-            (Self::Codex, _) => PathBuf::from("bin/codex"),
         }
     }
 }
@@ -79,7 +74,6 @@ pub fn path_with_tools(existing: Option<&OsStr>) -> Result<OsString> {
         directory.join("git/bin"),
         directory.join("git/cmd"),
         directory.join("git/usr/bin"),
-        directory.join("codex/bin"),
         directory.join("github-cli/bin"),
     ]);
     std::env::join_paths(paths).context("Could not add bundled tools to the command search path")
@@ -131,19 +125,6 @@ fn asset_suffix(tool: Tool, operating_system: &str, architecture: &str) -> Resul
             };
             Ok(format!("-{platform}-{architecture}.tar.gz"))
         }
-        Tool::Codex => {
-            ensure!(
-                matches!(architecture, "x86_64" | "aarch64"),
-                "Codex is unavailable for {architecture}"
-            );
-            let target = match operating_system {
-                "linux" => "unknown-linux-musl",
-                "windows" => "pc-windows-msvc.exe",
-                "macos" => "apple-darwin",
-                other => anyhow::bail!("Codex is unavailable for {other}"),
-            };
-            Ok(format!("codex-{architecture}-{target}.tar.gz"))
-        }
     }
 }
 
@@ -168,13 +149,7 @@ async fn install_tool(
     let asset = release
         .assets
         .iter()
-        .find(|asset| {
-            if tool == Tool::Git {
-                asset.name.starts_with("dugite-native-") && asset.name.ends_with(&suffix)
-            } else {
-                asset.name == suffix
-            }
-        })
+        .find(|asset| asset.name.starts_with("dugite-native-") && asset.name.ends_with(&suffix))
         .context("No supported download was found for this tool and platform")?;
     ensure!(
         asset.browser_download_url.starts_with(&format!(
@@ -197,19 +172,6 @@ async fn install_tool(
     )
     .await
     .with_context(|| format!("Could not download and verify {}", tool.name()))?;
-    if tool == Tool::Codex {
-        let source = payload.join(suffix.trim_end_matches(".tar.gz"));
-        let destination = payload.join(tool.binary(std::env::consts::OS));
-        async_fs::create_dir_all(destination.parent().context("Invalid tool layout")?).await?;
-        async_fs::rename(source, &destination)
-            .await
-            .context("Codex download did not contain its executable")?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            async_fs::set_permissions(destination, std::fs::Permissions::from_mode(0o755)).await?;
-        }
-    }
     ensure!(
         payload.join(tool.binary(std::env::consts::OS)).is_file(),
         "The downloaded tool did not contain its expected executable"
@@ -233,15 +195,6 @@ mod tests {
             asset_suffix(Tool::Git, "windows", "aarch64")?,
             "-windows-arm64.tar.gz"
         );
-        assert_eq!(
-            asset_suffix(Tool::Codex, "linux", "aarch64")?,
-            "codex-aarch64-unknown-linux-musl.tar.gz"
-        );
-        assert_eq!(
-            asset_suffix(Tool::Codex, "windows", "x86_64")?,
-            "codex-x86_64-pc-windows-msvc.exe.tar.gz"
-        );
-        assert!(asset_suffix(Tool::Codex, "linux", "x86").is_err());
         assert!(asset_suffix(Tool::Git, "unknown", "x86_64").is_err());
         Ok(())
     }

@@ -1,0 +1,63 @@
+diff --git a/codex-rs/Cargo.toml b/codex-rs/Cargo.toml
+index 8fffe579a..6cc6afbb3 100644
+--- a/codex-rs/Cargo.toml
++++ b/codex-rs/Cargo.toml
+@@ -528,7 +528,7 @@ tracing-subscriber = "0.3.22"
+ tracing-test = "0.2.5"
+ tonic = { version = "0.14.3", default-features = false, features = ["channel", "codegen"] }
+ tonic-prost = "0.14.3"
+-tree-sitter = "0.25.10"
++tree-sitter = { git = "https://github.com/tree-sitter/tree-sitter", rev = "43623ec9bf0eaaf7113285c46e8a09018f181b18" }
+ tree-sitter-bash = "0.25"
+ tree-sitter-powershell = "=0.26.4"
+ ts-rs = "11"
+@@ -638,6 +638,7 @@ inherits = "test"
+ opt-level = 0
+ 
+ [patch.crates-io]
++tree-sitter-language = { git = "https://github.com/tree-sitter/tree-sitter", rev = "43623ec9bf0eaaf7113285c46e8a09018f181b18" }
+ # Uncomment to debug local changes.
+ # ratatui = { path = "../../ratatui" }
+ crossterm = { git = "https://github.com/openai-oss-forks/crossterm", rev = "ed1cdab335221515706178d68495bba2aed1924f" }
+diff --git a/codex-rs/shell-command/src/command_safety/powershell_tree_sitter.rs b/codex-rs/shell-command/src/command_safety/powershell_tree_sitter.rs
+index a904e9249..6b68e2a77 100644
+--- a/codex-rs/shell-command/src/command_safety/powershell_tree_sitter.rs
++++ b/codex-rs/shell-command/src/command_safety/powershell_tree_sitter.rs
+@@ -93,7 +93,10 @@ fn collect_command_nodes<'tree>(root: Node<'tree>, commands: &mut Vec<Node<'tree
+             continue;
+         }
+         for child_index in (0..node.named_child_count()).rev() {
+-            if let Some(child) = node.named_child(child_index) {
++            if let Some(child) = u32::try_from(child_index)
++                .ok()
++                .and_then(|index| node.named_child(index))
++            {
+                 stack.push(child);
+             }
+         }
+diff --git a/codex-rs/shell-command/src/shell_snapshot_literals.rs b/codex-rs/shell-command/src/shell_snapshot_literals.rs
+index 6985a34d3..1a6ca1473 100644
+--- a/codex-rs/shell-command/src/shell_snapshot_literals.rs
++++ b/codex-rs/shell-command/src/shell_snapshot_literals.rs
+@@ -306,9 +306,9 @@ fn literal_words_with_quoting(
+                                         pieces.push(piece.child_by_field_name("value")?);
+                                     }
+                                     "concatenation" | "string" => pieces.extend(
+-                                        (0..piece.named_child_count())
+-                                            .rev()
+-                                            .filter_map(|index| piece.named_child(index)),
++                                        (0..piece.named_child_count()).rev().filter_map(|index| {
++                                            piece.named_child(u32::try_from(index).ok()?)
++                                        }),
+                                     ),
+                                     "string_content" => {
+                                         let text = piece.utf8_text(script.as_bytes()).ok()?;
+@@ -431,7 +431,7 @@ fn literal_words_with_quoting(
+                     pieces.extend(
+                         (0..piece.named_child_count())
+                             .rev()
+-                            .filter_map(|index| piece.named_child(index)),
++                            .filter_map(|index| piece.named_child(u32::try_from(index).ok()?)),
+                     );
+                 } else if !literal.is_empty() {
+                     words.push(String::from_utf8_lossy(&literal).into_owned());

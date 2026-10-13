@@ -16,6 +16,7 @@ members = [
     "crates/clock",
     "crates/cloud_api_types",
     "crates/collections",
+    "crates/codex_runtime",
     "crates/command_palette",
     "crates/command_palette_hooks",
     "crates/component",
@@ -232,6 +233,15 @@ command_palette_hooks = { path = "crates/command_palette_hooks" }
 component = { path = "crates/component" }
 component_preview = { path = "crates/component_preview" }
 context_mcp = { path = "crates/context_mcp" }
+codex_runtime = { path = "crates/codex_runtime" }
+codex-app-server = { git = "https://github.com/pheonixfirewingz/codex", rev = "6f67766cb5839183a870cc463cee8d652b3e52a2" }
+codex-app-server-protocol = { git = "https://github.com/pheonixfirewingz/codex", rev = "6f67766cb5839183a870cc463cee8d652b3e52a2" }
+codex-arg0 = { git = "https://github.com/pheonixfirewingz/codex", rev = "6f67766cb5839183a870cc463cee8d652b3e52a2" }
+codex-config = { git = "https://github.com/pheonixfirewingz/codex", rev = "6f67766cb5839183a870cc463cee8d652b3e52a2" }
+codex-core = { git = "https://github.com/pheonixfirewingz/codex", rev = "6f67766cb5839183a870cc463cee8d652b3e52a2" }
+codex-exec-server = { git = "https://github.com/pheonixfirewingz/codex", rev = "6f67766cb5839183a870cc463cee8d652b3e52a2" }
+codex-feedback = { git = "https://github.com/pheonixfirewingz/codex", rev = "6f67766cb5839183a870cc463cee8d652b3e52a2" }
+codex-protocol = { git = "https://github.com/pheonixfirewingz/codex", rev = "6f67766cb5839183a870cc463cee8d652b3e52a2" }
 crashes = { path = "crates/crashes" }
 credentials_provider = { path = "crates/credentials_provider" }
 dap = { path = "crates/dap" }
@@ -517,7 +527,7 @@ jsonschema = { version = "0.51", default-features = false }
 jupyter-protocol = "1.4.0"
 jupyter-websocket-client = "1.1.0"
 libc = "0.2"
-libsqlite3-sys = { version = "0.30.1", features = ["bundled"] }
+libsqlite3-sys = { version = "0.37", features = ["bundled"] }
 linkify = "0.10.0"
 log = { version = "0.4", default-features = false, features = ["std"] }
 lru = "0.16"
@@ -798,6 +808,9 @@ features = [
 # the git tree-sitter above; two instances of the crate would make grammar
 # constants type-incompatible with `tree_sitter::Language`.
 tree-sitter-language = { git = "https://github.com/tree-sitter/tree-sitter", rev = "43623ec9bf0eaaf7113285c46e8a09018f181b18" }
+# Codex's embedded runtime requires its proxy and compression extensions.
+tokio-tungstenite = { git = "https://github.com/openai-oss-forks/tokio-tungstenite", rev = "0e5b2d73aa18dd9f0a50ee9ff199d5aef7594186" }
+tungstenite = { git = "https://github.com/openai-oss-forks/tungstenite-rs", rev = "4fffad30fe373adbdcffab9545e9e9bf4f2fc19f" }
 async-process = { git = "https://github.com/zed-industries/async-process.git", rev = "0b6d6713570af61806e1e5cb40e0f757cb93fd9d" }
 async-task = { git = "https://github.com/smol-rs/async-task.git", rev = "b4486cd71e4e94fbda54ce6302444de14f4d190e" }
 windows-capture = { git = "https://github.com/zed-industries/windows-capture.git", rev = "f0d6c1b6691db75461b732f6d5ff56eed002eeb9" }

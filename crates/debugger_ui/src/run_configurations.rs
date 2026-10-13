@@ -16,7 +16,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use task::{DebugScenario, TaskTemplate};
+use task::{DebugScenario, ResolvedTask, TaskId, TaskTemplate};
 use util::ResultExt;
 use workspace::{Workspace, notifications::DetachAndPromptErr};
 
@@ -34,6 +34,10 @@ actions!(
         BuildSelected,
         /// Debugs the selected configuration.
         DebugSelected,
+        /// Stops runs and builds for the selected configuration.
+        StopSelectedRun,
+        /// Stops the selected debug context.
+        StopSelectedDebug,
     ]
 );
 
@@ -272,6 +276,12 @@ pub struct RunConfigurations {
     refresh_generation: usize,
     selection_save_task: Option<Task<()>>,
     subscriptions: Vec<Subscription>,
+    task_configurations: HashMap<TaskId, (ConfigurationEntry, ResolvedTask)>,
+    running_tasks: HashMap<TaskId, (ConfigurationKey, usize)>,
+    debug_sessions: Vec<(
+        ConfigurationKey,
+        WeakEntity<project::debugger::session::Session>,
+    )>,
 }
 
 impl RunConfigurations {
@@ -301,15 +311,31 @@ impl RunConfigurations {
                 refresh_generation: 0,
                 selection_save_task: None,
                 subscriptions: Vec::new(),
+                task_configurations: HashMap::default(),
+                running_tasks: HashMap::default(),
+                debug_sessions: Vec::new(),
             };
             if let Some(workspace_handle) = workspace_handle.upgrade() {
                 this.subscriptions.push(cx.subscribe_in(
                     &workspace_handle,
                     window,
-                    |this, _, event: &workspace::Event, window, cx| {
-                        if matches!(event, workspace::Event::ActiveItemChanged) {
-                            this.refresh(window, cx);
+                    |this, _, event: &workspace::Event, window, cx| match event {
+                        workspace::Event::ActiveItemChanged => this.refresh(window, cx),
+                        workspace::Event::TaskScheduled { task, omit_history } => {
+                            if !omit_history {
+                                this.task_scheduled(task, cx);
+                            }
                         }
+                        workspace::Event::TaskFinished(task_id) => {
+                            if let Some((_, count)) = this.running_tasks.get_mut(task_id) {
+                                *count -= 1;
+                                if *count == 0 {
+                                    this.running_tasks.remove(task_id);
+                                }
+                                cx.notify();
+                            }
+                        }
+                        _ => {}
                     },
                 ));
             }
@@ -346,7 +372,113 @@ impl RunConfigurations {
     pub fn selected_entry(&self) -> Option<&ConfigurationEntry> {
         self.entries
             .iter()
+            .chain(self.task_entries())
             .find(|entry| Some(&entry.key) == self.selected.as_ref())
+    }
+
+    pub fn task_entries(&self) -> impl Iterator<Item = &ConfigurationEntry> {
+        self.task_configurations.values().map(|(entry, _)| entry)
+    }
+
+    fn task_scheduled(&mut self, task: &ResolvedTask, cx: &mut Context<Self>) {
+        let configuration = self.entries.iter().find(|entry| {
+            task.id.0.starts_with(&format!(
+                "run-configuration:{}:{}_",
+                entry.key.root.display(),
+                entry.key.id
+            ))
+        });
+        let key = if let Some(entry) = configuration {
+            entry.key.clone()
+        } else {
+            let project = self.project.read(cx);
+            let worktree = project
+                .visible_worktrees(cx)
+                .filter(|worktree| {
+                    task.resolved
+                        .cwd
+                        .as_ref()
+                        .is_some_and(|cwd| cwd.starts_with(worktree.read(cx).abs_path().as_ref()))
+                })
+                .max_by_key(|worktree| worktree.read(cx).abs_path().components().count())
+                .or_else(|| project.visible_worktrees(cx).next());
+            let Some(worktree) = worktree else {
+                return;
+            };
+            let worktree = worktree.read(cx);
+            let key = ConfigurationKey {
+                root: worktree.abs_path().to_path_buf(),
+                storage: Storage::Local,
+                id: format!("task:{}", task.id.0),
+            };
+            let entry = ConfigurationEntry {
+                key: key.clone(),
+                worktree_id: worktree.id(),
+                configuration: configuration_for_task(task),
+            };
+            self.task_configurations
+                .insert(task.id.clone(), (entry, task.clone()));
+            key
+        };
+        self.selected = Some(key.clone());
+        self.running_tasks
+            .entry(task.id.clone())
+            .or_insert((key, 0))
+            .1 += 1;
+        cx.notify();
+    }
+
+    pub fn can_stop_run(&self) -> bool {
+        self.running_tasks
+            .values()
+            .any(|(key, _)| Some(key) == self.selected.as_ref())
+    }
+
+    pub(crate) fn track_debug_session(
+        &mut self,
+        key: ConfigurationKey,
+        session: &Entity<project::debugger::session::Session>,
+        cx: &mut Context<Self>,
+    ) {
+        self.debug_sessions.push((key, session.downgrade()));
+        self.subscriptions
+            .push(cx.observe(session, |_, _, cx| cx.notify()));
+        cx.notify();
+    }
+
+    pub fn can_stop_debug(&self, cx: &App) -> bool {
+        self.debug_sessions.iter().any(|(key, session)| {
+            Some(key) == self.selected.as_ref()
+                && session
+                    .upgrade()
+                    .is_some_and(|session| !session.read(cx).is_terminated())
+        })
+    }
+
+    fn stop_run(&self, cx: &mut Context<Self>) {
+        let task_ids = self
+            .running_tasks
+            .iter()
+            .filter(|(_, (key, _))| Some(key) == self.selected.as_ref())
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+        self.workspace
+            .update(cx, |workspace, cx| {
+                for task_id in task_ids {
+                    workspace.stop_task(&task_id, cx);
+                }
+            })
+            .log_err();
+    }
+
+    fn stop_debug(&self, cx: &mut Context<Self>) {
+        for (key, session) in &self.debug_sessions {
+            if Some(key) == self.selected.as_ref()
+                && let Some(session) = session.upgrade()
+            {
+                session.update(cx, |session, cx| session.shutdown(cx).detach());
+            }
+        }
     }
 
     pub fn selected_label(&self) -> String {
@@ -519,11 +651,16 @@ impl RunConfigurations {
                         this.add_entries(&root, Storage::Local, state.configurations);
                     }
                     this.entries.sort_by_key(|entry| entry.label());
-                    this.selected = this
-                        .active_root
-                        .as_ref()
-                        .and_then(|root| this.local_states.get(root))
-                        .and_then(|state| state.selected.clone());
+                    let task_selection = this
+                        .selected
+                        .clone()
+                        .filter(|key| this.task_entries().any(|entry| &entry.key == key));
+                    this.selected = task_selection.or_else(|| {
+                        this.active_root
+                            .as_ref()
+                            .and_then(|root| this.local_states.get(root))
+                            .and_then(|state| state.selected.clone())
+                    });
                     cx.notify();
                 }) {
                     log::debug!("Run configuration workspace closed: {error:#}");
@@ -580,16 +717,37 @@ impl RunConfigurations {
                 refresh.await;
             }
             wait_for_refresh(&this, cx).await?;
-            let (entry, contexts, workspace) = this.read_with(cx, |this, _| {
+            let (entry, contexts, workspace, task) = this.read_with(cx, |this, _| {
                 (
-                    this.entries.iter().find(|entry| entry.key == key).cloned(),
+                    this.entries
+                        .iter()
+                        .chain(this.task_entries())
+                        .find(|entry| entry.key == key)
+                        .cloned(),
                     this.contexts.clone(),
                     this.workspace.clone(),
+                    this.task_configurations
+                        .values()
+                        .find(|(entry, _)| entry.key == key)
+                        .map(|(_, task)| task.clone()),
                 )
             })?;
             let entry =
                 entry.context("The selected configuration was removed or could not be loaded")?;
             workspace.update_in(cx, |workspace, window, cx| {
+                if !debug
+                    && !build_only
+                    && let Some(task) = task
+                {
+                    workspace.schedule_resolved_task(
+                        TaskSourceKind::UserInput,
+                        task,
+                        false,
+                        window,
+                        cx,
+                    );
+                    return Ok(());
+                }
                 if build_only {
                     let build = entry
                         .configuration
@@ -849,11 +1007,12 @@ fn launch_configuration(
             })
             .map(|location| location.buffer.clone());
         panel.update(cx, |panel, cx| {
-            panel.start_session(
+            panel.start_configuration_session(
                 scenario,
                 context.clone().into(),
                 buffer,
                 Some(entry.worktree_id),
+                Some(entry.key.clone()),
                 window,
                 cx,
             )
@@ -899,6 +1058,37 @@ fn build_only_configuration(
     configuration
 }
 
+fn configuration_for_task(task: &ResolvedTask) -> RunConfiguration {
+    let runtime = task
+        .resolved
+        .command
+        .as_deref()
+        .and_then(|command| Path::new(command).file_stem())
+        .and_then(|name| name.to_str());
+    let debug = matches!(
+        runtime,
+        Some("node" | "bun" | "npm" | "npx" | "pnpm" | "yarn")
+    )
+    .then(|| DebugScenario {
+        adapter: "JavaScript".into(),
+        label: task.resolved_label.clone().into(),
+        build: None,
+        config: json!({
+            "type": "node-terminal",
+            "request": "launch",
+            "command": task.resolved.command_label,
+            "cwd": task.resolved.cwd,
+            "env": task.resolved.env,
+        }),
+        tcp_connection: None,
+    });
+    RunConfiguration {
+        name: task.resolved_label.clone(),
+        run: Some(task.original_task().clone()),
+        debug,
+    }
+}
+
 pub fn init(cx: &mut App) {
     cx.observe_new(|workspace: &mut Workspace, _, _| {
         workspace
@@ -913,7 +1103,45 @@ pub fn init(cx: &mut App) {
             })
             .register_action(|workspace, _: &DebugSelected, window, cx| {
                 launch_selected_action(workspace, true, false, window, cx);
+            })
+            .register_action(|workspace, _: &StopSelectedRun, window, cx| {
+                stop_selected_action(workspace, false, window, cx);
+            })
+            .register_action(|workspace, _: &StopSelectedDebug, window, cx| {
+                stop_selected_action(workspace, true, window, cx);
             });
+    })
+    .detach();
+}
+
+fn stop_selected_action(
+    workspace: &Workspace,
+    debug: bool,
+    window: &mut Window,
+    cx: &mut Context<Workspace>,
+) {
+    let Some(panel) = workspace.panel::<DebugPanel>(cx) else {
+        return;
+    };
+    let configurations = panel.read(cx).run_configurations.clone();
+    let active_session = panel.read(cx).active_session();
+    cx.spawn_in(window, async move |_, cx| {
+        configurations.update(cx, |configurations, cx| {
+            if debug {
+                if configurations.selected.is_none() {
+                    if let Some(session) = active_session {
+                        session
+                            .read(cx)
+                            .session(cx)
+                            .update(cx, |session, cx| session.shutdown(cx).detach());
+                    }
+                } else {
+                    configurations.stop_debug(cx);
+                }
+            } else {
+                configurations.stop_run(cx);
+            }
+        });
     })
     .detach();
 }

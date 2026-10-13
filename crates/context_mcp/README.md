@@ -1,7 +1,7 @@
 # ZedStorm context MCP
 
 ZedStorm includes a native stdio MCP server in its own executable. The Codex panel
-registers `zedstorm_context` automatically when it starts `codex app-server`.
+registers `zedstorm_context` automatically when it starts its embedded Codex runtime.
 There is no separate server to install and no change to `~/.codex/config.toml`.
 Other configured MCP servers remain available.
 

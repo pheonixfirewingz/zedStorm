@@ -23,7 +23,7 @@ pub fn codex_configuration(
     executable: &Path,
     directory: &Path,
     writable: bool,
-) -> Result<Vec<String>> {
+) -> Result<Vec<(String, Value)>> {
     let executable = executable
         .to_str()
         .context("Executable path must be UTF-8")?;
@@ -44,20 +44,16 @@ pub fn codex_configuration(
         arguments.push("--context-mcp-write");
     }
     Ok(vec![
-        "-c".into(),
-        format!(
-            "mcp_servers.zedstorm_context.command={}",
-            serde_json::to_string(executable)?
+        (
+            "mcp_servers.zedstorm_context.command".into(),
+            json!(executable),
         ),
-        "-c".into(),
-        format!(
-            "mcp_servers.zedstorm_context.args={}",
-            serde_json::to_string(&arguments)?
+        ("mcp_servers.zedstorm_context.args".into(), json!(arguments)),
+        ("mcp_servers.zedstorm_context.enabled".into(), json!(true)),
+        (
+            "mcp_servers.zedstorm_context.tool_timeout_sec".into(),
+            json!(1900),
         ),
-        "-c".into(),
-        "mcp_servers.zedstorm_context.enabled=true".into(),
-        "-c".into(),
-        "mcp_servers.zedstorm_context.tool_timeout_sec=1900".into(),
     ])
 }
 
@@ -1646,24 +1642,16 @@ mod tests {
             directory.path(),
             true,
         )?;
-        assert_eq!(configuration.first().map(String::as_str), Some("-c"));
         let command = configuration
-            .get(1)
-            .context("Missing command")?
-            .split_once('=')
-            .context("Missing command value")?
-            .1;
-        assert_eq!(
-            serde_json::from_str::<String>(command)?,
-            "/path with spaces/zedstorm"
-        );
+            .iter()
+            .find(|(key, _)| key == "mcp_servers.zedstorm_context.command")
+            .context("Missing command")?;
+        assert_eq!(command.1, json!("/path with spaces/zedstorm"));
         let arguments = configuration
-            .get(3)
-            .context("Missing arguments")?
-            .split_once('=')
-            .context("Missing argument value")?
-            .1;
-        let arguments: Vec<String> = serde_json::from_str(arguments)?;
+            .iter()
+            .find(|(key, _)| key == "mcp_servers.zedstorm_context.args")
+            .context("Missing arguments")?;
+        let arguments: Vec<String> = serde_json::from_value(arguments.1.clone())?;
         assert_eq!(arguments.first().map(String::as_str), Some("--context-mcp"));
         assert_eq!(
             arguments.get(2).map(String::as_str),
@@ -1680,7 +1668,7 @@ mod tests {
         assert!(
             !configuration
                 .iter()
-                .any(|value| value.contains("approval") || value.contains("sandbox"))
+                .any(|(key, _)| key.contains("approval") || key.contains("sandbox"))
         );
         Ok(())
     }

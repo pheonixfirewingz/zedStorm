@@ -521,7 +521,7 @@ impl Client {
         _cx: &AsyncApp,
     ) -> Result<Credentials> {
         anyhow::bail!(
-            "Zed accounts are unavailable in ZedStorm. Sign in through Codex CLI instead."
+            "Zed accounts are unavailable in ZedStorm. Sign in through the AI panel instead."
         )
     }
 
@@ -531,7 +531,7 @@ impl Client {
         _cx: &AsyncApp,
     ) -> Result<()> {
         anyhow::bail!(
-            "Zed accounts are unavailable in ZedStorm. Sign in through Codex CLI instead."
+            "Zed accounts are unavailable in ZedStorm. Sign in through the AI panel instead."
         )
     }
 
@@ -664,7 +664,7 @@ impl Client {
         _cx: &AsyncApp,
     ) -> Task<Result<Credentials>> {
         Task::ready(Err(anyhow!(
-            "Zed accounts are unavailable in ZedStorm. Sign in through Codex CLI instead."
+            "Zed accounts are unavailable in ZedStorm. Sign in through the AI panel instead."
         )))
     }
 
