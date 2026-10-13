@@ -43,6 +43,10 @@ You can open the same modal by clicking the "plus" button at the top right of th
 
 The window title bar also provides **Run** and **Debug** buttons. The session selector lists your debug sessions and lets you switch between them or edit your debug configurations. The stop button targets the selected debug session.
 
+Use **Edit Configurations** in the title bar's configuration selector to set up reusable Run and Debug actions in a form. For a Cargo project with one unambiguous binary target (or a `default-run` target), the editor opens with a detected configuration when none has been saved. Click **Debug** to save it, build the target, and start debugging; the executable is located from Cargo's build output, including custom target directories.
+
+To debug an existing native binary, choose **Add configuration… → Debug executable** and enter its program path. CodeLLDB is selected automatically. The **Node.js script** and **Python script** presets select the appropriate debugger and let you enter a script path. Use **Advanced…** to change the debugger, working directory, arguments, environment variables, or adapter options. Configurations are saved in `.zed/run.json`, or locally when **Share with project** is disabled.
+
 For languages that don't provide preconfigured debug tasks (this includes C, C++, and some extension-supported languages), you can define debug configurations in the `.zed/debug.json` file in your project root. This file should be an array of configuration objects:
 
 ```json [debug]

@@ -44,8 +44,47 @@ pub struct RunConfiguration {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run: Option<TaskTemplate>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_debug_target"
+    )]
     pub debug: Option<DebugScenario>,
+}
+
+fn deserialize_debug_target<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<DebugScenario>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let mut debug = Option::<DebugScenario>::deserialize(deserializer)?;
+    if let Some(debug) = &mut debug
+        && debug.config.get("request").and_then(Value::as_str) == Some("launch")
+        && debug
+            .config
+            .get("program")
+            .and_then(Value::as_str)
+            .is_none_or(str::is_empty)
+        && debug.config.get("targetCreateCommands").is_none()
+        && let Some(task::BuildTaskDefinition::Template {
+            task_template,
+            locator_name,
+        }) = &mut debug.build
+        && locator_name.is_none()
+        && task_template.command == "cargo"
+        && task_template.args.first().is_some_and(|action| {
+            matches!(
+                action.as_str(),
+                "build" | "b" | "run" | "r" | "test" | "t" | "bench"
+            )
+        })
+    {
+        // Older saved configurations omitted the locator, so restore Cargo
+        // executable discovery unless an explicit target is configured.
+        *locator_name = Some("rust-cargo-locator".into());
+    }
+    Ok(debug)
 }
 
 impl RunConfiguration {
@@ -903,6 +942,60 @@ fn launch_selected_action(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saved_cargo_debug_configuration_restores_executable_discovery() -> Result<()> {
+        let mut configuration = configuration("Cargo application");
+        configuration.debug = Some(DebugScenario {
+            adapter: "CodeLLDB".into(),
+            label: "Cargo application".into(),
+            build: Some(task::BuildTaskDefinition::Template {
+                task_template: TaskTemplate {
+                    label: "Build".into(),
+                    command: "cargo".into(),
+                    args: vec!["build".into()],
+                    ..TaskTemplate::default()
+                },
+                locator_name: Some("rust-cargo-locator".into()),
+            }),
+            config: json!({"request": "launch"}),
+            tcp_connection: None,
+        });
+        let saved = serde_json::to_string(&configuration)?;
+        let reopened: RunConfiguration = serde_json::from_str(&saved)?;
+        assert_eq!(reopened, configuration);
+
+        let mut legacy = serde_json::to_value(&configuration)?;
+        legacy["debug"]["build"]
+            .as_object_mut()
+            .context("Expected a build task object")?
+            .remove("locator_name");
+        let reopened: RunConfiguration = serde_json::from_value(legacy.clone())?;
+        assert_eq!(reopened, configuration);
+
+        legacy["debug"]["targetCreateCommands"] = json!(["target create /custom/program"]);
+        let reopened: RunConfiguration = serde_json::from_value(legacy)?;
+        assert!(matches!(
+            reopened.debug.and_then(|debug| debug.build),
+            Some(task::BuildTaskDefinition::Template {
+                locator_name: None,
+                ..
+            })
+        ));
+
+        let debug = configuration
+            .debug
+            .as_mut()
+            .context("Missing debug target")?;
+        debug.config["program"] = json!("/custom/program");
+        if let Some(task::BuildTaskDefinition::Template { locator_name, .. }) = &mut debug.build {
+            *locator_name = None;
+        }
+        let reopened: RunConfiguration =
+            serde_json::from_str(&serde_json::to_string(&configuration)?)?;
+        assert_eq!(reopened, configuration);
+        Ok(())
+    }
 
     #[test]
     fn build_only_uses_build_task_instead_of_run_target() {

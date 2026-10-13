@@ -13,6 +13,52 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000_u32;
 
 pub use gpui_util::new_std_command;
 
+pub fn prepare_host_command(command: &mut std::process::Command) {
+    #[cfg(target_os = "linux")]
+    if std::path::Path::new("/.flatpak-info").is_file() {
+        wrap_host_command(command);
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = command;
+}
+
+#[cfg(target_os = "linux")]
+fn wrap_host_command(command: &mut std::process::Command) {
+    let mut host_command = std::process::Command::new("/usr/bin/flatpak-spawn");
+    host_command.args(["--host", "--watch-bus"]);
+    if let Some(directory) = command.get_current_dir() {
+        let mut argument = std::ffi::OsString::from("--directory=");
+        argument.push(directory);
+        host_command.arg(argument);
+    }
+    for (name, value) in command.get_envs() {
+        // The sandbox's search paths refer to runtime libraries and wrapper binaries,
+        // which must not replace the host's paths when launching host-built programs.
+        if ["PATH", "LD_LIBRARY_PATH", "LD_PRELOAD"]
+            .iter()
+            .any(|candidate| name == OsStr::new(candidate))
+            && value.is_some_and(|value| std::env::var_os(name).as_deref() == Some(value))
+        {
+            continue;
+        }
+        let mut argument = std::ffi::OsString::from(if value.is_some() {
+            "--env="
+        } else {
+            "--unset-env="
+        });
+        argument.push(name);
+        if let Some(value) = value {
+            argument.push("=");
+            argument.push(value);
+        }
+        host_command.arg(argument);
+    }
+    host_command.arg("--");
+    host_command.arg(command.get_program());
+    host_command.args(command.get_args());
+    *command = host_command;
+}
+
 pub fn new_command(program: impl AsRef<OsStr>) -> Command {
     Command::new(program)
 }
@@ -124,5 +170,62 @@ impl Command {
 
     pub fn get_program(&self) -> &OsStr {
         self.0.get_program()
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_command_preserves_arguments_directory_and_environment() {
+        let mut command = std::process::Command::new("/home/user/project with spaces/program");
+        command
+            .args(["argument with spaces", "$(must stay literal)"])
+            .current_dir("/home/user/project with spaces")
+            .env("WORKFLOW_VALUE", "a=b c")
+            .env_remove("WORKFLOW_REMOVED");
+        wrap_host_command(&mut command);
+        assert_eq!(command.get_program(), OsStr::new("/usr/bin/flatpak-spawn"));
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            [
+                "--host",
+                "--watch-bus",
+                "--directory=/home/user/project with spaces",
+                "--unset-env=WORKFLOW_REMOVED",
+                "--env=WORKFLOW_VALUE=a=b c",
+                "--",
+                "/home/user/project with spaces/program",
+                "argument with spaces",
+                "$(must stay literal)",
+            ]
+            .map(OsStr::new)
+        );
+    }
+
+    #[test]
+    fn host_command_uses_host_search_path() -> anyhow::Result<()> {
+        let mut command = std::process::Command::new("cargo");
+        command.env(
+            "PATH",
+            std::env::var_os("PATH").ok_or_else(|| anyhow::anyhow!("PATH is unset"))?,
+        );
+        wrap_host_command(&mut command);
+        assert!(
+            !command
+                .get_args()
+                .any(|argument| argument.to_string_lossy().starts_with("--env=PATH="))
+        );
+
+        let mut command = std::process::Command::new("cargo");
+        command.env("PATH", "/custom/toolchain/bin");
+        wrap_host_command(&mut command);
+        assert!(
+            command
+                .get_args()
+                .any(|argument| argument == "--env=PATH=/custom/toolchain/bin")
+        );
+        Ok(())
     }
 }

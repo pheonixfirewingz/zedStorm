@@ -123,19 +123,19 @@ impl DapLocator for CargoLocator {
             .clone()
             .context("Couldn't get cwd from debug config which is needed for locators")?;
         let builder = ShellBuilder::new(&build_config.shell, cfg!(windows)).non_interactive();
-        let mut child = builder
-            .build_smol_command(
-                Some("cargo".into()),
-                &build_config
-                    .args
-                    .iter()
-                    .cloned()
-                    .take_while(|arg| arg != "--")
-                    .chain(Some("--message-format=json".to_owned()))
-                    .collect::<Vec<_>>(),
-            )
-            .envs(build_config.env.iter().map(|(k, v)| (k.clone(), v.clone())))
-            .current_dir(cwd)
+        let mut command = builder.build_std_command(
+            Some("cargo".into()),
+            &build_config
+                .args
+                .iter()
+                .cloned()
+                .take_while(|arg| arg != "--")
+                .chain(Some("--message-format=json".to_owned()))
+                .collect::<Vec<_>>(),
+        );
+        command.envs(&build_config.env).current_dir(cwd);
+        util::command::prepare_host_command(&mut command);
+        let mut child = smol::process::Command::from(command)
             .stdout(SmolStdio::piped())
             .spawn()?;
 

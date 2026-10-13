@@ -573,6 +573,7 @@ impl TcpTransport {
 
             command.args(&binary.arguments);
             command.envs(&binary.envs);
+            util::command::prepare_host_command(&mut command);
 
             let mut p = Child::spawn(command, Stdio::null(), Stdio::piped(), Stdio::piped())
                 .with_context(|| "failed to start debug adapter.")?;
@@ -722,6 +723,7 @@ impl StdioTransport {
 
         command.args(&binary.arguments);
         command.envs(&binary.envs);
+        util::command::prepare_host_command(&mut command);
 
         let mut process = Child::spawn(command, Stdio::piped(), Stdio::piped(), Stdio::piped())?;
 

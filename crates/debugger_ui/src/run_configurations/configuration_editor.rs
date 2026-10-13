@@ -1,6 +1,7 @@
 use super::*;
 use editor::Editor;
 use gpui::{DismissEvent, EventEmitter, FocusHandle, Focusable, Render};
+use task::BuildTaskDefinition;
 use ui::{ContextMenu, PopoverMenu, Switch, SwitchLabelPosition, ToggleState, Tooltip, prelude::*};
 use ui_input::InputField;
 use uuid::Uuid;
@@ -87,47 +88,34 @@ fn cargo_configuration(metadata: &Value, root: &Path) -> Option<RunConfiguration
     let [(package, binary)] = binaries.as_slice() else {
         return None;
     };
-    let directory = Path::new(metadata.get("target_directory")?.as_str()?);
-    let filename = format!("{binary}{}", std::env::consts::EXE_SUFFIX);
-    let executable = ["debug", "release"]
-        .into_iter()
-        .filter_map(|profile| {
-            let path = directory.join(profile).join(&filename);
-            let file = std::fs::metadata(&path).ok()?;
-            file.is_file()
-                .then(|| (file.modified().ok(), profile, path))
-        })
-        .max_by_key(|(modified, _, _)| *modified);
-    let mut arguments = vec![
-        "run".into(),
+    let arguments = vec![
         "--package".into(),
         (*package).into(),
         "--bin".into(),
         (*binary).into(),
     ];
-    if executable
-        .as_ref()
-        .is_some_and(|(_, profile, _)| *profile == "release")
-    {
-        arguments.push("--release".into());
-    }
-    let debug = executable.map(|(_, _, path)| DebugScenario {
-        adapter: "CodeLLDB".into(),
+    let task = |action: &str| TaskTemplate {
         label: (*binary).into(),
-        build: None,
-        config: json!({"request": "launch", "program": path, "cwd": root}),
-        tcp_connection: None,
-    });
+        command: "cargo".into(),
+        args: std::iter::once(action.to_owned())
+            .chain(arguments.iter().cloned())
+            .collect(),
+        cwd: Some(root.to_string_lossy().into_owned()),
+        ..TaskTemplate::default()
+    };
     Some(RunConfiguration {
         name: (*binary).into(),
-        run: Some(TaskTemplate {
+        run: Some(task("run")),
+        debug: Some(DebugScenario {
+            adapter: "CodeLLDB".into(),
             label: (*binary).into(),
-            command: "cargo".into(),
-            args: arguments,
-            cwd: Some(root.to_string_lossy().into_owned()),
-            ..TaskTemplate::default()
+            build: Some(BuildTaskDefinition::Template {
+                task_template: task("build"),
+                locator_name: Some("rust-cargo-locator".into()),
+            }),
+            config: json!({"request": "launch", "cwd": root, "sourceLanguages": ["rust"]}),
+            tcp_connection: None,
         }),
-        debug,
     })
 }
 
@@ -298,7 +286,7 @@ impl ConfigurationDraft {
                 cx,
             ),
             adapter: input(
-                "Debug adapter",
+                "Debugger",
                 debug
                     .map(|debug| debug.adapter.as_ref())
                     .unwrap_or_default(),
@@ -309,6 +297,23 @@ impl ConfigurationDraft {
             adapter_options,
             entry,
         }
+    }
+
+    fn builds_cargo_target(&self) -> bool {
+        self.debug_enabled
+            && !self.attach
+            && self
+                .entry
+                .configuration
+                .debug
+                .as_ref()
+                .is_some_and(|debug| {
+                    matches!(
+                        &debug.build,
+                        Some(BuildTaskDefinition::Template { locator_name: Some(name), .. })
+                            if name.as_ref() == "rust-cargo-locator"
+                    )
+                })
     }
 
     fn apply_defaults(
@@ -330,6 +335,7 @@ impl ConfigurationDraft {
                 field.update(cx, |field, cx| field.set_text(value, window, cx));
             }
         }
+        self.entry.configuration.debug = Some(debug.clone());
     }
 
     fn configuration(&self, cx: &App) -> Result<RunConfiguration> {
@@ -379,6 +385,15 @@ impl ConfigurationDraft {
                     });
             debug.label = name.clone().into();
             debug.adapter = self.adapter.read(cx).text(cx).into();
+            if self.attach
+                || config.get("program").is_some()
+                || config.get("targetCreateCommands").is_some()
+            {
+                if let Some(BuildTaskDefinition::Template { locator_name, .. }) = &mut debug.build {
+                    // Explicit targets bypass discovery; the launch pipeline requires locator configs to be incomplete.
+                    *locator_name = None;
+                }
+            }
             debug.config = config;
             Some(debug)
         } else {
@@ -499,7 +514,7 @@ impl ConfigurationEditor {
             window,
             cx,
         );
-        Self {
+        let mut editor = Self {
             store,
             drafts,
             selected,
@@ -510,7 +525,18 @@ impl ConfigurationEditor {
             defaults,
             search,
             _search_subscription: search_subscription,
+        };
+        if editor.drafts.is_empty()
+            && editor
+                .store
+                .read(cx)
+                .active_root
+                .as_ref()
+                .is_some_and(|root| editor.defaults.contains_key(root))
+        {
+            editor.add(false, window, cx);
         }
+        editor
     }
 
     fn add(&mut self, duplicate: bool, window: &mut Window, cx: &mut Context<Self>) {
@@ -569,6 +595,48 @@ impl ConfigurationEditor {
         self.drafts.push(draft);
         self.selected = Some(self.drafts.len() - 1);
         self.error = None;
+        cx.notify();
+    }
+
+    fn add_debug_target(
+        &mut self,
+        name: &str,
+        adapter: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let previous_count = self.drafts.len();
+        self.add(false, window, cx);
+        if self.drafts.len() == previous_count {
+            return;
+        }
+        if let Some(draft) = self.selected.and_then(|index| self.drafts.get_mut(index)) {
+            let mut entry = draft.entry.clone();
+            entry.configuration = RunConfiguration {
+                name: name.into(),
+                run: None,
+                debug: Some(DebugScenario {
+                    adapter: adapter.into(),
+                    label: name.into(),
+                    build: None,
+                    config: json!({"request": "launch", "cwd": entry.key.root}),
+                    tcp_connection: None,
+                }),
+            };
+            if adapter == "JavaScript" {
+                if let Some(debug) = &mut entry.configuration.debug {
+                    debug.config["type"] = json!("pwa-node");
+                }
+            }
+            *draft = ConfigurationDraft::new(entry, false, window, cx);
+            draft
+                .debug
+                .program
+                .read(cx)
+                .focus_handle(cx)
+                .focus(window, cx);
+        }
+        self.show_options = false;
         cx.notify();
     }
 
@@ -819,42 +887,53 @@ impl ConfigurationEditor {
             })
             .collect::<Vec<_>>();
         v_flex()
-            .id(if debug { "debug-target-fields" } else { "run-target-fields" })
+            .id(if debug {
+                "debug-target-fields"
+            } else {
+                "run-target-fields"
+            })
             .gap_2()
             .w_full()
             .when(!debug || !draft.attach, |form| {
-                if !debug || !fields.program.read(cx).text(cx).is_empty() || self.show_options {
-                    form.child(fields.program.clone())
+                if debug && draft.builds_cargo_target() && !self.show_options {
+                    form.child(Label::new("Before launch: Build Cargo target").color(Color::Muted))
+                        .child(
+                            Label::new("The executable is detected automatically after building.")
+                                .color(Color::Muted),
+                        )
                 } else {
-                    form.child(
-                        Button::new("choose-debug-executable", "Choose executable…")
-                            .tooltip(Tooltip::text("No executable detected. Set a program or adapter-specific launch options."))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.show_options = true;
-                                if let Some(draft) = this.selected.and_then(|index| this.drafts.get(index)) {
-                                    draft.debug.program.read(cx).focus_handle(cx).focus(window, cx);
-                                }
-                                cx.notify();
-                            })),
-                    )
+                    form.child(fields.program.clone())
                 }
             })
-            .when(!self.show_options && (!fields.arguments.is_empty() || !fields.environment.is_empty()), |form| {
-                form.child(Button::new(
-                    if debug { "debug-extra-settings" } else { "run-extra-settings" },
-                    match (fields.arguments.len(), fields.environment.len()) {
-                        (0, environment) => format!("Environment variables ({environment})…"),
-                        (arguments, 0) => format!("Arguments ({arguments})…"),
-                        (arguments, environment) => format!("Arguments ({arguments}), environment ({environment})…"),
-                    },
-                ).on_click(cx.listener(|this, _, _, cx| {
-                    this.show_options = true;
-                    cx.notify();
-                })))
-            })
-            .when(self.show_options, |form| {
-                form.child(fields.cwd.clone())
-            })
+            .when(
+                !self.show_options
+                    && (!fields.arguments.is_empty() || !fields.environment.is_empty()),
+                |form| {
+                    form.child(
+                        Button::new(
+                            if debug {
+                                "debug-extra-settings"
+                            } else {
+                                "run-extra-settings"
+                            },
+                            match (fields.arguments.len(), fields.environment.len()) {
+                                (0, environment) => {
+                                    format!("Environment variables ({environment})…")
+                                }
+                                (arguments, 0) => format!("Arguments ({arguments})…"),
+                                (arguments, environment) => {
+                                    format!("Arguments ({arguments}), environment ({environment})…")
+                                }
+                            },
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.show_options = true;
+                            cx.notify();
+                        })),
+                    )
+                },
+            )
+            .when(self.show_options, |form| form.child(fields.cwd.clone()))
             .when((!debug || !draft.attach) && self.show_options, |form| {
                 form.child(Label::new("Arguments"))
                     .children(arguments)
@@ -886,32 +965,35 @@ impl ConfigurationEditor {
             })
             .when(self.show_options, |form| {
                 form.child(Label::new("Environment variables"))
-            .children(environment)
-            .child(
-                Button::new(
-                    if debug {
-                        "add-debug-variable"
-                    } else {
-                        "add-run-variable"
-                    },
-                    "Add variable",
-                )
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    if let Some(draft) = this.selected.and_then(|index| this.drafts.get_mut(index))
-                    {
-                        let fields = if debug {
-                            &mut draft.debug
-                        } else {
-                            &mut draft.run
-                        };
-                        fields.environment.push((
-                            input("Name", "", window, cx),
-                            input("Value", "", window, cx),
-                        ));
-                    }
-                    cx.notify();
-                })),
-            )
+                    .children(environment)
+                    .child(
+                        Button::new(
+                            if debug {
+                                "add-debug-variable"
+                            } else {
+                                "add-run-variable"
+                            },
+                            "Add variable",
+                        )
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                if let Some(draft) =
+                                    this.selected.and_then(|index| this.drafts.get_mut(index))
+                                {
+                                    let fields = if debug {
+                                        &mut draft.debug
+                                    } else {
+                                        &mut draft.run
+                                    };
+                                    fields.environment.push((
+                                        input("Name", "", window, cx),
+                                        input("Value", "", window, cx),
+                                    ));
+                                }
+                                cx.notify();
+                            },
+                        )),
+                    )
             })
             .into_any_element()
     }
@@ -923,6 +1005,7 @@ impl Render for ConfigurationEditor {
         let draft = self.selected.and_then(|index| self.drafts.get(index));
         let run_enabled = draft.is_some_and(|draft| draft.run_enabled);
         let debug_enabled = draft.is_some_and(|draft| draft.debug_enabled);
+        let cargo_target = draft.is_some_and(ConfigurationDraft::builds_cargo_target);
         let title = Label::new("Run / Debug Configurations").size(LabelSize::Large);
         let query = self.search.read(cx).text(cx).to_lowercase();
         let mut groups: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
@@ -1057,58 +1140,63 @@ impl Render for ConfigurationEditor {
                             )),
                         )
                     })
-                    .child(
-                        Switch::new(
-                            "configuration-run-target",
-                            if run_enabled {
-                                ToggleState::Selected
-                            } else {
-                                ToggleState::Unselected
-                            },
-                        )
-                        .label("Run target")
-                        .label_position(SwitchLabelPosition::End)
-                        .on_click(cx.listener(
-                            |this, state: &ToggleState, _, cx| {
-                                if let Some(draft) =
-                                    this.selected.and_then(|index| this.drafts.get_mut(index))
-                                {
-                                    draft.run_enabled = state.selected();
-                                }
-                                cx.notify();
-                            },
-                        )),
-                    )
-                    .when(run_enabled, |form| {
-                        form.child(self.render_target(false, cx)).when(
-                            self.show_options || draft.concurrent,
-                            |form| {
-                                form.child(
-                                    Switch::new(
-                                        "configuration-concurrent",
-                                        if draft.concurrent {
-                                            ToggleState::Selected
-                                        } else {
-                                            ToggleState::Unselected
-                                        },
-                                    )
-                                    .label("Allow multiple instances")
-                                    .label_position(SwitchLabelPosition::End)
-                                    .on_click(cx.listener(
-                                        |this, state: &ToggleState, _, cx| {
-                                            if let Some(draft) = this
-                                                .selected
-                                                .and_then(|index| this.drafts.get_mut(index))
-                                            {
-                                                draft.concurrent = state.selected();
-                                            }
-                                            cx.notify();
-                                        },
-                                    )),
-                                )
-                            },
+                    .when(self.show_options || !cargo_target, |form| {
+                        form.child(
+                            Switch::new(
+                                "configuration-run-target",
+                                if run_enabled {
+                                    ToggleState::Selected
+                                } else {
+                                    ToggleState::Unselected
+                                },
+                            )
+                            .label("Run target")
+                            .label_position(SwitchLabelPosition::End)
+                            .on_click(cx.listener(
+                                |this, state: &ToggleState, _, cx| {
+                                    if let Some(draft) =
+                                        this.selected.and_then(|index| this.drafts.get_mut(index))
+                                    {
+                                        draft.run_enabled = state.selected();
+                                    }
+                                    cx.notify();
+                                },
+                            )),
                         )
                     })
+                    .when(
+                        run_enabled && (self.show_options || !cargo_target),
+                        |form| {
+                            form.child(self.render_target(false, cx)).when(
+                                self.show_options || draft.concurrent,
+                                |form| {
+                                    form.child(
+                                        Switch::new(
+                                            "configuration-concurrent",
+                                            if draft.concurrent {
+                                                ToggleState::Selected
+                                            } else {
+                                                ToggleState::Unselected
+                                            },
+                                        )
+                                        .label("Allow multiple instances")
+                                        .label_position(SwitchLabelPosition::End)
+                                        .on_click(
+                                            cx.listener(|this, state: &ToggleState, _, cx| {
+                                                if let Some(draft) = this
+                                                    .selected
+                                                    .and_then(|index| this.drafts.get_mut(index))
+                                                {
+                                                    draft.concurrent = state.selected();
+                                                }
+                                                cx.notify();
+                                            }),
+                                        ),
+                                    )
+                                },
+                            )
+                        },
+                    )
                     .child(
                         Switch::new(
                             "configuration-debug-target",
@@ -1276,11 +1364,58 @@ impl Render for ConfigurationEditor {
                     h_flex()
                         .gap_2()
                         .child(
-                            Button::new("add-configuration", "Add")
-                                .disabled(self.busy)
-                                .on_click(
-                                    cx.listener(|this, _, window, cx| this.add(false, window, cx)),
-                                ),
+                            PopoverMenu::new("add-configuration-menu")
+                                .trigger(
+                                    Button::new("add-configuration", "Add configuration…")
+                                        .disabled(self.busy),
+                                )
+                                .menu({
+                                    let editor = cx.weak_entity();
+                                    let detected = self
+                                        .store
+                                        .read(cx)
+                                        .active_root
+                                        .as_ref()
+                                        .is_some_and(|root| self.defaults.contains_key(root));
+                                    move |window, cx| {
+                                        let editor = editor.clone();
+                                        let template_editor = editor.clone();
+                                        Some(ContextMenu::build(window, cx, |menu, _, _| {
+                                            let mut menu = menu.entry(
+                                                if detected {
+                                                    "Cargo application"
+                                                } else {
+                                                    "Run command"
+                                                },
+                                                None,
+                                                move |window, cx| {
+                                                    editor
+                                                        .update(cx, |editor, cx| {
+                                                            editor.add(false, window, cx)
+                                                        })
+                                                        .log_err();
+                                                },
+                                            );
+                                            for (name, adapter) in [
+                                                ("Debug executable", "CodeLLDB"),
+                                                ("Node.js script", "JavaScript"),
+                                                ("Python script", "Debugpy"),
+                                            ] {
+                                                let editor = template_editor.clone();
+                                                menu = menu.entry(name, None, move |window, cx| {
+                                                    editor
+                                                        .update(cx, |editor, cx| {
+                                                            editor.add_debug_target(
+                                                                name, adapter, window, cx,
+                                                            )
+                                                        })
+                                                        .log_err();
+                                                });
+                                            }
+                                            menu
+                                        }))
+                                    }
+                                }),
                         )
                         .child(
                             Button::new("duplicate-configuration", "Duplicate")
@@ -1396,50 +1531,50 @@ mod tests {
     }
 
     #[test]
-    fn run_configurations_detect_cargo_binary_in_custom_output_directory() -> Result<()> {
+    fn run_configurations_build_cargo_binary_before_debugging() -> Result<()> {
         let root = std::env::temp_dir().join(format!("run-defaults-{}", Uuid::new_v4()));
-        let directory = root.join("custom-output");
-        let executable = directory
-            .join("release")
-            .join(format!("application{}", std::env::consts::EXE_SUFFIX));
-        std::fs::create_dir_all(directory.join("release"))?;
-        std::fs::write(&executable, "fixture")?;
-        let configuration = cargo_configuration(&metadata(&root, &directory), &root)
-            .context("Expected a configuration for the default binary")?;
-        let debug = configuration
-            .debug
-            .context("Expected the existing executable")?;
+        let configuration =
+            cargo_configuration(&metadata(&root, &root.join("custom-output")), &root)
+                .context("Expected a configuration before any executable exists")?;
+        let reopened: RunConfiguration =
+            serde_json::from_str(&serde_json::to_string(&configuration)?)?;
+        assert_eq!(reopened, configuration);
+        configuration.validate()?;
+        let debug = configuration.debug.context("Expected a debug target")?;
         assert_eq!(debug.adapter.as_ref(), "CodeLLDB");
-        assert_eq!(debug.config["program"], json!(executable));
+        assert!(debug.config.get("program").is_none());
         assert_eq!(debug.config["cwd"], json!(root));
+        assert_eq!(debug.config["request"], "launch");
+        let Some(BuildTaskDefinition::Template {
+            task_template,
+            locator_name,
+        }) = debug.build
+        else {
+            anyhow::bail!("Expected a build task with a Cargo locator");
+        };
+        assert_eq!(locator_name.as_deref(), Some("rust-cargo-locator"));
+        assert_eq!(task_template.command, "cargo");
+        assert_eq!(task_template.cwd, Some(root.to_string_lossy().into_owned()));
+        assert_eq!(
+            task_template.args,
+            ["build", "--package", "application", "--bin", "application"]
+        );
         let run = configuration.run.context("Expected a run target")?;
         assert_eq!(
             run.args,
-            [
-                "run",
-                "--package",
-                "application",
-                "--bin",
-                "application",
-                "--release"
-            ]
+            ["run", "--package", "application", "--bin", "application"]
         );
-        std::fs::remove_dir_all(root)?;
         Ok(())
     }
 
     #[test]
-    fn run_configurations_do_not_invent_missing_or_ambiguous_executables() -> Result<()> {
+    fn run_configurations_do_not_choose_ambiguous_cargo_targets() {
         let root = std::env::temp_dir().join(format!("run-defaults-{}", Uuid::new_v4()));
         let mut metadata = metadata(&root, &root.join("target"));
-        let configuration =
-            cargo_configuration(&metadata, &root).context("Expected a run target")?;
-        assert!(configuration.debug.is_none());
         metadata["packages"][0]["default_run"] = Value::Null;
         assert!(cargo_configuration(&metadata, &root).is_none());
         metadata["packages"][0]["targets"] = json!([{"name": "application", "kind": ["lib"]}]);
         assert!(cargo_configuration(&metadata, &root).is_none());
-        Ok(())
     }
 
     #[test]

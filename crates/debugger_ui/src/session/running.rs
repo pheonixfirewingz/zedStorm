@@ -1119,7 +1119,12 @@ impl RunningState {
                 };
 
 
-            let config_is_valid = request_type.is_ok();
+            // A locator supplies the executable even when the request kind is already known.
+            let config_is_valid = request_type.is_ok()
+                && !matches!(
+                    &build,
+                    Some(BuildTaskDefinition::Template { locator_name: Some(_), .. })
+                );
             let mut extra_config = Value::Null;
             let build_output = if let Some(build) = build {
                 let (task_template, locator_name) = match build {

@@ -17,6 +17,8 @@ The **Build ZedStorm** GitHub Actions workflow builds Linux and Windows x86_64 v
 
 Linux produces a Flatpak bundle. Install it with `flatpak install --user zedstorm-linux-x86_64.flatpak` and launch it with `flatpak run dev.zedstorm.ZedStorm`. Install Codex CLI on your host to use the chat panel.
 
+The Flatpak package exposes the host's C and C++ compilers through `cc`, `c++`, `gcc`, `g++`, `clang`, and `clang++`. Install the compilers on your host; these commands run there with the project's working directory and arguments, using Flatpak's host-command permission.
+
 In the Linux Flatpak build, Codex runs inside Flatpak and uses its isolation
 instead of creating a nested bubblewrap sandbox. The access control displays
 `Flatpak sandbox`; Codex's configured approval policy still applies. The package

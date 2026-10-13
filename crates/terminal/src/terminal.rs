@@ -1170,7 +1170,7 @@ impl TerminalBuilder {
                 }
             }
 
-            let shell_params = match shell.clone() {
+            let mut shell_params = match shell.clone() {
                 Shell::System => {
                     if cfg!(windows) {
                         Some(ShellParams::new(
@@ -1207,6 +1207,36 @@ impl TerminalBuilder {
             // way we use the return value, but would become incorrect if we
             // supported remoting into windows.
             let shell_kind = shell.shell_kind(cfg!(windows));
+
+            if !is_remote_terminal {
+                let (program, arguments) = shell_params
+                    .as_ref()
+                    .map(|params| {
+                        (
+                            params.program.clone(),
+                            params.args.clone().unwrap_or_default(),
+                        )
+                    })
+                    .unwrap_or_else(|| (util::shell::get_system_shell(), Vec::new()));
+                let mut command = util::command::new_std_command(&program);
+                command.args(&arguments).envs(&env);
+                if let Some(directory) = &working_directory {
+                    command.current_dir(directory);
+                }
+                util::command::prepare_host_command(&mut command);
+                if command.get_program() != std::ffi::OsStr::new(&program) {
+                    shell_params = Some(ShellParams::new(
+                        command.get_program().to_string_lossy().into_owned(),
+                        Some(
+                            command
+                                .get_args()
+                                .map(|argument| argument.to_string_lossy().into_owned())
+                                .collect(),
+                        ),
+                        terminal_title_override.clone(),
+                    ));
+                }
+            }
 
             let scrolling_history = if task.is_some() {
                 // Tasks like `cargo build --all` may produce a lot of output, ergo allow maximum scrolling.

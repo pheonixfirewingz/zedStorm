@@ -192,7 +192,7 @@ pub enum BuildTaskDefinition {
     Template {
         #[serde(flatten)]
         task_template: TaskTemplate,
-        #[serde(skip)]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         locator_name: Option<SharedString>,
     },
 }
@@ -206,6 +206,8 @@ impl<'de> Deserialize<'de> for BuildTaskDefinition {
         struct TemplateHelper {
             #[serde(default)]
             label: Option<String>,
+            #[serde(default)]
+            locator_name: Option<SharedString>,
             #[serde(flatten)]
             rest: serde_json::Value,
         }
@@ -233,7 +235,7 @@ impl<'de> Deserialize<'de> for BuildTaskDefinition {
 
         Ok(BuildTaskDefinition::Template {
             task_template,
-            locator_name: None,
+            locator_name: helper.locator_name,
         })
     }
 }
@@ -410,6 +412,29 @@ impl DebugTaskFile {
 mod tests {
     use crate::DebugScenario;
     use serde_json::json;
+
+    #[test]
+    fn build_task_locator_survives_serialization() -> anyhow::Result<()> {
+        for locator in [Some("rust-cargo-locator"), Some("custom-locator"), None] {
+            let build = crate::BuildTaskDefinition::Template {
+                task_template: crate::TaskTemplate {
+                    label: "Build application".into(),
+                    command: "cargo".into(),
+                    args: vec!["build".into()],
+                    ..crate::TaskTemplate::default()
+                },
+                locator_name: locator.map(Into::into),
+            };
+            let saved = serde_json::to_value(&build)?;
+            assert_eq!(
+                saved.get("locator_name"),
+                locator.map(|locator| json!(locator)).as_ref()
+            );
+            let reopened: crate::BuildTaskDefinition = serde_json::from_value(saved)?;
+            assert_eq!(reopened, build);
+        }
+        Ok(())
+    }
 
     #[test]
     fn test_just_build_args() {
