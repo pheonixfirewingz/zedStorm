@@ -64,7 +64,7 @@ try {
         Assert-Condition ($tools.tools.name -contains $name) "Missing semantic tool: $name"
     }
     $unavailable = Invoke-Tool 20 'semantic_status' @{} -ExpectError
-    Assert-Condition ($unavailable.content[0].text.Contains('Open this project in ZedStorm')) 'Missing unavailable-editor diagnostic'
+    Assert-Condition ($unavailable.content[0].text.Contains('Open this project in an updated ZedStorm editor')) "Missing unavailable-editor diagnostic: $($unavailable.content[0].text)"
     Invoke-Tool 3 'mkdir' @{ path = 'nested'; parents = $false } | Out-Null
     Invoke-Tool 4 'edit' @{ path = 'nested/é file.txt'; revision = 'new'; old_text = ''; new_text = "first`r`nsecond`r`n" } | Out-Null
     $read = Invoke-Tool 5 'read' @{ path = 'nested\é file.txt'; max_bytes = 256 }

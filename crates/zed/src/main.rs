@@ -698,9 +698,8 @@ fn main() {
         })
         .detach();
         app_state.languages.set_theme(cx.theme().clone());
-        let fs = app_state.fs.clone();
         #[cfg(debug_assertions)]
-        watch_languages(fs.clone(), app_state.languages.clone(), cx);
+        watch_languages(app_state.fs.clone(), app_state.languages.clone(), cx);
 
         let menus = app_menus(cx);
         cx.set_menus(menus);

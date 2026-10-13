@@ -989,6 +989,22 @@ mod tests {
     }
 
     #[test]
+    fn semantic_status_without_editor_returns_actionable_tool_error() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let mut server = Server::new(directory.path(), false)?;
+        let (diagnostic, error) = call(&mut server, "semantic_status", json!({}))?;
+        assert!(error, "{diagnostic}");
+        let expected = "Open this project in an updated ZedStorm editor";
+        assert!(diagnostic.contains(expected), "{diagnostic}");
+        assert!(
+            include_str!("../../../script/test-context-mcp.ps1")
+                .contains(&format!(".Contains('{expected}')")),
+            "Windows smoke test must accept the unavailable-editor diagnostic"
+        );
+        Ok(())
+    }
+
+    #[test]
     fn default_read_budget_paginates_and_allows_larger_explicit_reads() -> Result<()> {
         let directory = tempfile::tempdir()?;
         let text = "🦀".repeat(3000);
