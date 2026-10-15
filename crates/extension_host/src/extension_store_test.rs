@@ -402,6 +402,7 @@ async fn test_extension_store(cx: &mut TestAppContext) {
                         debug_locators: Default::default(),
                         language_model_providers: BTreeMap::default(),
                         diagram_renderers: Vec::new(),
+                        tab_renderers: BTreeMap::default(),
                     }),
                     dev: false,
                 },
@@ -434,6 +435,7 @@ async fn test_extension_store(cx: &mut TestAppContext) {
                         debug_locators: Default::default(),
                         language_model_providers: BTreeMap::default(),
                         diagram_renderers: Vec::new(),
+                        tab_renderers: BTreeMap::default(),
                     }),
                     dev: false,
                 },
@@ -621,6 +623,7 @@ async fn test_extension_store(cx: &mut TestAppContext) {
                 debug_locators: Default::default(),
                 language_model_providers: BTreeMap::default(),
                 diagram_renderers: Vec::new(),
+                tab_renderers: BTreeMap::default(),
             }),
             dev: false,
         },
@@ -4108,6 +4111,7 @@ impl Extension for FakeExtension {
             debug_locators: BTreeMap::default(),
             language_model_providers: BTreeMap::default(),
             diagram_renderers: Vec::new(),
+            tab_renderers: BTreeMap::default(),
         })
     }
 

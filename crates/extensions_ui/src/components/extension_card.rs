@@ -499,6 +499,7 @@ impl Component for ExtensionCard {
                 debug_locators: Default::default(),
                 language_model_providers: Default::default(),
                 diagram_renderers: Vec::new(),
+                tab_renderers: Default::default(),
             })
         }
 
