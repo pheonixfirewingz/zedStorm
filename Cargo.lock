@@ -12027,6 +12027,7 @@ dependencies = [
  "serde_path_to_error",
  "tree-sitter",
  "tree-sitter-json",
+ "util",
 ]
 
 [[package]]
