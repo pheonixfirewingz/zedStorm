@@ -234,7 +234,18 @@ impl Render for TitleBar {
         }
         let configuration_label = configurations
             .as_ref()
-            .map(|configurations| configurations.read(cx).selected_label())
+            .map(|configurations| {
+                let configurations = configurations.read(cx);
+                if configurations.selected.is_none() {
+                    active_session
+                        .as_ref()
+                        .and_then(|session| session.read(cx).session(cx).read(cx).label())
+                        .map(|label| label.to_string())
+                        .unwrap_or_else(|| configurations.selected_label())
+                } else {
+                    configurations.selected_label()
+                }
+            })
             .unwrap_or_else(|| "Select configuration".into());
         let can_run = configurations
             .as_ref()
@@ -245,9 +256,19 @@ impl Render for TitleBar {
         let can_debug = configurations
             .as_ref()
             .is_some_and(|configurations| configurations.read(cx).can_launch(true, cx));
-        let can_stop = active_session
+        let can_stop_run = configurations
             .as_ref()
-            .is_some_and(|session| !session.read(cx).session(cx).read(cx).is_terminated());
+            .is_some_and(|configurations| configurations.read(cx).can_stop_run());
+        let can_stop_debug = configurations.as_ref().is_some_and(|configurations| {
+            let configurations = configurations.read(cx);
+            if configurations.selected.is_some() {
+                configurations.can_stop_debug(cx)
+            } else {
+                active_session
+                    .as_ref()
+                    .is_some_and(|session| !session.read(cx).session(cx).read(cx).is_terminated())
+            }
+        });
         let button_layout = title_bar_settings.button_layout;
 
         let show_menus = show_menus(cx);
@@ -316,6 +337,14 @@ impl Render for TitleBar {
                                                         None,
                                                         move |window, cx| {
                                                             panel.update(cx, |panel, cx| {
+                                                                panel.run_configurations.update(
+                                                                    cx,
+                                                                    |configurations, cx| {
+                                                                        configurations.selected =
+                                                                            None;
+                                                                        cx.notify();
+                                                                    },
+                                                                );
                                                                 panel.activate_session(
                                                                     session.clone(),
                                                                     window,
@@ -329,7 +358,12 @@ impl Render for TitleBar {
                                         }
 
                                         if let Some(configurations) = &configurations {
-                                            let entries = &configurations.read(cx).entries;
+                                            let store = configurations.read(cx);
+                                            let entries = store
+                                                .entries
+                                                .iter()
+                                                .chain(store.task_entries())
+                                                .collect::<Vec<_>>();
                                             if !entries.is_empty() {
                                                 if has_sessions {
                                                     menu = menu.separator();
@@ -379,53 +413,70 @@ impl Render for TitleBar {
                             );
                         }),
                 )
-                .child(
-                    IconButton::new("run-configuration", IconName::PlayFilled)
-                        .aria_label("Run Configuration")
-                        .disabled(!can_run)
-                        .tab_index(0_isize)
-                        .icon_color(Color::Success)
-                        .tooltip(Tooltip::for_action_title(
-                            "Run Configuration",
-                            &debugger_ui::run_configurations::RunSelected,
-                        ))
-                        .on_click(|_, window, cx| {
-                            window.dispatch_action(
-                                debugger_ui::run_configurations::RunSelected.boxed_clone(),
-                                cx,
-                            );
-                        }),
-                )
-                .child(
-                    IconButton::new("debug-configuration", IconName::Debug)
-                        .aria_label("Debug Configuration")
-                        .disabled(!can_debug)
-                        .tab_index(0_isize)
-                        .icon_color(Color::Success)
-                        .tooltip(Tooltip::for_action_title(
-                            "Debug Configuration",
-                            &debugger_ui::run_configurations::DebugSelected,
-                        ))
-                        .on_click(|_, window, cx| {
-                            window.dispatch_action(
-                                debugger_ui::run_configurations::DebugSelected.boxed_clone(),
-                                cx,
-                            );
-                        }),
-                )
-                .child(
-                    IconButton::new("stop-debug-session", IconName::Power)
-                        .tab_index(0_isize)
-                        .disabled(!can_stop)
-                        .icon_color(Color::Error)
-                        .tooltip(Tooltip::for_action_title(
-                            "Stop Selected Debug Session",
-                            &debugger_ui::Stop,
-                        ))
-                        .on_click(|_, window, cx| {
-                            window.dispatch_action(debugger_ui::Stop.boxed_clone(), cx)
-                        }),
-                )
+                .child({
+                    let action = if can_stop_run {
+                        debugger_ui::run_configurations::StopSelectedRun.boxed_clone()
+                    } else {
+                        debugger_ui::run_configurations::RunSelected.boxed_clone()
+                    };
+                    let label = if can_stop_run {
+                        "Stop Run / Build"
+                    } else {
+                        "Run Configuration"
+                    };
+                    IconButton::new(
+                        "run-configuration",
+                        if can_stop_run {
+                            IconName::Power
+                        } else {
+                            IconName::PlayFilled
+                        },
+                    )
+                    .aria_label(label)
+                    .disabled(!can_stop_run && !can_run)
+                    .tab_index(0_isize)
+                    .icon_color(if can_stop_run {
+                        Color::Error
+                    } else {
+                        Color::Success
+                    })
+                    .tooltip(Tooltip::for_action_title(label, action.as_ref()))
+                    .on_click(move |_, window, cx| {
+                        window.dispatch_action(action.boxed_clone(), cx);
+                    })
+                })
+                .child({
+                    let action = if can_stop_debug {
+                        debugger_ui::run_configurations::StopSelectedDebug.boxed_clone()
+                    } else {
+                        debugger_ui::run_configurations::DebugSelected.boxed_clone()
+                    };
+                    let label = if can_stop_debug {
+                        "Stop Debug Session"
+                    } else {
+                        "Debug Configuration"
+                    };
+                    IconButton::new(
+                        "debug-configuration",
+                        if can_stop_debug {
+                            IconName::Power
+                        } else {
+                            IconName::Debug
+                        },
+                    )
+                    .aria_label(label)
+                    .disabled(!can_stop_debug && !can_debug)
+                    .tab_index(0_isize)
+                    .icon_color(if can_stop_debug {
+                        Color::Error
+                    } else {
+                        Color::Success
+                    })
+                    .tooltip(Tooltip::for_action_title(label, action.as_ref()))
+                    .on_click(move |_, window, cx| {
+                        window.dispatch_action(action.boxed_clone(), cx);
+                    })
+                })
                 .child(
                     IconButton::new("toggle-ai-chat", IconName::ZedAssistant)
                         .tab_index(0_isize)
