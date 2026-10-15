@@ -84,7 +84,6 @@ members = [
     "crates/language_core",
     "crates/language_detection",
     "crates/language_extension",
-    "crates/language_onboarding",
     "crates/language_selector",
     "crates/language_tools",
     "crates/languages",
@@ -101,7 +100,6 @@ members = [
     "crates/net",
     "crates/node_runtime",
     "crates/notifications",
-    "crates/onboarding",
     "crates/open_path_prompt",
     "crates/outline",
     "crates/outline_panel",
@@ -286,7 +284,6 @@ language = { path = "crates/language" }
 language_core = { path = "crates/language_core" }
 language_detection = { path = "crates/language_detection" }
 language_extension = { path = "crates/language_extension" }
-language_onboarding = { path = "crates/language_onboarding" }
 language_selector = { path = "crates/language_selector" }
 language_tools = { path = "crates/language_tools" }
 languages = { path = "crates/languages" }
@@ -303,7 +300,6 @@ multi_buffer = { path = "crates/multi_buffer" }
 net = { path = "crates/net" }
 node_runtime = { path = "crates/node_runtime" }
 notifications = { path = "crates/notifications" }
-onboarding = { path = "crates/onboarding" }
 open_path_prompt = { path = "crates/open_path_prompt" }
 outline = { path = "crates/outline" }
 outline_panel = { path = "crates/outline_panel" }

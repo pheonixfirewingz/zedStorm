@@ -81,8 +81,6 @@ actions!(
         OpenTelemetryLog,
         /// Opens the performance profiler.
         OpenPerformanceProfiler,
-        /// Opens the onboarding view.
-        OpenOnboarding,
         /// Shows the auto-update notification for testing.
         ShowUpdateNotification,
     ]
@@ -563,10 +561,6 @@ pub mod agent {
             /// Opens the agent settings UI.
             #[action(deprecated_aliases = ["agent::OpenConfiguration"])]
             OpenSettings,
-            /// Opens the agent onboarding modal.
-            OpenOnboardingModal,
-            /// Resets the agent onboarding state.
-            ResetOnboarding,
             /// Starts a chat conversation with the agent.
             Chat,
             /// Toggles the language model selector dropdown.
@@ -785,20 +779,6 @@ pub mod outline {
     pub static TOGGLE_OUTLINE: OnceLock<fn(AnyView, &mut Window, &mut App)> = OnceLock::new();
 }
 
-actions!(
-    zed_predict_onboarding,
-    [
-        /// Opens the Zed Predict onboarding modal.
-        OpenZedPredictOnboarding
-    ]
-);
-actions!(
-    git_onboarding,
-    [
-        /// Opens the git integration onboarding modal.
-        OpenGitIntegrationOnboarding
-    ]
-);
 actions!(
     call_hierarchy,
     [ShowIncomingCalls, ShowOutgoingCalls, ToggleDirection]

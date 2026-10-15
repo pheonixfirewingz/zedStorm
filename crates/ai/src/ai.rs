@@ -66,12 +66,10 @@ pub fn init(cx: &mut App) {
             "edit_prediction",
             "inline_assistant",
             "zeta",
-            "zed_predict_onboarding",
         ] {
             filter.hide_namespace(namespace);
         }
         filter.hide_action_types(&[
-            std::any::TypeId::of::<zed_actions::OpenZedPredictOnboarding>(),
             std::any::TypeId::of::<editor::actions::AcceptEditPrediction>(),
             std::any::TypeId::of::<editor::actions::AcceptNextWordEditPrediction>(),
             std::any::TypeId::of::<editor::actions::AcceptNextLineEditPrediction>(),

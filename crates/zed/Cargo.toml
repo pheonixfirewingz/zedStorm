@@ -112,7 +112,6 @@ json_schema_store.workspace = true
 keymap_editor.workspace = true
 language.workspace = true
 language_extension.workspace = true
-language_onboarding.workspace = true
 language_selector.workspace = true
 language_tools.workspace = true
 languages = { workspace = true, features = ["load-grammars"] }
@@ -128,7 +127,6 @@ mimalloc = { version = "0.1", optional = true }
 miniprofiler_ui.workspace = true
 node_runtime.workspace = true
 notifications.workspace = true
-onboarding.workspace = true
 outline.workspace = true
 outline_panel.workspace = true
 parking_lot.workspace = true
