@@ -659,3 +659,36 @@ impl fmt::Display for ContextServerId {
         write!(f, "{}", self.0)
     }
 }
+
+impl CodeLabelSpan {
+    /// Returns a [`CodeLabelSpan::CodeRange`].
+    pub fn code_range(range: impl Into<wit::Range>) -> Self {
+        Self::CodeRange(range.into())
+    }
+
+    /// Returns a [`CodeLabelSpan::Literal`].
+    pub fn literal(text: impl Into<String>, highlight_name: Option<String>) -> Self {
+        Self::Literal(CodeLabelSpanLiteral {
+            text: text.into(),
+            highlight_name,
+        })
+    }
+}
+
+impl From<std::ops::Range<u32>> for wit::Range {
+    fn from(value: std::ops::Range<u32>) -> Self {
+        Self {
+            start: value.start,
+            end: value.end,
+        }
+    }
+}
+
+impl From<std::ops::Range<usize>> for wit::Range {
+    fn from(value: std::ops::Range<usize>) -> Self {
+        Self {
+            start: value.start as u32,
+            end: value.end as u32,
+        }
+    }
+}
