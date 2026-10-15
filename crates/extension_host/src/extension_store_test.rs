@@ -516,7 +516,7 @@ async fn test_extension_store(cx: &mut TestAppContext) {
 
     let proxy = Arc::new(ExtensionHostProxy::new());
     let theme_registry = Arc::new(ThemeRegistry::new(Box::new(())));
-    theme_extension::init(proxy.clone(), theme_registry.clone(), cx.executor());
+    proxy.register_theme_proxy(DummyThemeProxy);
     let language_registry = Arc::new(LanguageRegistry::test(cx.executor()));
     language_extension::init(LspAccess::Noop, proxy.clone(), language_registry.clone());
     let node_runtime = NodeRuntime::unavailable();
@@ -830,7 +830,7 @@ async fn test_extension_store_with_test_extension(cx: &mut TestAppContext) {
 
     let proxy = Arc::new(ExtensionHostProxy::new());
     let theme_registry = Arc::new(ThemeRegistry::new(Box::new(())));
-    theme_extension::init(proxy.clone(), theme_registry.clone(), cx.executor());
+    proxy.register_theme_proxy(DummyThemeProxy);
     let language_registry = project.read_with(cx, |project, _cx| project.languages().clone());
     let lsp_store_id = project.read_with(cx, |project, _| project.lsp_store().entity_id());
     language_extension::init(
@@ -4290,4 +4290,17 @@ impl Extension for FakeExtension {
     ) -> anyhow::Result<DebugRequest> {
         anyhow::bail!("not supported by FakeExtension")
     }
+}
+
+struct DummyThemeProxy;
+impl extension::ExtensionThemeProxy for DummyThemeProxy {
+    fn set_extensions_loaded(&self) {}
+    fn list_theme_names(&self, _: std::path::PathBuf, _: std::sync::Arc<dyn Fs>) -> gpui::Task<anyhow::Result<Vec<String>>> { gpui::Task::ready(Ok(Vec::new())) }
+    fn remove_user_themes(&self, _: Vec<gpui::SharedString>) {}
+    fn load_user_theme(&self, _: std::path::PathBuf, _: std::sync::Arc<dyn Fs>) -> gpui::Task<anyhow::Result<()>> { gpui::Task::ready(Ok(())) }
+    fn reload_current_theme(&self, _: &mut gpui::App) {}
+    fn list_icon_theme_names(&self, _: std::path::PathBuf, _: std::sync::Arc<dyn Fs>) -> gpui::Task<anyhow::Result<Vec<String>>> { gpui::Task::ready(Ok(Vec::new())) }
+    fn remove_icon_themes(&self, _: Vec<gpui::SharedString>) {}
+    fn load_icon_theme(&self, _: std::path::PathBuf, _: std::path::PathBuf, _: std::sync::Arc<dyn Fs>) -> gpui::Task<anyhow::Result<()>> { gpui::Task::ready(Ok(())) }
+    fn reload_current_icon_theme(&self, _: &mut gpui::App) {}
 }

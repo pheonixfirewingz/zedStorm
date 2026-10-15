@@ -1935,38 +1935,6 @@ impl ExtensionStore {
             }
         }
 
-        if let Ok(mut theme_paths) = fs.read_dir(&extension_dir.join("themes")).await {
-            while let Some(theme_path) = theme_paths.next().await {
-                let theme_path = theme_path?;
-                let Ok(relative_path) = theme_path.strip_prefix(&extension_dir) else {
-                    continue;
-                };
-
-                let Some(theme_families) = proxy
-                    .list_theme_names(theme_path.clone(), fs.clone())
-                    .await
-                    .log_err()
-                else {
-                    continue;
-                };
-
-                let relative_path = relative_path.to_rel_path_buf()?;
-                if !extension_manifest.themes.contains(&relative_path) {
-                    extension_manifest.themes.push(relative_path.clone());
-                }
-
-                for theme_name in theme_families {
-                    index.themes.insert(
-                        theme_name.into(),
-                        ExtensionIndexThemeEntry {
-                            extension: extension_id.clone(),
-                            path: relative_path.as_std_path().to_path_buf(),
-                        },
-                    );
-                }
-            }
-        }
-
         if let Ok(mut icon_theme_paths) = fs.read_dir(&extension_dir.join("icon_themes")).await {
             while let Some(icon_theme_path) = icon_theme_paths.next().await {
                 let icon_theme_path = icon_theme_path?;

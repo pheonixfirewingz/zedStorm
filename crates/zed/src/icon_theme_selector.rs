@@ -378,7 +378,7 @@ mod tests {
             settings::init(cx);
             theme::init(theme::LoadThemes::JustBase, cx);
             editor::init(cx);
-            crate::init(cx);
+            init(cx);
             app_state
         })
     }
@@ -513,4 +513,31 @@ mod tests {
             "previewed icon theme should be preserved after clearing an empty filter"
         );
     }
+}
+
+pub fn init(cx: &mut gpui::App) {
+    cx.on_action(|action: &zed_actions::icon_theme_selector::Toggle, cx| {
+        let action = action.clone();
+        workspace::with_active_or_new_workspace(cx, move |workspace, window, cx| {
+            toggle_icon_theme_selector(workspace, &action, window, cx);
+        });
+    });
+}
+
+fn toggle_icon_theme_selector(
+    workspace: &mut workspace::Workspace,
+    toggle: &zed_actions::icon_theme_selector::Toggle,
+    window: &mut Window,
+    cx: &mut Context<workspace::Workspace>,
+) {
+    let fs = workspace.app_state().fs.clone();
+    workspace.toggle_modal(window, cx, |window, cx| {
+        let delegate = IconThemeSelectorDelegate::new(
+            cx.entity().downgrade(),
+            fs,
+            toggle.themes_filter.as_ref(),
+            cx,
+        );
+        IconThemeSelector::new(delegate, window, cx)
+    });
 }

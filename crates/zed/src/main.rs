@@ -38,6 +38,9 @@ use language::LanguageRegistry;
 use project_panel::ProjectPanel;
 use reqwest_client::ReqwestClient;
 
+mod extension_theme_proxy;
+mod icon_theme_selector;
+
 use assets::Assets;
 use node_runtime::{NodeBinaryOptions, NodeRuntime};
 use parking_lot::Mutex;
@@ -609,7 +612,7 @@ fn main() {
 
         theme_settings::init(theme::LoadThemes::All(Box::new(Assets)), cx);
         eager_load_active_icon_theme(fs.clone(), cx);
-        theme_extension::init(
+        extension_theme_proxy::init(
             extension_host_proxy,
             ThemeRegistry::global(cx),
             cx.background_executor().clone(),
@@ -663,7 +666,7 @@ fn main() {
         line_ending_selector::init(cx);
         lsp_command_selector::init(cx);
         toolchain_selector::init(cx);
-        theme_selector::init(cx);
+        icon_theme_selector::init(cx);
         settings_profile_selector::init(cx);
         language_tools::init(cx);
         git_ui::init(cx);
