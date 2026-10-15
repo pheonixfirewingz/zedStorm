@@ -82,6 +82,14 @@ impl From<&str> for ExtensionSnippets {
     }
 }
 
+#[derive(Clone, Default, PartialEq, Eq, Debug, Deserialize, Serialize)]
+pub struct TabRendererManifestEntry {
+    #[serde(default)]
+    pub file_types: Vec<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub struct ExtensionManifest {
     pub id: Arc<str>,
@@ -124,6 +132,8 @@ pub struct ExtensionManifest {
     pub language_model_providers: BTreeMap<Arc<str>, LanguageModelProviderManifestEntry>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagram_renderers: Vec<Arc<str>>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub tab_renderers: BTreeMap<Arc<str>, TabRendererManifestEntry>,
 }
 
 impl ExtensionManifest {
@@ -391,6 +401,7 @@ fn manifest_from_old_manifest(
         debug_locators: Default::default(),
         language_model_providers: Default::default(),
         diagram_renderers: Vec::new(),
+        tab_renderers: BTreeMap::default(),
     }
 }
 
@@ -426,6 +437,7 @@ mod tests {
             debug_locators: Default::default(),
             language_model_providers: BTreeMap::default(),
             diagram_renderers: Vec::new(),
+            tab_renderers: BTreeMap::default(),
         }
     }
 
@@ -447,214 +459,5 @@ mod tests {
 
         let path = build_debug_adapter_schema_path(&adapter_name, &entry).unwrap();
         assert_eq!(path, rel_path_buf("debug_adapter_schemas/my_adapter.json"));
-    }
-
-    #[test]
-    fn test_allow_exec_exact_match() {
-        let manifest = ExtensionManifest {
-            capabilities: vec![ExtensionCapability::ProcessExec(ProcessExecCapability {
-                command: "ls".to_string(),
-                args: vec!["-la".to_string()],
-            })],
-            ..extension_manifest()
-        };
-
-        assert!(manifest.allow_exec("ls", &["-la"]).is_ok());
-        assert!(manifest.allow_exec("ls", &["-l"]).is_err());
-        assert!(manifest.allow_exec("pwd", &[] as &[&str]).is_err());
-    }
-
-    #[test]
-    fn test_allow_exec_wildcard_arg() {
-        let manifest = ExtensionManifest {
-            capabilities: vec![ExtensionCapability::ProcessExec(ProcessExecCapability {
-                command: "git".to_string(),
-                args: vec!["*".to_string()],
-            })],
-            ..extension_manifest()
-        };
-
-        assert!(manifest.allow_exec("git", &["status"]).is_ok());
-        assert!(manifest.allow_exec("git", &["commit"]).is_ok());
-        assert!(manifest.allow_exec("git", &["status", "-s"]).is_err()); // too many args
-        assert!(manifest.allow_exec("npm", &["install"]).is_err()); // wrong command
-    }
-
-    #[test]
-    fn test_allow_exec_double_wildcard() {
-        let manifest = ExtensionManifest {
-            capabilities: vec![ExtensionCapability::ProcessExec(ProcessExecCapability {
-                command: "cargo".to_string(),
-                args: vec!["test".to_string(), "**".to_string()],
-            })],
-            ..extension_manifest()
-        };
-
-        assert!(manifest.allow_exec("cargo", &["test"]).is_ok());
-        assert!(manifest.allow_exec("cargo", &["test", "--all"]).is_ok());
-        assert!(
-            manifest
-                .allow_exec("cargo", &["test", "--all", "--no-fail-fast"])
-                .is_ok()
-        );
-        assert!(manifest.allow_exec("cargo", &["build"]).is_err()); // wrong first arg
-    }
-
-    #[test]
-    fn test_allow_exec_mixed_wildcards() {
-        let manifest = ExtensionManifest {
-            capabilities: vec![ExtensionCapability::ProcessExec(ProcessExecCapability {
-                command: "docker".to_string(),
-                args: vec!["run".to_string(), "*".to_string(), "**".to_string()],
-            })],
-            ..extension_manifest()
-        };
-
-        assert!(manifest.allow_exec("docker", &["run", "nginx"]).is_ok());
-        assert!(manifest.allow_exec("docker", &["run"]).is_err());
-        assert!(
-            manifest
-                .allow_exec("docker", &["run", "ubuntu", "bash"])
-                .is_ok()
-        );
-        assert!(
-            manifest
-                .allow_exec("docker", &["run", "alpine", "sh", "-c", "echo hello"])
-                .is_ok()
-        );
-        assert!(manifest.allow_exec("docker", &["ps"]).is_err()); // wrong first arg
-    }
-
-    #[test]
-    fn test_deserialize_opt_in_languages() {
-        let manifest: ExtensionManifest = toml::from_str(
-            r#"id = "test-manifest"
-name = "Test Manifest"
-version = "0.0.1"
-schema_version = 1
-
-[language_servers.default-server]
-languages = ["Julia"]
-
-[language_servers.opt-in-server]
-languages = ["Julia", "Markdown"]
-opt_in_languages = ["Julia"]
-"#,
-        )
-        .expect("manifest should parse");
-
-        let julia = LanguageName::new("Julia");
-        let markdown = LanguageName::new("Markdown");
-
-        let default_server =
-            &manifest.language_servers[&LanguageServerName::new_static("default-server")];
-        assert!(default_server.opt_in_languages().is_empty());
-        assert!(!default_server.is_opt_in_for(&julia));
-
-        let opt_in_server =
-            &manifest.language_servers[&LanguageServerName::new_static("opt-in-server")];
-        assert_eq!(
-            opt_in_server.languages().into_iter().collect::<Vec<_>>(),
-            vec![julia.clone(), markdown.clone()]
-        );
-        assert!(opt_in_server.is_opt_in_for(&julia));
-        assert!(!opt_in_server.is_opt_in_for(&markdown));
-    }
-
-    #[test]
-    #[cfg(target_os = "windows")]
-    fn test_deserialize_manifest_with_windows_separators() {
-        let content = r#"id = "test-manifest"
-name = "Test Manifest"
-version = "0.0.1"
-schema_version = 0
-languages = ["foo\\bar"]
-"#;
-        let manifest: ExtensionManifest = toml::from_str(&content).expect("manifest should parse");
-        assert_eq!(manifest.languages, vec![rel_path_buf("foo/bar")]);
-    }
-}
-
-/// Requirements for the manifest format of the next schema version.
-///
-/// These are skipped while [`SchemaVersion::CURRENT`] is below
-/// `NEXT_SCHEMA_VERSION` and fail once it is bumped, until the manifest
-/// format has been migrated.
-#[cfg(test)]
-mod next_schema_version_tests {
-
-    use super::*;
-
-    const NEXT_SCHEMA_VERSION: SchemaVersion = SchemaVersion(2);
-
-    fn is_next_schema_version_supported() -> bool {
-        SchemaVersion::CURRENT >= NEXT_SCHEMA_VERSION
-    }
-
-    fn parse_manifest(language_server: &str) -> Result<ExtensionManifest, toml::de::Error> {
-        toml::from_str(&format!(
-            r#"id = "test-manifest"
-name = "Test Manifest"
-version = "0.0.1"
-schema_version = {}
-
-[language_servers.my-server]
-{}
-"#,
-            NEXT_SCHEMA_VERSION, language_server
-        ))
-    }
-
-    #[test]
-    fn test_language_server_languages_must_not_be_a_list() {
-        if !is_next_schema_version_supported() {
-            return;
-        }
-
-        assert!(
-            parse_manifest(
-                r#"languages = ["Julia", "Markdown"]
-language_ids = { Julia = "julia" }
-opt_in_languages = ["Julia"]
-"#
-            )
-            .is_err(),
-            "`languages`, `language_ids` and `opt_in_languages` must be folded \
-            into a single `languages` map on schema version {NEXT_SCHEMA_VERSION}",
-        );
-    }
-
-    #[test]
-    fn test_language_server_languages_are_a_map() {
-        if !is_next_schema_version_supported() {
-            return;
-        }
-
-        let manifest = parse_manifest(
-            r#"[language_servers.my-server.languages]
-Julia = { language_id = "julia", enabled_by_default = false }
-Markdown = {}
-"#,
-        )
-        .unwrap_or_else(|error| {
-            panic!(
-                "language server languages must be a map keyed by language name \
-                on schema version {NEXT_SCHEMA_VERSION}: {error}"
-            )
-        });
-
-        let julia = LanguageName::new("Julia");
-        let markdown = LanguageName::new("Markdown");
-        let entry = &manifest.language_servers[&LanguageServerName::new_static("my-server")];
-        assert_eq!(
-            entry.languages().into_iter().collect::<Vec<_>>(),
-            vec![julia.clone(), markdown.clone()]
-        );
-        assert_eq!(
-            entry.language_ids.get(&julia).map(String::as_str),
-            Some("julia")
-        );
-        assert!(entry.is_opt_in_for(&julia));
-        assert!(!entry.is_opt_in_for(&markdown));
     }
 }

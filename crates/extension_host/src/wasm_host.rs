@@ -95,6 +95,44 @@ impl extension::Extension for WasmExtension {
         .await?
     }
 
+    async fn tab_renderer_backend(
+        &self,
+        renderer_id: Arc<str>,
+        file_path: String,
+        worktree: Arc<dyn WorktreeDelegate>,
+    ) -> Result<extension::ExtensionTabRendererBackend> {
+        self.call(move |extension, store| {
+            async move {
+                let resource = store.data_mut().table.push(worktree)?;
+                let backend = extension
+                    .call_tab_renderer_backend(store, &renderer_id, &file_path, resource)
+                    .await?
+                    .map_err(|error| store.data().extension_error(error))?;
+                match backend {
+                    wit::TabRendererBackend::Command(command) => {
+                        Ok(extension::ExtensionTabRendererBackend::Command(
+                            extension::ExtensionTabRendererCommand {
+                                path: PathBuf::from(command.command),
+                                args: command.args,
+                                env: command.env,
+                            },
+                        ))
+                    }
+                    wit::TabRendererBackend::WebEngine(web_engine) => {
+                        Ok(extension::ExtensionTabRendererBackend::WebEngine(
+                            extension::ExtensionTabRendererWebEngine {
+                                url: web_engine.url,
+                                html: web_engine.html,
+                            },
+                        ))
+                    }
+                }
+            }
+            .boxed()
+        })
+        .await?
+    }
+
     fn manifest(&self) -> Arc<ExtensionManifest> {
         self.manifest.clone()
     }

@@ -31,6 +31,7 @@ use wasmtime::{
 #[cfg(test)]
 pub use latest::CodeLabelSpanLiteral;
 pub use latest::{
+    TabRendererBackend,
     CodeLabel, CodeLabelSpan, Command, DebugAdapterBinary, ExtensionProject, Range, SlashCommand,
     zed::extension::context_server::ContextServerConfiguration,
     zed::extension::lsp::{
@@ -120,6 +121,25 @@ impl Extension {
             }
             _ => Err(wasmtime::Error::msg(
                 "`render_diagram` requires extension API v0.8.0",
+            )),
+        }
+    }
+
+    pub async fn call_tab_renderer_backend(
+        &self,
+        store: &mut Store<WasmState>,
+        renderer_id: &str,
+        file_path: &str,
+        resource: Resource<Arc<dyn WorktreeDelegate>>,
+    ) -> wasmtime::Result<Result<TabRendererBackend, String>> {
+        match self {
+            Self::V0_8_0(extension) => {
+                extension
+                    .call_tab_renderer_backend(store, renderer_id, file_path, resource)
+                    .await
+            }
+            _ => Err(wasmtime::Error::msg(
+                "`tab_renderer_backend` requires extension API v0.8.0",
             )),
         }
     }

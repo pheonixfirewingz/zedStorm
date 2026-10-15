@@ -22,6 +22,19 @@ world extension {
     /// Renders a diagram as SVG. Theme settings are supplied as JSON.
     export render-diagram: func(renderer-id: string, source: string, theme: string) -> result<string, string>;
 
+    record tab-renderer-web-engine {
+        url: string,
+        html: option<string>,
+    }
+
+    variant tab-renderer-backend {
+        command(command),
+        web-engine(tab-renderer-web-engine),
+    }
+
+    /// Returns the backend used to run the tab renderer for the given file.
+    export tab-renderer-backend: func(renderer-id: string, file-path: string, worktree: borrow<worktree>) -> result<tab-renderer-backend, string>;
+
     /// The type of a downloaded file.
     enum downloaded-file-type {
         /// A gzipped file (`.gz`).

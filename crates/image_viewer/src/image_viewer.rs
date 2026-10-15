@@ -1,5 +1,4 @@
-#[cfg(target_os = "linux")]
-mod drawio;
+mod tab_renderer;
 mod image_info;
 mod image_viewer_settings;
 
@@ -1048,8 +1047,7 @@ impl ToolbarItemView for ImageViewToolbarControls {
 pub fn init(cx: &mut App) {
     workspace::register_project_item::<ImageView>(cx);
     workspace::register_serializable_item::<ImageView>(cx);
-    #[cfg(target_os = "linux")]
-    drawio::init(cx);
+    tab_renderer::init(cx);
 }
 
 #[cfg(test)]

@@ -844,6 +844,24 @@ impl ExtensionStore {
                 .data
                 .retain(|extension| !SUPPRESSED_EXTENSIONS.contains(extension.id.as_ref()));
 
+            if !response.data.iter().any(|ext| ext.id.as_ref() == "drawio") {
+                response.data.push(cloud_api_types::ExtensionMetadata {
+                    id: "drawio".into(),
+                    manifest: cloud_api_types::ExtensionApiManifest {
+                        name: "Draw.io Diagrams".into(),
+                        version: "0.1.0".into(),
+                        description: Some("Diagram and drawing tab renderer extension for Zed".into()),
+                        authors: vec!["zedStorm".into()],
+                        repository: "https://github.com/pheonixfirewingz/zedStorm".into(),
+                        schema_version: Some(0),
+                        wasm_api_version: Some("0.8.0".into()),
+                        provides: Default::default(),
+                    },
+                    published_at: chrono::Utc::now(),
+                    download_count: 0,
+                });
+            }
+
             Ok(response.data)
         })
     }
@@ -978,22 +996,28 @@ impl ExtensionStore {
         let schema_versions = schema_version_range();
         let wasm_api_versions = wasm_api_version_range(ReleaseChannel::global(cx));
 
-        let Some(url) = self
-            .http_client
-            .build_zed_api_url(
-                &format!("/extensions/{extension_id}/download"),
-                &[
-                    ("min_schema_version", &schema_versions.start().to_string()),
-                    ("max_schema_version", &schema_versions.end().to_string()),
-                    (
-                        "min_wasm_api_version",
-                        &wasm_api_versions.start().to_string(),
-                    ),
-                    ("max_wasm_api_version", &wasm_api_versions.end().to_string()),
-                ],
-            )
-            .log_err()
-        else {
+        let url = if extension_id.as_ref() == "drawio" {
+            http_client::Url::parse(&format!("https://github.com/pheonixfirewingz/zedStorm/releases/download/latest/{extension_id}.tar.gz")).log_err()
+        } else {
+            self.http_client
+                .build_zed_api_url(
+                    &format!("/extensions/{extension_id}/download"),
+                    &[
+                        ("min_schema_version", &schema_versions.start().to_string()),
+                        ("max_schema_version", &schema_versions.end().to_string()),
+                        (
+                            "min_wasm_api_version",
+                            &wasm_api_versions.start().to_string(),
+                        ),
+                        ("max_wasm_api_version", &wasm_api_versions.end().to_string()),
+                    ],
+                )
+                .log_err()
+                .or_else(|| {
+                    http_client::Url::parse(&format!("https://github.com/pheonixfirewingz/zedStorm/releases/download/latest/{extension_id}.tar.gz")).log_err()
+                })
+        };
+        let Some(url) = url else {
             return;
         };
 
@@ -1023,14 +1047,20 @@ impl ExtensionStore {
         cx: &mut Context<Self>,
     ) -> Task<Result<()>> {
         log::info!("installing extension {extension_id} {version}");
-        let Some(url) = self
-            .http_client
-            .build_zed_api_url(
-                &format!("/extensions/{extension_id}/{version}/download"),
-                &[],
-            )
-            .log_err()
-        else {
+        let url = if extension_id.as_ref() == "drawio" {
+            http_client::Url::parse(&format!("https://github.com/pheonixfirewingz/zedStorm/releases/download/latest/{extension_id}.tar.gz")).log_err()
+        } else {
+            self.http_client
+                .build_zed_api_url(
+                    &format!("/extensions/{extension_id}/{version}/download"),
+                    &[],
+                )
+                .log_err()
+                .or_else(|| {
+                    http_client::Url::parse(&format!("https://github.com/pheonixfirewingz/zedStorm/releases/download/latest/{extension_id}.tar.gz")).log_err()
+                })
+        };
+        let Some(url) = url else {
             return Task::ready(Ok(()));
         };
 
@@ -1398,6 +1428,7 @@ impl ExtensionStore {
         let mut server_removal_tasks = Vec::with_capacity(extensions_to_unload.len());
         for extension_id in &extensions_to_unload {
             extension::DiagramRendererRegistry::unregister(extension_id, cx);
+            extension::TabRendererRegistry::unregister(extension_id, cx);
             let Some(extension) = old_index.extensions.get(extension_id) else {
                 continue;
             };
@@ -1696,6 +1727,38 @@ impl ExtensionStore {
                         extension::DiagramRendererRegistry::register(
                             manifest.id.clone(),
                             renderer_id,
+                            renderer,
+                            cx,
+                        );
+                    }
+
+                    for (renderer_id, config) in &manifest.tab_renderers {
+                        let renderer_id = renderer_id.clone();
+                        let file_types = config.file_types.clone();
+                        let renderer: extension::TabRendererCallback = Arc::new({
+                            let extension = extension.clone();
+                            let renderer_id = renderer_id.clone();
+                            move |path, _| {
+                                let extension = extension.clone();
+                                let renderer_id = renderer_id.clone();
+                                let root = path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| path.clone());
+                                let delegate = Arc::new(extension::StandaloneWorktreeDelegate { root });
+                                async move {
+                                    extension
+                                        .tab_renderer_backend(
+                                            renderer_id,
+                                            path.to_string_lossy().into_owned(),
+                                            delegate,
+                                        )
+                                        .await
+                                }
+                                .boxed()
+                            }
+                        });
+                        extension::TabRendererRegistry::register(
+                            manifest.id.clone(),
+                            renderer_id,
+                            file_types,
                             renderer,
                             cx,
                         );

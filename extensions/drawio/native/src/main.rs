@@ -12,6 +12,8 @@ use wry::WebViewBuilder;
 use zed_diagrams::Document;
 #[cfg(target_os = "linux")]
 mod embedded;
+#[cfg(target_os = "windows")]
+mod embedded_windows;
 
 #[derive(Deserialize)]
 struct EditorEvent {
@@ -39,8 +41,12 @@ fn run() -> Result<()> {
         return embedded::run(PathBuf::from(
             arguments.next().context("Missing .drawio path")?,
         ));
-        #[cfg(not(target_os = "linux"))]
-        bail!("Embedded system webviews are currently supported on Linux");
+        #[cfg(target_os = "windows")]
+        return embedded_windows::run(PathBuf::from(
+            arguments.next().context("Missing .drawio path")?,
+        ));
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        bail!("Embedded system webviews are currently supported on Linux and Windows");
     }
     if first == "--help" {
         println!("Usage: zed-diagrams [--root PROJECT] FILE.drawio");
@@ -143,3 +149,4 @@ fn run() -> Result<()> {
         }
     });
 }
+

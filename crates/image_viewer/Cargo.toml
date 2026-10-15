@@ -26,6 +26,7 @@ serde_json.workspace = true
 smallvec.workspace = true
 smol.workspace = true
 db.workspace = true
+extension.workspace = true
 editor.workspace = true
 file_icons.workspace = true
 gpui.workspace = true

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ::lsp::LanguageServerName;
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result, anyhow, bail};
 use async_trait::async_trait;
 use collections::BTreeMap;
 use futures::future::BoxFuture;
@@ -30,6 +30,7 @@ pub fn init(cx: &mut App) {
     extension_events::init(cx);
     ExtensionHostProxy::default_global(cx);
     cx.default_global::<DiagramRendererRegistry>();
+    cx.default_global::<TabRendererRegistry>();
 }
 
 pub type DiagramRenderer =
@@ -84,6 +85,84 @@ impl DiagramRendererRegistry {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExtensionTabRendererCommand {
+    pub path: PathBuf,
+    pub args: Vec<String>,
+    pub env: Vec<(String, String)>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExtensionTabRendererWebEngine {
+    pub url: String,
+    pub html: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExtensionTabRendererBackend {
+    Command(ExtensionTabRendererCommand),
+    WebEngine(ExtensionTabRendererWebEngine),
+}
+
+pub type TabRendererCallback = Arc<
+    dyn Fn(PathBuf, &App) -> BoxFuture<'static, Result<ExtensionTabRendererBackend>>
+        + Send
+        + Sync,
+>;
+
+#[derive(Default)]
+pub struct TabRendererRegistry {
+    renderers: BTreeMap<Arc<str>, BTreeMap<Arc<str>, (Vec<String>, TabRendererCallback)>>,
+}
+
+impl Global for TabRendererRegistry {}
+
+impl TabRendererRegistry {
+    pub fn renderer_for_path(
+        path: &Path,
+        cx: &App,
+    ) -> Option<(Arc<str>, Arc<str>, TabRendererCallback)> {
+        let extension = path.extension()?.to_str()?;
+        let registry = cx.try_global::<Self>()?;
+        for (extension_id, renderers) in &registry.renderers {
+            for (renderer_id, (file_types, callback)) in renderers {
+                if file_types.iter().any(|ft| ft.eq_ignore_ascii_case(extension)) {
+                    return Some((extension_id.clone(), renderer_id.clone(), callback.clone()));
+                }
+            }
+        }
+        None
+    }
+
+    pub fn register(
+        extension_id: Arc<str>,
+        renderer_id: Arc<str>,
+        file_types: Vec<String>,
+        renderer: TabRendererCallback,
+        cx: &mut App,
+    ) {
+        cx.default_global::<Self>();
+        cx.update_global::<Self, _>(|registry, _| {
+            registry
+                .renderers
+                .entry(extension_id)
+                .or_default()
+                .insert(renderer_id, (file_types, renderer));
+        });
+    }
+
+    pub fn unregister(extension_id: &str, cx: &mut App) {
+        if !cx.try_global::<Self>().is_some_and(|registry| {
+            registry.renderers.contains_key(extension_id)
+        }) {
+            return;
+        }
+        cx.update_global::<Self, _>(|registry, _| {
+            registry.renderers.remove(extension_id);
+        });
+    }
+}
+
 #[async_trait]
 pub trait WorktreeDelegate: Send + Sync + 'static {
     fn id(&self) -> u64;
@@ -91,6 +170,36 @@ pub trait WorktreeDelegate: Send + Sync + 'static {
     async fn read_text_file(&self, path: &RelPath) -> Result<String>;
     async fn which(&self, binary_name: String) -> Option<String>;
     async fn shell_env(&self) -> Vec<(String, String)>;
+}
+
+pub struct StandaloneWorktreeDelegate {
+    pub root: PathBuf,
+}
+
+#[async_trait]
+impl WorktreeDelegate for StandaloneWorktreeDelegate {
+    fn id(&self) -> u64 {
+        0
+    }
+
+    fn root_path(&self) -> String {
+        self.root.to_string_lossy().into_owned()
+    }
+
+    async fn read_text_file(&self, path: &RelPath) -> Result<String> {
+        let full = self.root.join(path.as_std_path());
+        std::fs::read_to_string(full).map_err(Into::into)
+    }
+
+    async fn which(&self, binary_name: String) -> Option<String> {
+        which::which(binary_name)
+            .ok()
+            .map(|path| path.to_string_lossy().into_owned())
+    }
+
+    async fn shell_env(&self) -> Vec<(String, String)> {
+        std::env::vars().collect()
+    }
 }
 
 pub trait ProjectDelegate: Send + Sync + 'static {
@@ -110,6 +219,15 @@ pub trait Extension: Send + Sync + 'static {
         _theme: String,
     ) -> Result<String> {
         bail!("diagram rendering is not supported by this extension")
+    }
+
+    async fn tab_renderer_backend(
+        &self,
+        _renderer_id: Arc<str>,
+        _file_path: String,
+        _worktree: Arc<dyn WorktreeDelegate>,
+    ) -> Result<ExtensionTabRendererBackend> {
+        bail!("tab rendering is not supported by this extension")
     }
 
     /// Returns the [`ExtensionManifest`] for this extension.
@@ -258,35 +376,12 @@ pub fn parse_wasm_extension_version(extension_id: &str, wasm_bytes: &[u8]) -> Re
     for part in wasmparser::Parser::new(0).parse_all(wasm_bytes) {
         if let wasmparser::Payload::CustomSection(s) =
             part.context("error parsing wasm extension")?
-            && s.name() == "zed:api-version"
         {
-            version = parse_wasm_extension_version_custom_section(s.data());
-            if version.is_none() {
-                bail!(
-                    "extension {} has invalid zed:api-version section: {:?}",
-                    extension_id,
-                    s.data()
-                );
+            if s.name() == "zed:api-version" {
+                version = Some(Version::parse(std::str::from_utf8(s.data())?)?);
             }
         }
     }
 
-    // The reason we wait until we're done parsing all of the Wasm bytes to return the version
-    // is to work around a panic that can happen inside of Wasmtime when the bytes are invalid.
-    //
-    // By parsing the entirety of the Wasm bytes before we return, we're able to detect this problem
-    // earlier as an `Err` rather than as a panic.
-    version.with_context(|| format!("extension {extension_id} has no zed:api-version section"))
-}
-
-fn parse_wasm_extension_version_custom_section(data: &[u8]) -> Option<Version> {
-    if data.len() == 6 {
-        Some(Version::new(
-            u16::from_be_bytes([data[0], data[1]]) as _,
-            u16::from_be_bytes([data[2], data[3]]) as _,
-            u16::from_be_bytes([data[4], data[5]]) as _,
-        ))
-    } else {
-        None
-    }
+    version.ok_or_else(|| anyhow!("extension {extension_id} does not specify an api version"))
 }

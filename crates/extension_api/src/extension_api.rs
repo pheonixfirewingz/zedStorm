@@ -16,8 +16,8 @@ pub use serde_json;
 // that we may want to shadow to provide a cleaner Rust API.
 pub use wit::{
     CodeLabel, CodeLabelSpan, CodeLabelSpanLiteral, Command, DownloadedFileType, EnvVars,
-    KeyValueStore, LanguageServerInstallationStatus, Project, Range, Worktree, download_file,
-    make_file_executable,
+    KeyValueStore, LanguageServerInstallationStatus, Project, Range, TabRendererWebEngine,
+    Worktree, download_file, make_file_executable,
     zed::extension::context_server::ContextServerConfiguration,
     zed::extension::dap::{
         AttachRequest, BuildTaskDefinition, BuildTaskDefinitionTemplatePayload, BuildTaskTemplate,
@@ -38,6 +38,26 @@ pub use wit::{
         SlashCommand, SlashCommandArgumentCompletion, SlashCommandOutput, SlashCommandOutputSection,
     },
 };
+
+/// The backend for rendering a tab.
+#[derive(Debug, Clone)]
+pub enum TabRendererBackend {
+    /// Launch an external process communicating via stdin/stdout JSON protocol.
+    Command(Command),
+    /// Embed a web engine using a URL or HTML content.
+    WebEngine(TabRendererWebEngine),
+}
+
+impl From<TabRendererBackend> for wit::TabRendererBackend {
+    fn from(backend: TabRendererBackend) -> Self {
+        match backend {
+            TabRendererBackend::Command(command) => wit::TabRendererBackend::Command(command),
+            TabRendererBackend::WebEngine(web_engine) => {
+                wit::TabRendererBackend::WebEngine(web_engine)
+            }
+        }
+    }
+}
 
 // Undocumented WIT re-exports.
 //
@@ -82,6 +102,16 @@ pub trait Extension: Send + Sync {
         Err("`render_diagram` not implemented".to_string())
     }
 
+    /// Returns the backend used to run the tab renderer for the given file.
+    fn tab_renderer_backend(
+        &mut self,
+        _renderer_id: &str,
+        _file_path: &str,
+        _worktree: &Worktree,
+    ) -> Result<TabRendererBackend> {
+        Err("`tab_renderer_backend` not implemented".to_string())
+    }
+
     /// Returns the command used to start the language server for the specified
     /// language.
     fn language_server_command(
@@ -112,7 +142,7 @@ pub trait Extension: Send + Sync {
 
     /// Returns the JSON schema for the initialization options.
     ///
-    /// The schema must conform to the JSON Schema speification.
+    /// The schema must conform to the JSON Schema specification.
     fn language_server_initialization_options_schema(
         &mut self,
         _language_server_id: &LanguageServerId,
@@ -247,6 +277,7 @@ pub trait Extension: Send + Sync {
     ) -> Result<StartDebuggingRequestArgumentsRequest, String> {
         Err("`dap_request_kind` not implemented".to_string())
     }
+
     /// Converts a high-level definition of a debug scenario (originating in a new session UI) to a "low-level" configuration suitable for a particular adapter.
     ///
     /// In layman's terms: given a program, list of arguments, current working directory and environment variables,
@@ -376,6 +407,16 @@ struct Component;
 impl wit::Guest for Component {
     fn render_diagram(renderer_id: String, source: String, theme: String) -> Result<String> {
         extension().render_diagram(&renderer_id, &source, &theme)
+    }
+
+    fn tab_renderer_backend(
+        renderer_id: String,
+        file_path: String,
+        worktree: &wit::Worktree,
+    ) -> Result<wit::TabRendererBackend, String> {
+        extension()
+            .tab_renderer_backend(&renderer_id, &file_path, worktree)
+            .map(Into::into)
     }
 
     fn language_server_command(
@@ -616,38 +657,5 @@ impl AsRef<str> for ContextServerId {
 impl fmt::Display for ContextServerId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
-    }
-}
-
-impl CodeLabelSpan {
-    /// Returns a [`CodeLabelSpan::CodeRange`].
-    pub fn code_range(range: impl Into<wit::Range>) -> Self {
-        Self::CodeRange(range.into())
-    }
-
-    /// Returns a [`CodeLabelSpan::Literal`].
-    pub fn literal(text: impl Into<String>, highlight_name: Option<String>) -> Self {
-        Self::Literal(CodeLabelSpanLiteral {
-            text: text.into(),
-            highlight_name,
-        })
-    }
-}
-
-impl From<std::ops::Range<u32>> for wit::Range {
-    fn from(value: std::ops::Range<u32>) -> Self {
-        Self {
-            start: value.start,
-            end: value.end,
-        }
-    }
-}
-
-impl From<std::ops::Range<usize>> for wit::Range {
-    fn from(value: std::ops::Range<usize>) -> Self {
-        Self {
-            start: value.start as u32,
-            end: value.end as u32,
-        }
     }
 }
