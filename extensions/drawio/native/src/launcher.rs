@@ -73,10 +73,7 @@ fn launch() -> Result<ExitStatus> {
         }
         return Ok(command.args(arguments).status()?);
     }
-    eprintln!(
-        "System webview unavailable; preparing a runtime in {}",
-        tools_dir()?.display()
-    );
+
     #[cfg(target_os = "linux")]
     return linux_fallback(&binary, &arguments);
     #[cfg(target_os = "windows")]
@@ -118,6 +115,10 @@ fn linux_fallback(binary: &Path, arguments: &[std::ffi::OsString]) -> Result<Exi
             "The automatic Linux WebKit download requires Flatpak. Install flatpak and retry.",
         )?;
     if !available.success() {
+        eprintln!(
+            "System webview unavailable; preparing a runtime in {}",
+            tools_dir()?.display()
+        );
         checked(flatpak().args([
             "remote-add",
             "--user",
@@ -152,33 +153,35 @@ fn linux_fallback(binary: &Path, arguments: &[std::ffi::OsString]) -> Result<Exi
     } else {
         PathBuf::from(arguments.first().context("Missing diagram path")?)
     };
-    let file = current_directory.join(file);
+    let file = if file.is_absolute() {
+        file
+    } else {
+        current_directory.join(file)
+    };
     let file_directory = file
         .parent()
         .context("Missing diagram directory")?
-        .canonicalize()?;
+        .canonicalize()
+        .unwrap_or_else(|_| file.parent().unwrap().to_path_buf());
     let mut command = flatpak();
     command
         .args([
             "run",
             "--user",
+            "--device=dri",
             "--share=network",
             "--socket=wayland",
             "--socket=fallback-x11",
+            "--filesystem=/tmp",
+            "--env=WEBKIT_DISABLE_DMABUF_RENDERER=1",
+            "--env=WEBKIT_DISABLE_COMPOSITING_MODE=1",
         ])
         .arg(format!("--filesystem={}:ro", binary_directory.display()))
         .arg(format!("--filesystem={}", file_directory.display()))
-        .arg(format!("--command={}", binary.display()));
-    if !embedded {
-        command.arg("--device=dri");
-    } else {
-        command.arg("--env=WEBKIT_DISABLE_DMABUF_RENDERER=1");
-    }
-    command.arg(GNOME_RUNTIME);
-    if embedded {
-        command.arg("--embedded");
-    }
-    Ok(command.arg(file).status()?)
+        .arg(format!("--command={}", binary.display()))
+        .arg(GNOME_RUNTIME)
+        .args(arguments);
+    Ok(command.status()?)
 }
 
 #[cfg(target_os = "windows")]
