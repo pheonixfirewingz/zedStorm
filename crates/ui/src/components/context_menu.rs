@@ -8,6 +8,7 @@ use gpui::{
     Size, Subscription, TaskExt, anchored, canvas, prelude::*, px, relative,
 };
 use menu::{SelectChild, SelectFirst, SelectLast, SelectNext, SelectParent, SelectPrevious};
+use std::time::Instant;
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
@@ -15,7 +16,6 @@ use std::{
     time::Duration,
 };
 use theme::BufferLineHeight;
-use web_time::Instant;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum SubmenuOpenTrigger {

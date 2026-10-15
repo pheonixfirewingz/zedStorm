@@ -27,7 +27,7 @@ use std::os::unix::ffi::OsStrExt;
 #[cfg(unix)]
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 
-#[cfg(any(target_os = "macos", target_os = "freebsd"))]
+#[cfg(target_os = "macos")]
 use std::mem::MaybeUninit;
 
 use async_tar::Archive;
@@ -503,27 +503,6 @@ impl FileHandle for std::fs::File {
         };
 
         Ok(new_path)
-    }
-
-    #[cfg(target_os = "freebsd")]
-    fn current_path(&self, _: &Arc<dyn Fs>) -> Result<PathBuf> {
-        use std::{
-            ffi::{CStr, OsStr},
-            os::unix::ffi::OsStrExt,
-        };
-
-        let fd = self.as_fd();
-        let mut kif = MaybeUninit::<libc::kinfo_file>::uninit();
-        kif.kf_structsize = libc::KINFO_FILE_SIZE;
-
-        let result = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_KINFO, kif.as_mut_ptr()) };
-        anyhow::ensure!(result != -1, "fcntl returned -1");
-
-        // SAFETY: `fcntl` will initialize the kif.
-        let c_str = unsafe { CStr::from_ptr(kif.assume_init().kf_path.as_ptr()) };
-        anyhow::ensure!(!c_str.is_empty(), "Could find a path for the file handle");
-        let path = PathBuf::from(OsStr::from_bytes(c_str.to_bytes()));
-        Ok(path)
     }
 
     #[cfg(target_os = "windows")]
@@ -1450,7 +1429,7 @@ impl Fs for RealFs {
     }
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+#[cfg(not(target_os = "linux"))]
 impl Watcher for RealWatcher {
     fn add(&self, _: &Path) -> Result<()> {
         Ok(())

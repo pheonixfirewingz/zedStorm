@@ -7,7 +7,6 @@ use scheduler::{
     Clock, LocalExecutor, Priority, Scheduler, SessionId, Task, TestScheduler, Timer,
     spawn_dedicated_thread,
 };
-#[cfg(not(target_family = "wasm"))]
 use std::task::{Context, Poll, Wake, Waker};
 use std::{
     any::Any,
@@ -65,10 +64,8 @@ impl PlatformScheduler {
     }
 }
 
-#[cfg(not(target_family = "wasm"))]
 struct ParkerWaker(parking::Unparker);
 
-#[cfg(not(target_family = "wasm"))]
 impl Wake for ParkerWaker {
     fn wake(self: Arc<Self>) {
         self.wake_by_ref();
@@ -80,7 +77,6 @@ impl Wake for ParkerWaker {
 }
 
 impl Scheduler for PlatformScheduler {
-    #[cfg(not(target_family = "wasm"))]
     fn block(
         &self,
         _session_id: Option<SessionId>,
@@ -129,10 +125,6 @@ impl Scheduler for PlatformScheduler {
         priority: Priority,
     ) {
         self.dispatcher.dispatch(runnable, priority);
-    }
-
-    fn spawn_realtime(&self, f: Box<dyn FnOnce() + Send>) {
-        self.dispatcher.spawn_realtime(f);
     }
 
     #[track_caller]
@@ -199,7 +191,7 @@ impl Clock for PlatformClock {
     }
 }
 
-#[cfg(all(test, not(target_family = "wasm")))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::RunnableVariant;
@@ -222,9 +214,6 @@ mod tests {
         }
         fn dispatch_after(&self, _duration: Duration, _runnable: RunnableVariant) {
             panic!("SmokeDispatcher does not implement timers");
-        }
-        fn spawn_realtime(&self, _f: Box<dyn FnOnce() + Send>) {
-            panic!("SmokeDispatcher does not implement realtime");
         }
     }
 

@@ -29,48 +29,21 @@ impl Default for GrammarId {
 /// A handle that can produce a parseable [`tree_sitter::Language`] on the
 /// current thread.
 ///
-/// On native targets a language is process-global, so the handle simply
-/// stores it. On WebAssembly, a dynamically linked grammar's functions live
-/// in the function table of the wasm instance that linked it, and every
-/// thread is a separate instance — so a parseable language is only valid on
-/// the thread that produced it, and [`tree_sitter::Language`] is `!Send`
-/// there. The handle instead stores a thread-safe resolver that links or
-/// looks up a copy of the grammar for whichever thread asks.
 #[derive(Clone)]
 pub struct ParseableLanguage {
-    #[cfg(not(target_family = "wasm"))]
     language: tree_sitter::Language,
-    #[cfg(target_family = "wasm")]
-    resolve: std::sync::Arc<dyn Fn() -> Result<tree_sitter::Language> + Send + Sync>,
 }
 
 impl ParseableLanguage {
     /// A parseable language valid on the calling thread.
     pub fn resolve(&self) -> Result<tree_sitter::Language> {
-        #[cfg(not(target_family = "wasm"))]
-        {
-            Ok(self.language.clone())
-        }
-        #[cfg(target_family = "wasm")]
-        {
-            (self.resolve)()
-        }
+        Ok(self.language.clone())
     }
 }
 
-#[cfg(not(target_family = "wasm"))]
 impl From<tree_sitter::Language> for ParseableLanguage {
     fn from(language: tree_sitter::Language) -> Self {
         Self { language }
-    }
-}
-
-#[cfg(target_family = "wasm")]
-impl ParseableLanguage {
-    pub fn from_resolver(
-        resolve: std::sync::Arc<dyn Fn() -> Result<tree_sitter::Language> + Send + Sync>,
-    ) -> Self {
-        Self { resolve }
     }
 }
 
@@ -82,10 +55,7 @@ impl std::fmt::Debug for ParseableLanguage {
 
 pub struct Grammar {
     id: GrammarId,
-    #[cfg(not(target_family = "wasm"))]
     pub ts_language: tree_sitter::Language,
-    #[cfg(target_family = "wasm")]
-    parseable_language: ParseableLanguage,
     pub error_query: Option<Query>,
     pub highlights_config: Option<HighlightsConfig>,
     pub brackets_config: Option<BracketsConfig>,
@@ -335,29 +305,17 @@ impl Grammar {
             runnable_config: None,
             error_query,
             debug_variables_config: None,
-            #[cfg(not(target_family = "wasm"))]
             ts_language: parseable_language
                 .resolve()
                 .expect("resolving a native parseable language cannot fail"),
-            #[cfg(target_family = "wasm")]
-            parseable_language,
             highlight_map: Default::default(),
         }
     }
 
     /// A parseable [`tree_sitter::Language`] valid on the calling thread.
     ///
-    /// See [`ParseableLanguage`] for why this is a resolution rather than a
-    /// field access on WebAssembly.
     pub fn parseable_language(&self) -> Result<tree_sitter::Language> {
-        #[cfg(not(target_family = "wasm"))]
-        {
-            Ok(self.ts_language.clone())
-        }
-        #[cfg(target_family = "wasm")]
-        {
-            self.parseable_language.resolve()
-        }
+        Ok(self.ts_language.clone())
     }
 
     pub fn id(&self) -> GrammarId {

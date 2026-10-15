@@ -454,10 +454,10 @@ impl minidumper::ServerHandler for CrashServer {
             Err(e) => Some(format!("{e:?}")),
         };
 
-        #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+        #[cfg(not(target_os = "linux"))]
         let gpus = vec![];
 
-        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+        #[cfg(target_os = "linux")]
         let gpus = match system_specs::read_gpu_info_from_sys_class_drm() {
             Ok(gpus) => gpus,
             Err(err) => {

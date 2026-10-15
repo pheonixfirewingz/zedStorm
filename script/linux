@@ -22,7 +22,6 @@ if [[ -n $apt ]]; then
   deps=(
     gcc
     g++
-    libasound2-dev
     libfontconfig-dev
     libgit2-dev
     libglib2.0-dev
@@ -30,8 +29,7 @@ if [[ -n $apt ]]; then
     libva-dev
     libvulkan1
     libwayland-dev
-    libx11-xcb-dev
-    libxkbcommon-x11-dev
+    libxkbcommon-dev
     libzstd-dev
     make
     cmake
@@ -95,13 +93,11 @@ if [[ -n $dnf ]] || [[ -n $yum ]]; then
     clang
     lld
     cmake
-    alsa-lib-devel
     fontconfig-devel
     glib2-devel
     libva-devel
     wayland-devel
-    libxcb-devel
-    libxkbcommon-x11-devel
+    libxkbcommon-devel
     openssl-devel
     libzstd-devel
     vulkan-loader
@@ -132,22 +128,6 @@ if [[ -n $dnf ]] || [[ -n $yum ]]; then
     deps+=( g++ )
   fi
 
-  # libxkbcommon-x11-devel is in a non-default repo on RHEL 8.x/9.x (except on AmazonLinux)
-  if grep -qP '^VERSION_ID="?(8|9)' /etc/os-release && grep -qP '^ID="?(rhel|rocky|centos|alma|ol)' /etc/os-release; then
-    $maysudo dnf install -y 'dnf-command(config-manager)'
-    if grep -qP '^PRETTY_NAME="(AlmaLinux 8|Rocky Linux 8)' /etc/os-release; then
-      $maysudo dnf config-manager --set-enabled powertools
-    elif grep -qP '^PRETTY_NAME="((AlmaLinux|Rocky|CentOS Stream) 9|Red Hat.+(8|9))' /etc/os-release; then
-      $maysudo dnf config-manager --set-enabled crb
-    elif grep -qP '^PRETTY_NAME="Oracle Linux Server 8' /etc/os-release; then
-      $maysudo dnf config-manager --set-enabled ol8_codeready_builder
-    elif grep -qP '^PRETTY_NAME="Oracle Linux Server 9' /etc/os-release; then
-      $maysudo dnf config-manager --set-enabled ol9_codeready_builder
-    else
-      echo "Unexpected distro" && grep 'PRETTY_NAME' /etc/os-release && exit 1
-    fi
-  fi
-
   $maysudo "$pkg_cmd" install -y "${deps[@]}"
   finalize
   exit 0
@@ -158,7 +138,6 @@ fi
 zyp=$(command -v zypper || true)
 if [[ -n $zyp ]]; then
   deps=(
-    alsa-devel
     clang
     lld
     cmake
@@ -171,17 +150,13 @@ if [[ -n $zyp ]]; then
     gzip
     jq
     libvulkan1
-    libX11-devel
-    libxcb-devel
     libxkbcommon-devel
-    libxkbcommon-x11-devel
     libzstd-devel
     make
     openssl-devel
     sqlite3-devel
     tar
     wayland-devel
-    xcb-util-devel
     pipewire
     xdg-desktop-portal
   )
@@ -200,14 +175,12 @@ if [[ -n $pacman ]]; then
     lld
     musl
     cmake
-    alsa-lib
     fontconfig
     glib2
     libva
     wayland
     libgit2
-    libxcb
-    libxkbcommon-x11
+    libxkbcommon
     openssl
     zstd
     pkgconf
@@ -234,11 +207,9 @@ if [[ -n $xbps ]]; then
     jq
     elfutils-devel
     gcc
-    alsa-lib-devel
     fontconfig-devel
     glib-devel
     libva-devel
-    libxcb-devel
     libxkbcommon-devel
     libzstd-devel
     openssl-devel
@@ -265,11 +236,9 @@ if [[ -n $emerge ]]; then
     dev-libs/wayland
     dev-build/cmake
     llvm-core/lld
-    media-libs/alsa-lib
     media-libs/fontconfig
     media-libs/libva
     media-libs/vulkan-loader
-    x11-libs/libxcb
     x11-libs/libxkbcommon
     dev-db/sqlite
     media-video/pipewire

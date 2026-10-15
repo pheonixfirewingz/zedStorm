@@ -149,13 +149,13 @@ fn fail_to_open_window(e: anyhow::Error, _cx: &mut App) {
     eprintln!(
         "ZedStorm failed to open a window: {e:?}. See https://zed.dev/docs/linux for troubleshooting steps."
     );
-    #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+    #[cfg(not(target_os = "linux"))]
     {
         process::exit(1);
     }
 
     // Maybe unify this with gpui::platform::linux::platform::ResultExt::notify_err(..)?
-    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    #[cfg(target_os = "linux")]
     {
         use ashpd::desktop::notification::{Notification, NotificationProxy, Priority};
         _cx.spawn(async move |_cx| {
@@ -362,7 +362,7 @@ fn main() {
     {
         false
     } else {
-        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+        #[cfg(target_os = "linux")]
         {
             crate::zed::listen_for_cli_connections(open_listener.clone()).is_err()
         }
@@ -1364,7 +1364,7 @@ struct Args {
     ///
     /// This overrides the default platform-specific data directory location.
     /// On macOS, the default is `~/Library/Application Support/Zed`.
-    /// On Linux/FreeBSD, the default is `$XDG_DATA_HOME/zed`.
+    /// On Linux, the default is `$XDG_DATA_HOME/zed`.
     /// On Windows, the default is `%LOCALAPPDATA%\Zed`.
     #[arg(long, value_name = "DIR", verbatim_doc_comment)]
     user_data_dir: Option<String>,

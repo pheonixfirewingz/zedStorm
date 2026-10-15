@@ -229,11 +229,6 @@ impl MetalRenderer {
         }
     }
 
-    #[cfg(target_os = "ios")]
-    fn create_device() -> metal::Device {
-        Self::system_default_device()
-    }
-
     fn system_default_device() -> metal::Device {
         metal::Device::system_default().unwrap_or_else(|| {
             log::error!("unable to access a compatible graphics device");
@@ -265,9 +260,7 @@ impl MetalRenderer {
 
         // Shared memory can be used only if CPU and GPU share the same memory space.
         // https://developer.apple.com/documentation/metal/setting-resource-storage-modes
-        // iOS does not support managed resources. Its simulator may report a
-        // non-unified host GPU even though resources must still use shared storage.
-        let is_unified_memory = cfg!(target_os = "ios") || device.has_unified_memory();
+        let is_unified_memory = device.has_unified_memory();
         // Apple GPU families support memoryless textures, which can significantly reduce
         // memory usage by keeping render targets in on-chip tile memory instead of
         // allocating backing store in system memory.
@@ -360,7 +353,7 @@ impl MetalRenderer {
         );
 
         let command_queue = device.new_command_queue();
-        let supports_shared_storage = cfg!(target_os = "ios") || is_apple_gpu;
+        let supports_shared_storage = is_apple_gpu;
         let sprite_atlas = Arc::new(MetalAtlas::new(device.clone(), supports_shared_storage));
         let core_video_texture_cache =
             CVMetalTextureCache::new(None, device.clone(), None).unwrap();
@@ -619,8 +612,8 @@ impl MetalRenderer {
                 metal::MTLTextureUsage::RenderTarget | metal::MTLTextureUsage::ShaderRead,
             );
             // Like the atlas, only Apple GPUs can create shared textures on macOS;
-            // Intel Macs cannot, even with unified memory. iOS has no managed storage.
-            let uses_shared_storage = cfg!(target_os = "ios") || self.is_apple_gpu;
+            // Intel Macs cannot, even with unified memory.
+            let uses_shared_storage = self.is_apple_gpu;
             texture_descriptor.set_storage_mode(if uses_shared_storage {
                 metal::MTLStorageMode::Shared
             } else {

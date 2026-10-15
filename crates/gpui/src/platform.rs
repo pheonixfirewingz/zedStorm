@@ -20,7 +20,7 @@ mod visual_test;
 
 #[cfg(all(
     feature = "screen-capture",
-    any(target_os = "windows", target_os = "linux", target_os = "freebsd",)
+    any(target_os = "windows", target_os = "linux")
 ))]
 pub mod scap_screen_capture;
 
@@ -44,7 +44,7 @@ use crate::{
     ShapedRun, SharedString, Size, SvgRenderer, SystemWindowTab, Task, Window, WindowControlArea,
     hash, point, px, size,
 };
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+#[cfg(target_os = "linux")]
 use anyhow::bail;
 use anyhow::{Context as _, Result};
 use async_task::Runnable;
@@ -99,9 +99,6 @@ pub use keystroke::*;
 ///   not reported either.
 /// * Wayland: the `xdg_toplevel` `suspended` state (xdg-shell v6). Compositors
 ///   that don't support it never report `Hidden`.
-/// * X11: mapped state plus `VisibilityNotify`. Compositing window managers
-///   generally never report a window as fully obscured, so covering is only
-///   detected without compositing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowVisibility {
     /// At least part of the window is being presented; frames drawn for it
@@ -168,7 +165,7 @@ impl ActivityGuard {
 // TODO(jk): return an enum instead of a string
 /// Return which compositor we're guessing we'll use.
 /// Does not attempt to connect to the given compositor.
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+#[cfg(target_os = "linux")]
 #[inline]
 pub fn guess_compositor() -> &'static str {
     if std::env::var_os("ZED_HEADLESS").is_some() {
@@ -185,13 +182,11 @@ pub fn guess_compositor() -> &'static str {
 /// While connected, programs the platform launches (for example to open a URL) get these
 /// variables instead of the ones this process started with. Apply
 /// [`App::graphical_environment`] to the programs an app launches, for the same reason.
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+#[cfg(target_os = "linux")]
 #[derive(Clone, Debug, Default)]
 pub struct GraphicalEnvironment {
     /// `WAYLAND_DISPLAY`: a socket name relative to `xdg_runtime_dir`, or an absolute path.
     pub wayland_display: Option<OsString>,
-    /// `DISPLAY`: the X11 display name.
-    pub x11_display: Option<OsString>,
     /// `XDG_RUNTIME_DIR`: the directory containing Wayland sockets.
     pub xdg_runtime_dir: Option<OsString>,
     /// `XDG_ACTIVATION_TOKEN`: lets the first window take focus on Wayland.
@@ -238,11 +233,11 @@ impl GraphicalEnvironment {
 }
 
 /// The graphical session to connect to. Carries nothing yet on this platform.
-#[cfg(not(any(target_os = "linux", target_os = "freebsd", target_os = "windows")))]
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
 #[derive(Clone, Debug, Default)]
 pub struct GraphicalEnvironment;
 
-#[cfg(not(any(target_os = "linux", target_os = "freebsd", target_os = "windows")))]
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
 impl GraphicalEnvironment {
     /// Returns the environment of this process's graphical session.
     pub fn detect() -> Self {
@@ -262,7 +257,7 @@ pub enum WindowingRequest {
     Windowed(GraphicalEnvironment),
 }
 
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+#[cfg(target_os = "linux")]
 impl GraphicalEnvironment {
     /// Reads the display variables from this process's environment.
     ///
@@ -271,7 +266,6 @@ impl GraphicalEnvironment {
     pub fn detect() -> Self {
         Self {
             wayland_display: std::env::var_os("WAYLAND_DISPLAY"),
-            x11_display: std::env::var_os("DISPLAY"),
             xdg_runtime_dir: std::env::var_os("XDG_RUNTIME_DIR"),
             activation_token: None,
         }
@@ -283,7 +277,6 @@ impl GraphicalEnvironment {
     pub fn apply_to(&self, command: &mut std::process::Command) {
         for (name, value) in [
             ("WAYLAND_DISPLAY", &self.wayland_display),
-            ("DISPLAY", &self.x11_display),
             ("XDG_RUNTIME_DIR", &self.xdg_runtime_dir),
         ] {
             match value {
@@ -293,7 +286,7 @@ impl GraphicalEnvironment {
         }
     }
 
-    /// Returns the compositor this environment selects: Wayland, then X11, then headless.
+    /// Returns the compositor this environment selects: Wayland, then headless.
     ///
     /// Does not attempt to connect to the compositor.
     pub fn guess_compositor(&self) -> &'static str {
@@ -301,23 +294,19 @@ impl GraphicalEnvironment {
             |value: &Option<OsString>| value.as_ref().is_some_and(|value| !value.is_empty());
         if cfg!(feature = "wayland") && is_set(&self.wayland_display) {
             "Wayland"
-        } else if cfg!(feature = "x11") && is_set(&self.x11_display) {
-            "X11"
         } else {
             "Headless"
         }
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+#[cfg(target_os = "linux")]
 bitflags::bitflags! {
     /// The windowing modes a platform may start in or switch to.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct WindowingModes: u8 {
         /// Connected to a Wayland compositor.
         const WAYLAND = 1 << 0;
-        /// Connected to an X server.
-        const X11 = 1 << 1;
         /// No display server. Windows lay out and handle input but draw nothing.
         const HEADLESS = 1 << 2;
     }
@@ -543,9 +532,9 @@ pub trait Platform: 'static {
         Task::ready(Ok(self.read_from_clipboard()))
     }
 
-    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    #[cfg(target_os = "linux")]
     fn read_from_primary(&self) -> Option<ClipboardItem>;
-    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    #[cfg(target_os = "linux")]
     fn write_to_primary(&self, item: ClipboardItem);
 
     #[cfg(target_os = "macos")]
@@ -798,7 +787,7 @@ impl WindowButton {
         }
     }
 
-    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    #[cfg(target_os = "linux")]
     fn index(&self) -> usize {
         match self {
             WindowButton::Minimize => 0,
@@ -823,7 +812,7 @@ pub struct WindowButtonLayout {
     pub right: [Option<WindowButton>; MAX_BUTTONS_PER_SIDE],
 }
 
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+#[cfg(target_os = "linux")]
 impl WindowButtonLayout {
     /// Returns Zed's built-in fallback button layout for Linux titlebars.
     pub fn linux_default() -> Self {
@@ -1410,8 +1399,6 @@ pub trait PlatformDispatcher: Send + Sync {
         None
     }
 
-    fn spawn_realtime(&self, f: Box<dyn FnOnce() + Send>);
-
     fn now(&self) -> Instant {
         Instant::now()
     }
@@ -1895,13 +1882,7 @@ pub struct AtlasTextureId {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(C)]
-#[cfg_attr(
-    all(
-        any(target_os = "linux", target_os = "freebsd"),
-        not(any(feature = "x11", feature = "wayland"))
-    ),
-    allow(dead_code)
-)]
+#[cfg_attr(all(target_os = "linux", not(feature = "wayland")), allow(dead_code))]
 #[expect(missing_docs)]
 pub enum AtlasTextureKind {
     Monochrome = 0,
@@ -1933,13 +1914,7 @@ pub struct PlatformInputHandler {
 }
 
 #[expect(missing_docs)]
-#[cfg_attr(
-    all(
-        any(target_os = "linux", target_os = "freebsd"),
-        not(any(feature = "x11", feature = "wayland"))
-    ),
-    allow(dead_code)
-)]
+#[cfg_attr(all(target_os = "linux", not(feature = "wayland")), allow(dead_code))]
 impl PlatformInputHandler {
     pub fn new(cx: AsyncWindowContext, handler: Box<dyn InputHandler>) -> Self {
         Self { cx, handler }
@@ -1963,10 +1938,7 @@ impl PlatformInputHandler {
             .flatten()
     }
 
-    #[cfg_attr(
-        any(target_os = "linux", target_os = "freebsd", target_os = "windows"),
-        allow(dead_code)
-    )]
+    #[cfg_attr(any(target_os = "linux", target_os = "windows"), allow(dead_code))]
     pub fn text_for_range(
         &mut self,
         range_utf16: Range<usize>,
@@ -2495,12 +2467,9 @@ pub struct WindowOptions {
     /// Window minimum size
     pub window_min_size: Option<Size<Pixels>>,
 
-    /// Whether to use client or server-side decorations on X11 and Wayland.
+    /// Whether to use client or server-side decorations on Wayland.
     /// The platform may ignore requests it cannot satisfy.
     pub window_decorations: Option<WindowDecorations>,
-
-    /// Icon image (X11 only)
-    pub icon: Option<Arc<image::RgbaImage>>,
 
     /// Tab group name, allows opening the window as a native tab on macOS 10.12+. Windows with the same tabbing identifier will be grouped together.
     pub tabbing_identifier: Option<String>,
@@ -2508,13 +2477,7 @@ pub struct WindowOptions {
 
 /// The variables that can be configured when creating a new window
 #[derive(Debug)]
-#[cfg_attr(
-    all(
-        any(target_os = "linux", target_os = "freebsd"),
-        not(any(feature = "x11", feature = "wayland"))
-    ),
-    allow(dead_code)
-)]
+#[cfg_attr(all(target_os = "linux", not(feature = "wayland")), allow(dead_code))]
 #[allow(missing_docs)]
 pub struct WindowParams {
     pub bounds: Bounds<Pixels>,
@@ -2524,40 +2487,30 @@ pub struct WindowParams {
     pub titlebar: Option<TitlebarOptions>,
 
     /// The kind of window to create
-    #[cfg_attr(any(target_os = "linux", target_os = "freebsd"), allow(dead_code))]
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     pub kind: WindowKind,
 
     /// Whether the window should be movable by the user
-    #[cfg_attr(any(target_os = "linux", target_os = "freebsd"), allow(dead_code))]
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     pub is_movable: bool,
 
     /// Whether the application owns dragging of the (custom) titlebar (macOS only)
-    #[cfg_attr(
-        any(target_os = "linux", target_os = "freebsd", target_os = "windows"),
-        allow(dead_code)
-    )]
+    #[cfg_attr(any(target_os = "linux", target_os = "windows"), allow(dead_code))]
     pub app_owns_titlebar_drag: bool,
 
     /// Whether the window should be resizable by the user
-    #[cfg_attr(any(target_os = "linux", target_os = "freebsd"), allow(dead_code))]
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     pub is_resizable: bool,
 
     /// Whether the window should be minimized by the user
-    #[cfg_attr(any(target_os = "linux", target_os = "freebsd"), allow(dead_code))]
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     pub is_minimizable: bool,
 
-    #[cfg_attr(
-        any(target_os = "linux", target_os = "freebsd", target_os = "windows"),
-        allow(dead_code)
-    )]
+    #[cfg_attr(any(target_os = "linux", target_os = "windows"), allow(dead_code))]
     pub focus: bool,
 
-    #[cfg_attr(any(target_os = "linux", target_os = "freebsd"), allow(dead_code))]
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     pub show: bool,
-
-    /// An image to set as the window icon (x11 only)
-    #[cfg_attr(feature = "wayland", allow(dead_code))]
-    pub icon: Option<Arc<image::RgbaImage>>,
 
     #[cfg_attr(feature = "wayland", allow(dead_code))]
     pub display_id: Option<DisplayId>,
@@ -2625,7 +2578,6 @@ impl Default for WindowOptions {
             is_minimizable: true,
             display_id: None,
             window_background: WindowBackgroundAppearance::default(),
-            icon: None,
             app_id: None,
             window_min_size: None,
             window_decorations: None,
@@ -3362,7 +3314,7 @@ impl ClipboardString {
             .and_then(|m| serde_json::from_str(m).ok())
     }
 
-    #[cfg_attr(any(target_os = "linux", target_os = "freebsd"), allow(dead_code))]
+    #[cfg_attr(target_os = "linux", allow(dead_code))]
     /// Compute a hash of the given text for clipboard change detection.
     pub fn text_hash(text: &str) -> u64 {
         let mut hasher = SeaHasher::new();
@@ -3583,7 +3535,7 @@ mod frame_signal_tests {
     }
 }
 
-#[cfg(all(test, any(target_os = "linux", target_os = "freebsd")))]
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
     use std::collections::HashSet;

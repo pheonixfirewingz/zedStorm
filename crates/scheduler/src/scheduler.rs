@@ -42,10 +42,6 @@ use std::{
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Priority {
-    /// Realtime priority
-    ///
-    /// Spawning a task with this priority will spin it off on a separate thread dedicated just to that task. Only use for audio.
-    RealtimeAudio,
     /// High priority - use for tasks critical to user experience/responsiveness.
     High,
     /// Medium priority - suitable for most use cases.
@@ -63,8 +59,6 @@ impl Priority {
             Priority::High => 60,
             Priority::Medium => 30,
             Priority::Low => 10,
-            // realtime priorities are not considered for probability scheduling
-            Priority::RealtimeAudio => 0,
         }
     }
 }
@@ -97,7 +91,6 @@ pub trait Scheduler: Send + Sync {
     /// Returns `true` if the future completed, `false` if it timed out.
     /// The future is passed as a pinned mutable reference so the caller
     /// retains ownership and can continue polling or return it on timeout.
-    #[cfg(not(target_family = "wasm"))]
     fn block(
         &self,
         session_id: Option<SessionId>,
@@ -117,9 +110,6 @@ pub trait Scheduler: Send + Sync {
         runnable: Runnable<RunnableMeta>,
         priority: Priority,
     );
-
-    /// Spawn a closure on a dedicated realtime thread for audio processing.
-    fn spawn_realtime(&self, f: Box<dyn FnOnce() + Send>);
 
     /// Schedule a background task with default (medium) priority.
     fn schedule_background(&self, runnable: Runnable<RunnableMeta>) {
@@ -173,13 +163,7 @@ pub trait Scheduler: Send + Sync {
 /// This function never blocks: the returned task starts as an asynchronous
 /// rendezvous that resolves to the root task's handle once the dedicated
 /// thread has spawned it, and behaves like that handle from then on. That
-/// makes it safe to call from threads that must not block, such as the web
-/// main thread. On wasm targets the thread is a web worker and requires the
-/// `wasm-threads` cargo feature (and a shared-memory build); without it this
-/// panics. Spawning a worker is far more expensive than an OS thread —
-/// module instantiation plus a fresh function table — so on the web treat a
-/// dedicated session as a long-lived place to send work, not a per-job
-/// convenience.
+/// makes it safe to call without blocking the calling thread.
 ///
 /// The caller is responsible for supplying a `session_id` that's distinct from
 /// every other live session on `scheduler`. Concrete schedulers typically wrap
@@ -220,21 +204,10 @@ where
 
 fn spawn_dedicated_os_thread(session_id: SessionId, thread_body: impl FnOnce() + Send + 'static) {
     let thread_name = format!("spawn_dedicated session {:?}", session_id);
-    #[cfg(not(target_family = "wasm"))]
     std::thread::Builder::new()
         .name(thread_name)
         .spawn(thread_body)
         .expect("failed to spawn dedicated thread");
-    #[cfg(all(target_family = "wasm", feature = "wasm-threads"))]
-    wasm_thread::Builder::new()
-        .name(thread_name)
-        .spawn(thread_body)
-        .expect("failed to spawn dedicated thread");
-    #[cfg(all(target_family = "wasm", not(feature = "wasm-threads")))]
-    {
-        let _ = (thread_name, thread_body);
-        panic!("spawn_dedicated on wasm requires the scheduler crate's `wasm-threads` feature");
-    }
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]

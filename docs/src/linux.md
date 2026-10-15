@@ -148,7 +148,7 @@ If you see a notification saying `Zed failed to open a window: NoSupportedDevice
 vkcube
 ```
 
-> **_Note_**: Try running in both X11 and wayland modes by running `vkcube -m [x11|wayland]`. Some versions of `vkcube` use `vkcube` to run in X11 and `vkcube-wayland` to run in wayland.
+Run `vkcube -m wayland` (or `vkcube-wayland`, depending on your version) to test Vulkan on Wayland.
 
 This should output a line describing your current graphics setup and show a rotating cube. If this does not work, you should be able to fix it by installing Vulkan compatible GPU drivers, however in some cases there is no Vulkan support yet.
 
@@ -274,111 +274,6 @@ If you are seeing "too many open files" then first try `sysctl fs.inotify`.
 - You should see that `max_user_watches` is 8000 or higher (you can change the limit with `sudo sysctl fs.inotify.max_user_watches=64000`). Zed needs one watch per directory in all your open projects + one per git repository + a handful more for settings, themes, keymaps, extensions.
 
 It is also possible that you are running out of file descriptors. You can check the limits with `ulimit` and update them by editing `/etc/security/limits.conf`.
-
-### No sound or wrong output device
-
-If you're not hearing any sound in Zed or the audio is routed to the wrong device, it could be due to a mismatch between audio systems. Zed relies on ALSA, while your system may be using PipeWire or PulseAudio. To resolve this, you need to configure ALSA to route audio through PipeWire/PulseAudio.
-
-If your system uses PipeWire:
-
-1. **Install the PipeWire ALSA plugin**
-
-   On Debian-based systems, run:
-
-   ```bash
-   sudo apt install pipewire-alsa
-   ```
-
-2. **Configure ALSA to use PipeWire**
-
-   Add the following configuration to your ALSA settings file. You can use either `~/.asoundrc` (user-level) or `/etc/asound.conf` (system-wide):
-
-   ```bash
-   pcm.!default {
-       type pipewire
-   }
-
-   ctl.!default {
-       type pipewire
-   }
-   ```
-
-3. **Restart your system**
-
-### Forcing X11 scale factor
-
-On X11 systems, Zed automatically detects the appropriate scale factor for high-DPI displays. The scale factor is determined using the following priority order:
-
-1. `GPUI_X11_SCALE_FACTOR` environment variable (if set)
-2. `Xft.dpi` from X resources database (xrdb)
-3. Automatic detection via RandR based on monitor resolution and physical size
-
-If you want to customize the scale factor beyond what Zed detects automatically, you have several options:
-
-#### Check your current scale factor
-
-You can verify if you have `Xft.dpi` set:
-
-```sh
-xrdb -query | grep Xft.dpi
-```
-
-If this command returns no output, Zed is using RandR (X11's monitor management extension) to automatically calculate the scale factor based on your monitor's reported resolution and physical dimensions.
-
-#### Option 1: Set Xft.dpi (X Resources Database)
-
-`Xft.dpi` is a standard X11 setting that many applications use for consistent font and UI scaling. Setting this ensures Zed scales the same way as other X11 applications that respect this setting.
-
-Edit or create the `~/.Xresources` file:
-
-```sh
-vim ~/.Xresources
-```
-
-Add this line with your desired DPI:
-
-```sh
-Xft.dpi: 96
-```
-
-Common DPI values:
-
-- `96` for standard 1x scaling
-- `144` for 1.5x scaling
-- `192` for 2x scaling
-- `288` for 3x scaling
-
-Load the configuration:
-
-```sh
-xrdb -merge ~/.Xresources
-```
-
-Restart Zed for the changes to take effect.
-
-#### Option 2: Use the GPUI_X11_SCALE_FACTOR environment variable
-
-This Zed-specific environment variable directly sets the scale factor, bypassing all automatic detection.
-
-```sh
-GPUI_X11_SCALE_FACTOR=1.5 zed
-```
-
-You can use decimal values (e.g., `1.25`, `1.5`, `2.0`) or set `GPUI_X11_SCALE_FACTOR=randr` to force RandR-based detection even when `Xft.dpi` is set.
-
-To make this permanent, add it to your shell profile or desktop entry.
-
-#### Option 3: Adjust system-wide RandR DPI
-
-This changes the reported DPI for your entire X11 session, affecting how RandR calculates scaling for all applications that use it.
-
-Add this to your `.xprofile` or `.xinitrc`:
-
-```sh
-xrandr --dpi 192
-```
-
-Replace `192` with your desired DPI value. This affects the system globally and will be used by Zed's automatic RandR detection when `Xft.dpi` is not set.
 
 ### Font rendering parameters
 

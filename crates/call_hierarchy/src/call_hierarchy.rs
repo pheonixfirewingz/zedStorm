@@ -1302,7 +1302,7 @@ mod tests {
         let call = make_call("my_function", &external_path, 10, None, &project, cx).await;
         let display = cx.update(|cx| compute_call_display(&call, cx));
 
-        #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         let expected_path = "~/projects/app/src/main.rs:11".to_string();
         #[cfg(windows)]
         let expected_path = format!("{}:11", external_path.to_string_lossy());

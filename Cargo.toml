@@ -67,7 +67,6 @@ members = [
     "crates/gpui_shared_string",
     "crates/gpui_tokio",
     "crates/gpui_util",
-    "crates/gpui_web",
     "crates/gpui_wgpu",
     "crates/gpui_windows",
     "crates/grammars",
@@ -273,7 +272,6 @@ gpui_platform = { path = "crates/gpui_platform", default-features = false }
 gpui_shared_string = { path = "crates/gpui_shared_string" }
 gpui_tokio = { path = "crates/gpui_tokio" }
 gpui_util = { path = "crates/gpui_util" }
-gpui_web = { path = "crates/gpui_web" }
 gpui_wgpu = { path = "crates/gpui_wgpu" }
 gpui_windows = { path = "crates/gpui_windows", default-features = false }
 grammars = { path = "crates/grammars" }
@@ -332,7 +330,6 @@ remote_connection = { path = "crates/remote_connection" }
 remote_server = { path = "crates/remote_server" }
 repl = { path = "crates/repl" }
 reqwest_client = { path = "crates/reqwest_client" }
-rodio = { git = "https://github.com/RustAudio/rodio", rev = "e50e726ddd0292f6ef9de0dda6b90af4ed1fb66a", default-features = false, features = ["wav", "playback", "wav_output", "recording"] }
 rope = { path = "crates/rope" }
 rpc = { path = "crates/rpc" }
 scheduler = { path = "crates/scheduler" }
@@ -442,7 +439,6 @@ clap_complete = "4.4"
 clap_complete_nushell = "4.4"
 cocoa = "=0.26.0"
 console = "0.16"
-console_error_panic_hook = "0.1.7"
 const_format = "0.2"
 convert_case = "0.11.0"
 core-foundation = "0.10"
@@ -451,7 +447,6 @@ core-graphics = "0.24"
 core-services = "1"
 core-text = "21"
 core-video = { version = "0.5", default-features = false, features = ["link"] }
-cpal = "0.17"
 crash-handler = "0.8"
 criterion = { version = "0.8.2", features = ["html_reports"] }
 perf-event = { package = "perf-event2", version = "0.7.4" }
@@ -512,7 +507,6 @@ indexmap = { version = "2.7.0", features = ["serde"] }
 inventory = "0.3.19"
 is_executable = "1.0"
 itertools = "0.14.0"
-js-sys = "0.3"
 jsonschema = { version = "0.51", default-features = false }
 jupyter-protocol = "1.4.0"
 jupyter-websocket-client = "1.1.0"
@@ -743,9 +737,6 @@ uuid = { version = "1.1", features = ["serde"] }
 vte = { version = "0.15.0", features = ["ansi"] }
 walkdir = "2.5"
 wasm-encoder = "0.254"
-# Forked because upstream is unmaintained and its worker bootstrap still calls
-# the wasm-bindgen init function with the positional arguments deprecated in 0.2.93.
-wasm_thread = { git = "https://github.com/zed-industries/wasm_thread", rev = "0cf96c7708dfb97ccf3da50347e25edcf75d6937", version = "0.3", features = ["es_modules"] }
 wasmparser = "0.254"
 wasmtime = { version = "48", default-features = false, features = [
     "anyhow",
@@ -757,12 +748,8 @@ wasmtime = { version = "48", default-features = false, features = [
     "incremental-cache",
     "parallel-compilation",
 ] }
-wasm-bindgen = "0.2.120"
-wasm-bindgen-futures = "0.4"
 wasmtime-wasi = { version = "48", default-features = false, features = ["p2"] }
 wax = { version = "0.7", default-features = false }
-web-sys = "0.3"
-web-time = "1.1.0"
 webpki-roots = "1.0.8"
 wgpu = { version = "29.0", default-features = false }
 which = "8"
@@ -946,7 +933,6 @@ large_enum_variant = "allow"
 
 # Boolean expressions can be hard to read, requiring only the minimal form gets in the way
 nonminimal_bool = "allow"
-
 
 # Dylint discovers our custom lints through this entry, so `cargo dylint --all`
 # runs them without a `--path` argument. The `lints` package pins its own

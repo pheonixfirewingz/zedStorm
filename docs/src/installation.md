@@ -105,10 +105,11 @@ Zed requires a Vulkan 1.3 driver and the following desktop portals:
 ### Windows
 
 Zed supports the following Windows releases:
-| Version | Zed Status |
-| ------------------------- | ------------------- |
-| Windows 11, version 22H2 and later | Supported |
-| Windows 10, version 1903 and later | Supported |
+
+| Version                            | Zed Status |
+| ---------------------------------- | ---------- |
+| Windows 11, version 22H2 and later | Supported  |
+| Windows 10, version 1903 and later | Supported  |
 
 A 64-bit operating system is required to run Zed.
 
@@ -119,10 +120,4 @@ Zed supports machines with x64 (Intel, AMD) or Arm64 (Qualcomm) processors that 
 - Graphics: A GPU that supports DirectX 11 (most PCs from 2012+).
 - Driver: Current NVIDIA/AMD/Intel/Qualcomm driver (not the Microsoft Basic Display Adapter).
 
-### FreeBSD
-
-Not yet available as an official download. Can be built [from source](./development/freebsd.md).
-
-### Web
-
-Not supported at this time. See our [Platform Support issue](https://github.com/zed-industries/zed/issues/5391).
+ZedStorm supports Windows, Linux (Wayland), and macOS.

@@ -594,7 +594,6 @@ impl Scheduler for TestScheduler {
     /// is provided. This is to allow testing a mix of deterministic and
     /// non-deterministic async behavior, such as when interacting with I/O in
     /// an otherwise deterministic test.
-    #[cfg(not(target_family = "wasm"))]
     fn block(
         &self,
         session_id: Option<SessionId>,
@@ -655,12 +654,6 @@ impl Scheduler for TestScheduler {
         state.unparked = true;
         drop(state);
         self.thread.unpark();
-    }
-
-    fn spawn_realtime(&self, f: Box<dyn FnOnce() + Send>) {
-        std::thread::spawn(move || {
-            f();
-        });
     }
 
     #[track_caller]

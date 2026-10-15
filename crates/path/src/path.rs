@@ -8,7 +8,7 @@
 
 #[cfg(windows)]
 use anyhow::Context;
-#[cfg(all(unix, not(target_family = "wasm")))]
+#[cfg(unix)]
 use std::os::unix::prelude::OsStrExt;
 use std::{
     borrow::Cow,
@@ -30,14 +30,7 @@ pub fn try_from_bytes<'a, T>(bytes: &'a [u8]) -> anyhow::Result<T>
 where
     T: From<&'a Path>,
 {
-    #[cfg(target_family = "wasm")]
-    {
-        std::str::from_utf8(bytes)
-            .map(Path::new)
-            .map(Into::into)
-            .map_err(Into::into)
-    }
-    #[cfg(all(unix, not(target_family = "wasm")))]
+    #[cfg(unix)]
     {
         Ok(T::from(Path::new(OsStr::from_bytes(bytes))))
     }

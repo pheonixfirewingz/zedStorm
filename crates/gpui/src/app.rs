@@ -270,9 +270,6 @@ impl Application {
 
     /// Start the application. The provided callback will be called once the
     /// app is fully launched.
-    ///
-    /// On WebAssembly, this returns immediately and retains the app for the lifetime
-    /// of the Wasm instance. Use [`Self::run_embedded`] to control its lifetime explicitly.
     pub fn run<F>(self, on_finish_launching: F)
     where
         F: 'static + FnOnce(&mut App),
@@ -283,17 +280,14 @@ impl Application {
             let cx = &mut *this.borrow_mut();
             on_finish_launching(cx);
         }));
-
-        #[cfg(target_family = "wasm")]
-        std::mem::forget(self);
     }
 
     /// Start the application for an embedder that drives the run loop itself.
     ///
     /// On ordinary platforms `Platform::run` blocks for the lifetime of the app, and the
     /// app state is kept alive by [`Application::run`]'s stack frame. Embedded platforms —
-    /// where the run loop belongs to someone else, e.g. GPUI compiled into a Wasm guest,
-    /// or a GPUI view hosted inside a foreign native application — implement
+    /// where the run loop belongs to someone else, such as a GPUI view hosted inside
+    /// a foreign native application — implement
     /// `Platform::run` to invoke the launch callback and return immediately. This method
     /// supports that shape: it returns an [`ApplicationHandle`] that keeps the app alive
     /// and lets the embedder re-enter it whenever the external run loop yields control.
@@ -795,7 +789,7 @@ pub struct App {
     pub(crate) foreground_executor: ForegroundExecutor,
     #[cfg(feature = "profiler")]
     foreground_journal: crate::profiler::journal::ForegroundJournal,
-    #[cfg(all(feature = "profiler", not(target_family = "wasm")))]
+    #[cfg(feature = "profiler")]
     hang_monitor: Option<crate::profiler::hang::HangMonitor>,
     pub(crate) entities: EntityMap,
     pub(crate) new_entity_observers: SubscriberSet<TypeId, NewEntityListener>,
@@ -921,7 +915,7 @@ impl App {
                 foreground_executor,
                 #[cfg(feature = "profiler")]
                 foreground_journal,
-                #[cfg(all(feature = "profiler", not(target_family = "wasm")))]
+                #[cfg(feature = "profiler")]
                 hang_monitor: None,
                 svg_renderer: SvgRenderer::new(asset_source.clone()),
                 loading_assets: Default::default(),
@@ -1112,7 +1106,7 @@ impl App {
     pub fn shutdown(&mut self) {
         // Requested first so the final hang poll overlaps with the quit
         // handlers. It's awaited alongside them, within `SHUTDOWN_TIMEOUT`.
-        #[cfg(all(feature = "profiler", not(target_family = "wasm")))]
+        #[cfg(feature = "profiler")]
         let hang_monitor_flush = self
             .hang_monitor
             .as_ref()
@@ -1124,7 +1118,7 @@ impl App {
             futures.push(observer(self));
         }
 
-        #[cfg(all(feature = "profiler", not(target_family = "wasm")))]
+        #[cfg(feature = "profiler")]
         if let Some(flushed) = hang_monitor_flush {
             futures.push(
                 async move {
@@ -1142,7 +1136,6 @@ impl App {
         self.quitting = true;
 
         let futures = futures::future::join_all(futures);
-        #[cfg(not(target_family = "wasm"))]
         if self
             .foreground_executor
             .block_with_timeout(SHUTDOWN_TIMEOUT, futures)
@@ -1150,8 +1143,6 @@ impl App {
         {
             log::error!("timed out waiting on app_will_quit");
         }
-        #[cfg(target_family = "wasm")]
-        self.foreground_executor.spawn(futures).detach();
 
         self.quitting = false;
     }
@@ -1657,14 +1648,14 @@ impl App {
 
     /// Reads data from the primary selection buffer.
     /// Only available on Linux.
-    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    #[cfg(target_os = "linux")]
     pub fn read_from_primary(&self) -> Option<ClipboardItem> {
         self.platform.read_from_primary()
     }
 
     /// Writes data to the primary selection buffer.
     /// Only available on Linux.
-    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    #[cfg(target_os = "linux")]
     pub fn write_to_primary(&self, item: ClipboardItem) {
         self.platform.write_to_primary(item)
     }
@@ -2171,7 +2162,7 @@ impl App {
     /// spawned.
     ///
     /// [`HangMonitorPollReason::Flush`]: crate::profiler::hang::HangMonitorPollReason::Flush
-    #[cfg(all(feature = "profiler", not(target_family = "wasm")))]
+    #[cfg(feature = "profiler")]
     pub fn start_hang_monitor(
         &mut self,
         config: crate::profiler::hang::HangMonitorConfig,

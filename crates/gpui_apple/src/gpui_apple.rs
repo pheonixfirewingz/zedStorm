@@ -1,4 +1,4 @@
-#![cfg(any(target_os = "macos", target_os = "ios"))]
+#![cfg(target_os = "macos")]
 //! Shared Apple rendering and task dispatch for GPUI.
 //!
 //! This crate renders GPUI scenes directly with Metal on Apple platforms. It

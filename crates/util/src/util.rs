@@ -1,19 +1,12 @@
 #[cfg(test)]
 extern crate self as util;
 
-#[cfg(not(target_family = "wasm"))]
 pub mod archive;
-#[cfg(not(target_family = "wasm"))]
 pub mod command;
-#[cfg(not(target_family = "wasm"))]
 pub mod fs;
-#[cfg(not(target_family = "wasm"))]
 pub mod process;
-#[cfg(not(target_family = "wasm"))]
 pub mod shell;
-#[cfg(not(target_family = "wasm"))]
 pub mod shell_builder;
-#[cfg(not(target_family = "wasm"))]
 pub mod shell_env;
 
 pub mod disambiguate;
@@ -48,7 +41,6 @@ pub use path::rel_path;
 #[cfg(any(test, feature = "test-support"))]
 pub use util_macros::{line_endings, path, uri};
 
-#[cfg(not(target_family = "wasm"))]
 pub use self::shell::{
     get_default_system_shell, get_default_system_shell_preferring_bash, get_system_shell,
 };
@@ -359,7 +351,6 @@ fn load_shell_from_passwd() -> Result<()> {
 }
 
 /// Returns a shell escaped path for the current zed executable
-#[cfg(not(target_family = "wasm"))]
 pub fn get_shell_safe_zed_path(shell_kind: shell::ShellKind) -> anyhow::Result<String> {
     use anyhow::Context as _;
     use paths::PathExt;
@@ -399,7 +390,7 @@ pub fn get_zed_cli_path() -> Result<PathBuf> {
     } else if cfg!(target_os = "windows") {
         // bin/zed.exe is for installed builds, ./cli.exe is for development builds.
         &["bin/zed.exe", "./cli.exe"]
-    } else if cfg!(target_os = "linux") || cfg!(target_os = "freebsd") {
+    } else if cfg!(target_os = "linux") {
         // bin is the standard, ./cli is for the target directory in development builds.
         &["../bin/zed", "./cli"]
     } else {

@@ -18,5 +18,5 @@ test = false
 sqlformat.workspace = true
 syn.workspace = true
 
-[target.'cfg(not(any(target_os = "linux", target_os = "freebsd")))'.dependencies]
+[target.'cfg(not(target_os = "linux"))'.dependencies]
 sqlez.workspace = true

@@ -35,9 +35,9 @@ static LEVEL_ENABLED_MAX_STATIC: AtomicU8 = AtomicU8::new(LEVEL_ENABLED_MAX_DEFA
 pub static LEVEL_ENABLED_MAX_CONFIG: AtomicU8 = AtomicU8::new(LEVEL_ENABLED_MAX_DEFAULT as u8);
 
 const DEFAULT_FILTERS: &[(&str, log::LevelFilter)] = &[
-    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    #[cfg(target_os = "linux")]
     ("zbus", log::LevelFilter::Warn),
-    #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "windows"))]
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
     ("naga::back::spv::writer", log::LevelFilter::Warn),
     // usvg and its CSS parser print a lot of warnings on rendering an SVG with
     // partial errors, which can happen a lot with the SVG preview.

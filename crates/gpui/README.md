@@ -9,7 +9,7 @@ GPUI is still in active development as we work on the Zed code editor, and is st
 
 ```toml
 gpui = { version = "*" }
-gpui_platform = { version = "*", features = ["font-kit", "wayland", "x11"] }
+gpui_platform = { version = "*", features = ["font-kit", "wayland"] }
 ```
 
 Everything in a standalone GPUI app starts with an `Application`. You can create one with `gpui_platform::application()`, which picks the windowing and text backends for the host OS, and kick off your application by passing a callback to `Application::run()`. Inside this callback, you can create a new window with `App::open_window()` and register your first root view.
@@ -34,10 +34,10 @@ The features on `gpui_platform` are platform-specific, so the list above is a sa
     gpui_platform = { version = "*", features = ["font-kit"] }
     ```
 
-- **Linux / FreeBSD** — enable at least one windowing backend for desktop windows: `wayland`, `x11`, or both. These features also compile the renderer and text system, so no separate text feature is needed.
+- **Linux** — enable `wayland` for desktop windows. This feature also compiles the renderer and text system, so no separate text feature is needed.
 
     ```toml
-    gpui_platform = { version = "*", features = ["wayland", "x11"] }
+    gpui_platform = { version = "*", features = ["wayland"] }
     ```
 
 - **Windows** — no features are required. Windowing uses Win32 and text uses DirectWrite. `font-kit` has no effect here.

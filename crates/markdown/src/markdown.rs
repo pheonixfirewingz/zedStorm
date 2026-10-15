@@ -2499,7 +2499,7 @@ impl MarkdownElement {
                     }
                 } else if markdown.selection.pending {
                     markdown.selection.pending = false;
-                    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+                    #[cfg(target_os = "linux")]
                     {
                         let text = rendered_text
                             .text_for_range(markdown.selection.start..markdown.selection.end);

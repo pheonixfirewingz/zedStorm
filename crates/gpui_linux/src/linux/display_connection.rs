@@ -7,14 +7,12 @@ use gpui::{
 
 #[cfg(feature = "wayland")]
 use super::WaylandConnection;
-#[cfg(feature = "x11")]
-use super::X11Connection;
 use super::{HeadlessConnection, LinuxKeyboardLayout};
 
 /// Returns the display server `environment` selects among the windowed modes in `modes`:
-/// Wayland, then X11.
+/// Wayland.
 #[cfg_attr(
-    not(any(feature = "wayland", feature = "x11")),
+    not(feature = "wayland"),
     allow(
         unused_variables,
         reason = "no windowed modes without a display backend"
@@ -30,10 +28,6 @@ pub(crate) fn select_backend(
     if modes.contains(WindowingModes::WAYLAND) && is_set(&environment.wayland_display) {
         return Some(Backend::Wayland);
     }
-    #[cfg(feature = "x11")]
-    if modes.contains(WindowingModes::X11) && is_set(&environment.x11_display) {
-        return Some(Backend::X11);
-    }
     None
 }
 
@@ -42,8 +36,6 @@ pub(crate) fn select_backend(
 pub(crate) enum Backend {
     #[cfg(feature = "wayland")]
     Wayland,
-    #[cfg(feature = "x11")]
-    X11,
 }
 
 /// The display server a `LinuxPlatform` is connected to.
@@ -51,15 +43,14 @@ pub(crate) enum Backend {
 /// Every connection follows the same lifecycle, so that switching display modes acquires and
 /// releases the same things at the same points:
 ///
-/// - **Attach** (`attach` on the Wayland or X11 connection): connect, create the connection's
+/// - **Attach** (`attach` on the Wayland connection): connect, create the connection's
 ///   state, then register its event sources on the platform's loop. If a step fails, dropping
 ///   the partial connection undoes the earlier ones.
 /// - **Detach** (drop): the platform refuses to switch while a window is open. A closed window
 ///   has already released everything bound to the connection, including its GPU objects, so
 ///   nothing waits. The platform takes the connection out of its `RefCell` before dropping it,
 ///   because dropping can call back into the platform. Dropping removes the event sources, stops
-///   the desktop portal listener, hands the clipboard to a clipboard manager (X11, on a
-///   background thread) and closes the connection.
+///   the desktop portal listener and closes the connection.
 ///
 /// Nothing tied to a display server outlives its connection. What does, in `LinuxCommon`, is
 /// session-independent: the executors, the text system, callbacks and the power listener.
@@ -67,11 +58,9 @@ pub(crate) enum DisplayConnection {
     Headless(HeadlessConnection),
     #[cfg(feature = "wayland")]
     Wayland(WaylandConnection),
-    #[cfg(feature = "x11")]
-    X11(X11Connection),
 }
 
-/// Evaluates `$connected` with `$connection` bound to the Wayland or X11 connection, or
+/// Evaluates `$connected` with `$connection` bound to the Wayland connection, or
 /// `$headless` while headless, optionally binding the headless state.
 macro_rules! dispatch {
     ($self:expr, $connection:ident => $connected:expr, headless => $headless:expr) => {
@@ -82,14 +71,12 @@ macro_rules! dispatch {
             DisplayConnection::Headless($state) => $headless,
             #[cfg(feature = "wayland")]
             DisplayConnection::Wayland($connection) => $connected,
-            #[cfg(feature = "x11")]
-            DisplayConnection::X11($connection) => $connected,
         }
     };
 }
 
 #[cfg_attr(
-    not(any(feature = "wayland", feature = "x11")),
+    not(feature = "wayland"),
     allow(
         unused_variables,
         reason = "only headless mode exists without a display backend"
@@ -190,7 +177,7 @@ impl DisplayConnection {
         dispatch!(self, connection => connection.read_from_clipboard(), headless => None)
     }
 
-    #[cfg(any(feature = "wayland", feature = "x11"))]
+    #[cfg(feature = "wayland")]
     pub(crate) fn window_identifier(
         &self,
     ) -> futures::future::BoxFuture<'static, Option<ashpd::WindowIdentifier>> {

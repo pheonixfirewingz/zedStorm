@@ -21,7 +21,7 @@ runtime_shaders = []
 [dependencies]
 gpui.workspace = true
 
-[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+[target.'cfg(target_os = "macos")'.dependencies]
 anyhow.workspace = true
 async-task.workspace = true
 block2.workspace = true
@@ -35,15 +35,14 @@ gpui_util.workspace = true
 image.workspace = true
 libc.workspace = true
 log.workspace = true
-mach2.workspace = true
 metal.workspace = true
 objc2.workspace = true
 objc2-foundation = { workspace = true, features = ["NSThread"] }
 objc2-quartz-core.workspace = true
 parking_lot.workspace = true
 
-[target.'cfg(any(target_os = "macos", target_os = "ios"))'.build-dependencies]
+[target.'cfg(target_os = "macos")'.build-dependencies]
 cbindgen.workspace = true
 
-[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dev-dependencies]
+[target.'cfg(target_os = "macos")'.dev-dependencies]
 gpui = { workspace = true, features = ["test-support"] }

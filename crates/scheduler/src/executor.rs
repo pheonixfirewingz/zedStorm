@@ -111,7 +111,6 @@ impl LocalExecutor {
         Task(TaskState::Spawned(task))
     }
 
-    #[cfg(not(target_family = "wasm"))]
     pub fn block_on<Fut: Future>(&self, future: Fut) -> Fut::Output {
         use std::cell::Cell;
 
@@ -129,7 +128,6 @@ impl LocalExecutor {
 
     /// Block until the future completes or timeout occurs.
     /// Returns Ok(output) if completed, Err(future) if timed out.
-    #[cfg(not(target_family = "wasm"))]
     pub fn block_with_timeout<Fut: Future>(
         &self,
         timeout: Duration,
@@ -247,37 +245,6 @@ impl BackgroundExecutor {
                 spawned: crate::SpawnTime(Instant::now()),
             })
             .spawn(move |_| future, schedule);
-        runnable.schedule();
-        Task(TaskState::Spawned(task))
-    }
-
-    /// Spawns a future on a dedicated realtime thread for audio processing.
-    #[track_caller]
-    pub fn spawn_realtime<F>(&self, future: F) -> Task<F::Output>
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        let location = Location::caller();
-        let (tx, rx) = flume::bounded::<async_task::Runnable<RunnableMeta>>(1);
-
-        self.scheduler.spawn_realtime(Box::new(move || {
-            while let Ok(runnable) = rx.recv() {
-                runnable.run();
-            }
-        }));
-
-        let (runnable, task) = async_task::Builder::new()
-            .metadata(RunnableMeta {
-                location,
-                spawned: crate::SpawnTime(Instant::now()),
-            })
-            .spawn(
-                move |_| future,
-                move |runnable| {
-                    let _ = tx.send(runnable);
-                },
-            );
         runnable.schedule();
         Task(TaskState::Spawned(task))
     }

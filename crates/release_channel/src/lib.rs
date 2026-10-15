@@ -222,8 +222,7 @@ impl ReleaseChannel {
         }
     }
 
-    /// Returns the application ID that's used by Wayland as application ID
-    /// and WM_CLASS on X11.
+    /// Returns the application ID used by Wayland.
     /// This also has to match the bundle identifier for Zed on macOS.
     pub fn app_id(&self) -> &'static str {
         match self {

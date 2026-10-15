@@ -54,9 +54,9 @@ cargo build -p zed -p cli
 The upstream installer and release packaging scripts are removed. Run the editor
 from the checkout with `cargo run -p zed`.
 
-## Wayland & X11
+## Wayland
 
-Zed supports both X11 and Wayland. By default, we pick whichever we can find at runtime. If you're on Wayland and want to run in X11 mode, use the environment variable `WAYLAND_DISPLAY=''`.
+ZedStorm requires Wayland for desktop windows on Linux. Without a Wayland display, it starts in headless mode.
 
 ## Memory profiling
 

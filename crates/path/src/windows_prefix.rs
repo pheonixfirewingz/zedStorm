@@ -78,16 +78,10 @@ pub fn parse_prefix(path: &OsStr) -> Option<Prefix<'_>> {
     if let Some(parser) = parser.strip_prefix(r"\\") {
         // \\
 
-        // It's a POSIX path.
-        if cfg!(target_os = "cygwin") && !path.as_encoded_bytes().contains(&b'\\') {
-            return None;
-        }
-
         // The meaning of verbatim paths can change when they use a different
         // separator.
         if let Some(parser) = parser.strip_prefix(r"?\")
-            // Cygwin allows `/` in verbatim paths.
-            && (cfg!(target_os = "cygwin") || !parser.prefix_bytes().contains(&b'/'))
+            && !parser.prefix_bytes().contains(&b'/')
         {
             // \\?\
             if let Some(parser) = parser.strip_prefix(r"UNC\") {

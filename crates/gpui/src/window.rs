@@ -29,7 +29,7 @@ use crate::gestures::{GestureTuning, RecognizedTouchGesture, TouchGestureRecogni
 use crate::interactive::TouchEvent;
 use anyhow::{Context as _, Result, anyhow};
 use collections::{FxHashMap, FxHashSet};
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(target_os = "macos")]
 use core_video::pixel_buffer::CVPixelBuffer;
 
 use futures::channel::oneshot;
@@ -69,7 +69,6 @@ mod prompts;
 pub use a11y::A11ySubtreeBuilder;
 
 use self::a11y::A11y;
-#[cfg(not(target_family = "wasm"))]
 use self::a11y::ROOT_NODE_ID;
 use crate::util::{
     atomic_incr_if_not_zero, ceil_to_device_pixel, floor_to_device_pixel, round_half_toward_zero,
@@ -1596,11 +1595,6 @@ impl Window {
             app_id,
             window_min_size,
             window_decorations,
-            #[cfg_attr(
-                not(any(target_os = "linux", target_os = "freebsd")),
-                allow(unused_variables)
-            )]
-            icon,
             #[cfg_attr(not(target_os = "macos"), allow(unused_variables))]
             tabbing_identifier,
         } = options;
@@ -1625,7 +1619,6 @@ impl Window {
                 display_id,
                 window_min_size,
                 app_id: app_id.clone(),
-                icon,
                 #[cfg(target_os = "macos")]
                 tabbing_identifier,
             },
@@ -1670,7 +1663,6 @@ impl Window {
         let accessibility_force_disabled = cx.accessibility_force_disabled;
         let a11y_active_flag = Arc::new(AtomicBool::new(false));
 
-        #[cfg(not(target_family = "wasm"))]
         if !accessibility_force_disabled {
             let mut initial_root_node = accesskit::Node::new(accesskit::Role::Window);
             if let Some(title) = &initial_window_title {
@@ -2520,7 +2512,7 @@ impl Window {
         self.platform_window.window_bounds()
     }
 
-    /// Return the `WindowBounds` excluding insets (Wayland and X11)
+    /// Return the `WindowBounds` excluding insets (Wayland)
     pub fn inner_window_bounds(&self) -> WindowBounds {
         self.platform_window.inner_window_bounds()
     }
@@ -2915,11 +2907,7 @@ impl Window {
     /// that currently owns the mouse cursor.
     /// On mac, this is equivalent to `is_window_active`.
     pub fn is_window_hovered(&self) -> bool {
-        if cfg!(any(
-            target_os = "windows",
-            target_os = "linux",
-            target_os = "freebsd"
-        )) {
+        if cfg!(any(target_os = "windows", target_os = "linux")) {
             self.hovered.get()
         } else {
             self.is_window_active()
@@ -2931,20 +2919,20 @@ impl Window {
         self.platform_window.zoom();
     }
 
-    /// Opens the native title bar context menu, useful when implementing client side decorations (Wayland and X11)
+    /// Opens the native title bar context menu, useful when implementing client side decorations (Wayland)
     pub fn show_window_menu(&self, position: Point<Pixels>) {
         self.platform_window.show_window_menu(position)
     }
 
     /// Handle window movement for Linux and macOS.
-    /// Tells the compositor to take control of window movement (Wayland and X11)
+    /// Tells the compositor to take control of window movement (Wayland)
     ///
     /// Events may not be received during a move operation.
     pub fn start_window_move(&self) {
         self.platform_window.start_window_move()
     }
 
-    /// When using client side decorations, set this to the width of the invisible decorations (Wayland and X11)
+    /// When using client side decorations, set this to the width of the invisible decorations (Wayland)
     pub fn set_client_inset(&mut self, inset: Pixels) {
         self.client_inset = Some(inset);
         self.platform_window.set_client_inset(inset);
@@ -2955,7 +2943,7 @@ impl Window {
         self.client_inset
     }
 
-    /// Returns whether the title bar window controls need to be rendered by the application (Wayland and X11)
+    /// Returns whether the title bar window controls need to be rendered by the application (Wayland)
     pub fn window_decorations(&self) -> Decorations {
         self.platform_window.window_decorations()
     }
@@ -5072,7 +5060,7 @@ impl Window {
     /// Paint a surface into the scene for the next frame at the current z-index.
     ///
     /// This method should only be called as part of the paint phase of element drawing.
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(target_os = "macos")]
     pub fn paint_surface(&mut self, bounds: Bounds<Pixels>, image_buffer: CVPixelBuffer) {
         use crate::PaintSurface;
 
@@ -6947,7 +6935,6 @@ impl Window {
             .push((action, Box::new(listener)));
     }
 
-    #[cfg(not(target_family = "wasm"))]
     pub(crate) fn handle_a11y_action(&mut self, request: accesskit::ActionRequest, cx: &mut App) {
         // Take listeners out temporarily so the closures can borrow Window
         // mutably, then restore them afterward.
@@ -7160,7 +7147,7 @@ impl Window {
                 }
             });
         } else if let Some(event) = event.downcast_ref::<crate::ScrollWheelEvent>() {
-            // This should be kept in sync with SCROLL_LINES in x11 platform.
+            // This should be kept in sync with SCROLL_LINES in the Wayland platform.
             const SCROLL_LINES: f32 = 3.0;
             const SCROLL_PIXELS_PER_LAYER: f32 = 36.0;
             let delta_y = event

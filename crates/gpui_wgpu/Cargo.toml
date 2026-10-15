@@ -40,15 +40,11 @@ gpui_util.workspace = true
 # WARNING: If you change this, you must also publish a new version of zed-font-kit to crates.io
 font-kit = { workspace = true, optional = true }
 
-[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
-wgpu = { workspace = true, features = ["std", "parking_lot", "metal", "gles", "vulkan", "wgsl", "webgpu"] }
+[target.'cfg(target_os = "linux")'.dependencies]
+wgpu = { workspace = true, features = ["std", "parking_lot", "metal", "gles", "vulkan", "wgsl"] }
 
-[target.'cfg(not(any(target_os = "linux", target_os = "freebsd")))'.dependencies]
+[target.'cfg(not(target_os = "linux"))'.dependencies]
 wgpu = { workspace = true, default-features = true }
-
-[target.'cfg(target_family = "wasm")'.dependencies]
-web-sys = { workspace = true, features = ["HtmlCanvasElement"] }
-wgpu = { workspace = true, features = ["webgl"] }
 
 [dev-dependencies]
 criterion.workspace = true

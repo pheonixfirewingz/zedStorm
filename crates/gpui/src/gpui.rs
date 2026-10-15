@@ -3,6 +3,8 @@
 #![allow(clippy::type_complexity)] // Not useful, GPUI makes heavy use of callbacks
 #![allow(clippy::collapsible_else_if)] // False positives in platform specific code
 #![allow(unused_mut)] // False positives in platform specific code
+#[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+compile_error!("ZedStorm supports only Windows, Linux, and macOS");
 
 extern crate self as gpui;
 #[macro_use]
@@ -40,7 +42,6 @@ pub mod profiler;
     test,
     target_os = "windows",
     target_os = "linux",
-    target_family = "wasm",
     feature = "test-support",
     feature = "bench-support"
 ))]
@@ -194,7 +195,7 @@ pub use keymap::*;
 pub use path_builder::*;
 pub use platform::*;
 pub use profiler::*;
-#[cfg(any(target_os = "windows", target_os = "linux", target_family = "wasm"))]
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 pub use queue::{PriorityQueueReceiver, PriorityQueueSender};
 pub use refineable::*;
 pub use scene::*;
@@ -214,7 +215,6 @@ pub use util::{FutureExt, Timeout};
 pub use view::*;
 pub use window::*;
 
-#[cfg(not(target_family = "wasm"))]
 pub use pollster::block_on;
 
 /// The context trait, allows the different contexts in GPUI to be used

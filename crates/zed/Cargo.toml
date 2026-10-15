@@ -48,7 +48,6 @@ required-features = ["visual-tests"]
 name = "zed"
 path = "src/main.rs"
 
-
 [dependencies]
 ai.workspace = true
 activity_indicator.workspace = true
@@ -93,7 +92,6 @@ gpui = { workspace = true, features = ["profiler", "stacker"] }
 gpui_platform = { workspace = true, features = [
     "font-kit",
     "wayland",
-    "x11",
 ] }
 gpui_tokio.workspace = true
 hang_telemetry.workspace = true
@@ -202,14 +200,10 @@ gpui = { workspace = true, features = ["profiler", "windows-manifest"] }
 [target.'cfg(target_os = "windows")'.build-dependencies]
 windows_resources.workspace = true
 
-[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
-gpui = { workspace = true, features = ["profiler", "wayland", "x11"] }
+[target.'cfg(target_os = "linux")'.dependencies]
+gpui = { workspace = true, features = ["profiler", "wayland"] }
 ashpd = { workspace = true, features = ["notification"] }
 image.workspace = true
-
-[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.build-dependencies]
-image.workspace = true
-
 
 [target.'cfg(target_os = "linux")'.build-dependencies]
 pkg-config = "0.3.22"
@@ -232,7 +226,6 @@ workspace = { workspace = true, features = ["test-support"] }
 image.workspace = true
 search = { workspace = true, features = ["test-support"] }
 repl = { workspace = true, features = ["test-support"] }
-
 
 [package.metadata.cargo-shear]
 ignored = ["profiling", "tracing"]

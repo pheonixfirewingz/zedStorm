@@ -243,7 +243,7 @@ mod tests {
 
         let expected_display_text = if cfg!(target_os = "windows") {
             "Ctrl-Shift-2"
-        } else if cfg!(any(target_os = "linux", target_os = "freebsd")) {
+        } else if cfg!(target_os = "linux") {
             "Ctrl-@"
         } else {
             "Control-@"

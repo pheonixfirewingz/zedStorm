@@ -3796,7 +3796,7 @@ impl BackgroundScannerState {
 
 /// Watches the directories inside a git directory that git writes ref updates to.
 ///
-/// On Linux and FreeBSD the native file watcher is non-recursive, so a watch on the git
+/// On Linux the native file watcher is non-recursive, so a watch on the git
 /// directory itself does not report changes to files nested below it, such as the loose
 /// refs that git updates on commit, fetch, and branch operations. Watch the `refs` tree
 /// (its directories are watched individually because branch names may contain slashes)

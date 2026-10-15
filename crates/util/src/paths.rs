@@ -23,7 +23,6 @@ pub use path::PathStyle;
 ///
 /// This crate's own tests see a fixed fake path. Every other build, including
 /// builds with `test-support`, sees the real home directory.
-#[cfg(not(target_family = "wasm"))]
 pub fn home_dir() -> &'static PathBuf {
     static HOME_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     HOME_DIR.get_or_init(|| {
@@ -73,18 +72,12 @@ pub trait PathExt {
     fn multiple_extensions(&self) -> Option<String>;
 
     /// Try to make a shell-safe representation of the path.
-    #[cfg(not(target_family = "wasm"))]
     fn try_shell_safe(&self, shell_kind: crate::shell::ShellKind) -> anyhow::Result<String>;
 }
 
 impl<T: AsRef<Path>> PathExt for T {
     fn compact(&self) -> PathBuf {
-        #[cfg(target_family = "wasm")]
-        {
-            self.as_ref().to_path_buf()
-        }
-        #[cfg(not(target_family = "wasm"))]
-        if cfg!(any(target_os = "linux", target_os = "freebsd")) || cfg!(target_os = "macos") {
+        if cfg!(target_os = "linux") || cfg!(target_os = "macos") {
             match self.as_ref().strip_prefix(home_dir().as_path()) {
                 Ok(relative_path) => {
                     let mut shortened_path = PathBuf::new();
@@ -157,7 +150,6 @@ impl<T: AsRef<Path>> PathExt for T {
         Some(parts.into_iter().join("."))
     }
 
-    #[cfg(not(target_family = "wasm"))]
     fn try_shell_safe(&self, shell_kind: crate::shell::ShellKind) -> anyhow::Result<String> {
         use anyhow::Context;
         let path_str = self
@@ -2640,7 +2632,7 @@ mod tests {
         ]
         .iter()
         .collect();
-        if cfg!(any(target_os = "linux", target_os = "freebsd")) || cfg!(target_os = "macos") {
+        if cfg!(target_os = "linux") || cfg!(target_os = "macos") {
             assert_eq!(path.compact().to_str(), Some("~/some_file.txt"));
         } else {
             assert_eq!(path.compact().to_str(), path.to_str());

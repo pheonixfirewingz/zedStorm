@@ -18,7 +18,7 @@ pub const EDITORCONFIG_NAME: &str = ".editorconfig";
 pub const APP_NAME: &str = "Zed";
 
 /// Lowercased form of [`APP_NAME`], for use in XDG-style paths on
-/// Linux/FreeBSD and the macOS `~/.config` fallback.
+/// Linux and the macOS `~/.config` fallback.
 pub const APP_NAME_LOWERCASE: &str = {
     assert!(!APP_NAME.is_empty(), "APP_NAME must not be empty");
     assert!(APP_NAME.as_bytes().is_ascii(), "APP_NAME must be ASCII");
@@ -54,14 +54,14 @@ static CUSTOM_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 /// The resolved data directory, combining custom override or platform defaults.
 /// This is set once and cached for subsequent calls.
 /// On macOS, this is `~/Library/Application Support/Zed`.
-/// On Linux/FreeBSD, this is `$XDG_DATA_HOME/zed`.
+/// On Linux, this is `$XDG_DATA_HOME/zed`.
 /// On Windows, this is `%LOCALAPPDATA%\Zed`.
 static CURRENT_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 /// The resolved config directory, combining custom override or platform defaults.
 /// This is set once and cached for subsequent calls.
 /// On macOS, this is `~/.config/zed`.
-/// On Linux/FreeBSD, this is `$XDG_CONFIG_HOME/zed`.
+/// On Linux, this is `$XDG_CONFIG_HOME/zed`.
 /// On Windows, this is `%APPDATA%\Zed`.
 static CONFIG_DIR: OnceLock<PathBuf> = OnceLock::new();
 
@@ -127,7 +127,7 @@ pub fn config_dir() -> &'static PathBuf {
             dirs::config_dir()
                 .expect("failed to determine RoamingAppData directory")
                 .join(APP_NAME)
-        } else if cfg!(any(target_os = "linux", target_os = "freebsd")) {
+        } else if cfg!(target_os = "linux") {
             if let Ok(flatpak_xdg_config) = std::env::var("FLATPAK_XDG_CONFIG_HOME") {
                 flatpak_xdg_config.into()
             } else {
@@ -149,7 +149,7 @@ pub fn data_dir() -> &'static PathBuf {
             home_dir()
                 .join("Library/Application Support")
                 .join(APP_NAME)
-        } else if cfg!(any(target_os = "linux", target_os = "freebsd")) {
+        } else if cfg!(target_os = "linux") {
             if let Ok(flatpak_xdg_data) = std::env::var("FLATPAK_XDG_DATA_HOME") {
                 flatpak_xdg_data.into()
             } else {
@@ -173,7 +173,7 @@ pub fn state_dir() -> &'static PathBuf {
             return home_dir().join(".local").join("state").join(APP_NAME);
         }
 
-        if cfg!(any(target_os = "linux", target_os = "freebsd")) {
+        if cfg!(target_os = "linux") {
             return if let Ok(flatpak_xdg_state) = std::env::var("FLATPAK_XDG_STATE_HOME") {
                 flatpak_xdg_state.into()
             } else {
@@ -205,7 +205,7 @@ pub fn temp_dir() -> &'static PathBuf {
                 .join(APP_NAME);
         }
 
-        if cfg!(any(target_os = "linux", target_os = "freebsd")) {
+        if cfg!(target_os = "linux") {
             return if let Ok(flatpak_xdg_cache) = std::env::var("FLATPAK_XDG_CACHE_HOME") {
                 flatpak_xdg_cache.into()
             } else {

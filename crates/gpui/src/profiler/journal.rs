@@ -856,7 +856,7 @@ pub(crate) fn observe_power(cx: &App) {
 /// time and one that doesn't. The suspend-excluding clock is read first so
 /// read latency can't make the difference negative. Every read is served from
 /// memory the kernel maps into the process, without a syscall.
-#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(target_os = "linux")]
 fn system_suspended_time() -> Option<Duration> {
     // CLOCK_BOOTTIME is CLOCK_MONOTONIC plus time spent suspended:
     // https://man7.org/linux/man-pages/man2/clock_gettime.2.html
@@ -900,7 +900,7 @@ fn system_suspended_time() -> Option<Duration> {
     Some(Duration::from_nanos(u64::try_from(nanos).ok()?))
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(target_os = "linux")]
 fn read_clock(clock: libc::clockid_t) -> Option<Duration> {
     let mut time = libc::timespec {
         tv_sec: 0,
@@ -936,12 +936,7 @@ fn system_suspended_time() -> Option<Duration> {
     ))
 }
 
-#[cfg(not(any(
-    target_os = "linux",
-    target_os = "android",
-    target_os = "macos",
-    target_os = "windows"
-)))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 fn system_suspended_time() -> Option<Duration> {
     None
 }

@@ -32,7 +32,7 @@ pub enum WindowButtonLayoutContent {
 }
 
 impl WindowButtonLayoutContent {
-    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    #[cfg(target_os = "linux")]
     pub fn into_layout(self) -> Option<WindowButtonLayout> {
         use util::ResultExt;
 
@@ -43,7 +43,7 @@ impl WindowButtonLayoutContent {
         }
     }
 
-    #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+    #[cfg(not(target_os = "linux"))]
     pub fn into_layout(self) -> Option<WindowButtonLayout> {
         None
     }

@@ -331,12 +331,6 @@ impl TyLspAdapter {
     const ARCH_SERVER_NAME: &str = "unknown-linux-gnu";
 }
 
-#[cfg(target_os = "freebsd")]
-impl TyLspAdapter {
-    const GITHUB_ASSET_KIND: AssetKind = AssetKind::TarGz;
-    const ARCH_SERVER_NAME: &str = "unknown-freebsd";
-}
-
 #[cfg(target_os = "windows")]
 impl TyLspAdapter {
     const GITHUB_ASSET_KIND: AssetKind = AssetKind::Zip;
@@ -2451,12 +2445,6 @@ impl RuffLspAdapter {
 impl RuffLspAdapter {
     const GITHUB_ASSET_KIND: AssetKind = AssetKind::TarGz;
     const ARCH_SERVER_NAME: &str = "unknown-linux-gnu";
-}
-
-#[cfg(target_os = "freebsd")]
-impl RuffLspAdapter {
-    const GITHUB_ASSET_KIND: AssetKind = AssetKind::TarGz;
-    const ARCH_SERVER_NAME: &str = "unknown-freebsd";
 }
 
 #[cfg(target_os = "windows")]

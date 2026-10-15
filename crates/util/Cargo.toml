@@ -6,7 +6,6 @@ publish = false
 license = "Apache-2.0"
 description = "A collection of utility structs and functions used by Zed and GPUI"
 
-
 [lints]
 workspace = true
 
@@ -40,7 +39,6 @@ util_macros = { workspace = true, optional = true }
 gpui_util.workspace = true
 path = { workspace = true, features = ["serde"] }
 
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
 async_zip.workspace = true
 futures-lite.workspace = true
 futures.workspace = true
@@ -50,7 +48,6 @@ async-fs.workspace = true
 walkdir.workspace = true
 dirs.workspace = true
 
-[target.'cfg(any(unix, not(target_family = "wasm")))'.dependencies]
 log.workspace = true
 
 [target.'cfg(unix)'.dependencies]

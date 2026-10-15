@@ -21,7 +21,6 @@ test-support = ["gpui/test-support", "gpui_macos/test-support", "gpui_windows/te
 screen-capture = ["gpui/screen-capture", "gpui_macos/screen-capture", "gpui_windows/screen-capture", "gpui_linux/screen-capture"]
 runtime_shaders = ["gpui_macos/runtime_shaders"]
 wayland = ["gpui_linux/wayland"]
-x11 = ["gpui_linux/x11"]
 
 [[bench]]
 name = "inspector_render"
@@ -48,12 +47,7 @@ gpui_macos.workspace = true
 gpui_windows.workspace = true
 gpui = { workspace = true, features = ["windows-manifest"] }
 
-[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 gpui_linux.workspace = true
 
-[target.'cfg(target_os = "linux")'.dependencies]
 gpui_wgpu = { workspace = true, optional = true }
-
-[target.'cfg(target_family = "wasm")'.dependencies]
-gpui_web.workspace = true
-console_error_panic_hook.workspace = true

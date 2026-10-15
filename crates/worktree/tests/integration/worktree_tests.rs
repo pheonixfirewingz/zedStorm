@@ -5845,7 +5845,7 @@ async fn test_dot_git_event_explained_by_filtered_sibling_does_not_emit_git_repo
 
 #[gpui::test]
 async fn test_ref_updates_in_dot_git_subdirectories_are_detected(cx: &mut TestAppContext) {
-    // On Linux and FreeBSD the native file watcher is non-recursive: watching `.git`
+    // On Linux the native file watcher is non-recursive: watching `.git`
     // does not deliver events for files nested below it, like the loose refs that git
     // updates on commit, fetch, and branch operations. The worktree must watch the
     // `refs` tree explicitly, including directories created after the initial scan.

@@ -1,6 +1,4 @@
-// Storage-buffer instance transport. Concatenated after `shaders.wgsl` on backends
-// with storage buffer support; `shaders_webgl.wgsl` is the WebGL2 counterpart that
-// decodes the same records from a texture instead.
+// Storage-buffer instance transport. Concatenated after `shaders.wgsl`.
 //
 // All buffers share `@group(1) @binding(0)` because each pipeline binds only the
 // buffer its own entry points read.

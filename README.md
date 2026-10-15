@@ -13,6 +13,8 @@ The aim is a smaller, simpler editing experience with fewer settings and a consi
 
 ### Builds
 
+ZedStorm supports Windows, Linux (Wayland), and macOS.
+
 The **Build ZedStorm** GitHub Actions workflow builds Linux and Windows x86_64 versions on pushes to `custom` and pull requests targeting `custom`, and can also be run manually on that branch. Successful builds on `custom` replace the downloads in the [latest release](https://github.com/pheonixfirewingz/zedStorm/releases/tag/latest).
 
 Linux produces a Flatpak bundle. Install it with `flatpak install --user zedstorm-linux-x86_64.flatpak` and launch it with `flatpak run dev.zedstorm.ZedStorm`. Install Codex CLI on your host to use the chat panel.

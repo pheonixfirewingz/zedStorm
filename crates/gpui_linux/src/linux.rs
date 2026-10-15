@@ -4,14 +4,12 @@ mod headless;
 mod keyboard;
 mod platform;
 mod system_notifications;
-#[cfg(any(feature = "wayland", feature = "x11"))]
+#[cfg(feature = "wayland")]
 mod text_system;
 #[cfg(feature = "wayland")]
 mod wayland;
-#[cfg(feature = "x11")]
-mod x11;
 
-#[cfg(any(feature = "wayland", feature = "x11"))]
+#[cfg(feature = "wayland")]
 mod xdg_desktop_portal;
 
 pub use dispatcher::*;
@@ -19,12 +17,10 @@ pub(crate) use display_connection::{Backend, DisplayConnection, select_backend};
 pub(crate) use headless::*;
 pub(crate) use keyboard::*;
 pub(crate) use platform::*;
-#[cfg(any(feature = "wayland", feature = "x11"))]
+#[cfg(feature = "wayland")]
 pub(crate) use text_system::*;
 #[cfg(feature = "wayland")]
 pub(crate) use wayland::*;
-#[cfg(feature = "x11")]
-pub(crate) use x11::*;
 
 use std::rc::Rc;
 

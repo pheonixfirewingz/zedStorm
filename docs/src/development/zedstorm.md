@@ -11,7 +11,7 @@ cargo check -p zed
 Build the command-line launcher separately with `cargo build -p cli`.
 The pinned Rust toolchain is declared in `rust-toolchain.toml`.
 For native dependencies, see the guides for [Linux](./linux.md),
-[macOS](./macos.md), [Windows](./windows.md), and [FreeBSD](./freebsd.md).
+[macOS](./macos.md), and [Windows](./windows.md).
 
 Run tests for the package you are changing with `cargo test -p <package>`.
 Use `./script/clippy -p <package>` for Clippy checks.

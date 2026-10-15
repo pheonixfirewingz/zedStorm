@@ -2,10 +2,7 @@
     clippy::disallowed_methods,
     reason = "We are not in an async environment, so std::process::Command is fine"
 )]
-#![cfg_attr(
-    any(target_os = "linux", target_os = "freebsd", target_os = "windows"),
-    allow(dead_code)
-)]
+#![cfg_attr(any(target_os = "linux", target_os = "windows"), allow(dead_code))]
 
 mod completions;
 
@@ -600,7 +597,7 @@ fn run() -> Result<()> {
     };
 
     let env = {
-        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+        #[cfg(target_os = "linux")]
         {
             use collections::HashMap;
 
@@ -623,7 +620,7 @@ fn run() -> Result<()> {
             None
         }
 
-        #[cfg(not(any(target_os = "linux", target_os = "freebsd", target_os = "windows")))]
+        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
         {
             use collections::HashMap;
 
@@ -814,7 +811,7 @@ fn anonymous_fd(path: &str) -> Option<fs::File> {
         let file = unsafe { fs::File::from_raw_fd(fd) };
         Some(file)
     }
-    #[cfg(any(target_os = "macos", target_os = "freebsd"))]
+    #[cfg(target_os = "macos")]
     {
         use std::os::{
             fd::{self, FromRawFd},
@@ -832,7 +829,7 @@ fn anonymous_fd(path: &str) -> Option<fs::File> {
         let file = unsafe { fs::File::from_raw_fd(fd) };
         Some(file)
     }
-    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "freebsd")))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         _ = path;
         // not implemented for bsd, windows. Could be, but isn't yet
@@ -877,7 +874,7 @@ fn prompt_open_behavior() -> Option<cli::CliBehaviorSetting> {
     })
 }
 
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+#[cfg(target_os = "linux")]
 mod linux {
     use std::{
         env,

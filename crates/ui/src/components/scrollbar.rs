@@ -1,5 +1,5 @@
+use std::time::Instant;
 use std::{any::Any, fmt::Debug, ops::Not, time::Duration};
-use web_time::Instant;
 
 use gpui::{
     Along, Anchor, AnyElement, App, AppContext as _, Axis as ScrollbarAxis, BorderStyle, Bounds,
