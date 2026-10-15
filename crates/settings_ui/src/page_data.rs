@@ -6797,15 +6797,53 @@ fn terminal_page() -> SettingsPage {
 }
 
 fn version_control_page() -> SettingsPage {
-    fn git_integration_section() -> [SettingsPageItem; 7] {
+    fn git_integration_section() -> [SettingsPageItem; 10] {
         [
+            SettingsPageItem::SectionHeader("Git User Identity"),
+            SettingsPageItem::SettingItem(SettingItem {
+                files: USER | PROJECT,
+                title: "Git User Name",
+                description: "User name used for Git commits and author information across open projects.",
+                field: Box::new(SettingField::<String> {
+                    json_path: Some("git.user_name"),
+                    pick: |settings| settings.git.as_ref()?.user_name.as_ref(),
+                    write: |settings, value, _| {
+                        settings.git.get_or_insert_default().user_name = value
+                    },
+                }),
+                metadata: Some(Box::new(SettingsFieldMetadata {
+                    allow_missing_default: true,
+                    placeholder_fn: Some(SettingsWindow::git_user_name_placeholder),
+                    display_clear_button: true,
+                    display_confirm_button: true,
+                    ..Default::default()
+                })),
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                files: USER | PROJECT,
+                title: "Git User Email",
+                description: "User email address used for Git commits and author information across open projects.",
+                field: Box::new(SettingField::<String> {
+                    json_path: Some("git.user_email"),
+                    pick: |settings| settings.git.as_ref()?.user_email.as_ref(),
+                    write: |settings, value, _| {
+                        settings.git.get_or_insert_default().user_email = value
+                    },
+                }),
+                metadata: Some(Box::new(SettingsFieldMetadata {
+                    allow_missing_default: true,
+                    placeholder_fn: Some(SettingsWindow::git_user_email_placeholder),
+                    display_clear_button: true,
+                    display_confirm_button: true,
+                    ..Default::default()
+                })),
+            }),
             SettingsPageItem::SectionHeader("Signing and Keys"),
             SettingsPageItem::SettingItem(SettingItem {
                 files: USER,
                 title: "Sign Commits",
                 description: "Sign new commits. Reset to use your Git configuration.",
                 field: Box::new(SettingField::<bool> {
-                    organization_override: None,
                     json_path: Some("git.sign_commits"),
                     pick: |settings| settings.git.as_ref()?.sign_commits.as_ref(),
                     write: |settings, value, _| {

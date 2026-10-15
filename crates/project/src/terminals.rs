@@ -23,7 +23,7 @@ use util::{
     command::new_std_command, get_default_system_shell, get_system_shell, maybe, rel_path::RelPath,
 };
 
-use crate::{Project, ProjectPath};
+use crate::{Project, ProjectPath, ProjectSettings};
 
 pub struct Terminals {
     pub(crate) local_handles: Vec<WeakEntity<terminal::Terminal>>,
@@ -91,6 +91,7 @@ impl Project {
             });
         }
         let settings = TerminalSettings::get(settings_location, cx).clone();
+        let git_settings = ProjectSettings::get(settings_location, cx).git.clone();
         let detect_venv = settings.detect_venv.as_option().is_some();
 
         let terminal_mode = TerminalMode::task(spawn_task.clone());
@@ -135,6 +136,14 @@ impl Project {
         cx.spawn(async move |project, cx| {
             let mut env = env_task.await.unwrap_or_default();
             env.extend(settings.env);
+            if let Some(user_name) = git_settings.user_name.filter(|n| !n.trim().is_empty()) {
+                env.entry("GIT_AUTHOR_NAME".into()).or_insert_with(|| user_name.clone());
+                env.entry("GIT_COMMITTER_NAME".into()).or_insert(user_name);
+            }
+            if let Some(user_email) = git_settings.user_email.filter(|e| !e.trim().is_empty()) {
+                env.entry("GIT_AUTHOR_EMAIL".into()).or_insert_with(|| user_email.clone());
+                env.entry("GIT_COMMITTER_EMAIL".into()).or_insert(user_email);
+            }
 
             let activation_script = maybe!(async {
                 for toolchain in toolchains {
@@ -329,6 +338,7 @@ impl Project {
             });
         }
         let settings = TerminalSettings::get(settings_location, cx).clone();
+        let git_settings = ProjectSettings::get(settings_location, cx).git.clone();
         let detect_venv = settings.detect_venv.as_option().is_some();
         let local_path = if is_via_remote { None } else { path.clone() };
 
@@ -404,6 +414,14 @@ impl Project {
             let shell_kind = ShellKind::new(&shell_program, path_style.is_windows());
             let mut env = env_task.await.unwrap_or_default();
             env.extend(settings.env);
+            if let Some(user_name) = git_settings.user_name.filter(|n| !n.trim().is_empty()) {
+                env.entry("GIT_AUTHOR_NAME".into()).or_insert_with(|| user_name.clone());
+                env.entry("GIT_COMMITTER_NAME".into()).or_insert(user_name);
+            }
+            if let Some(user_email) = git_settings.user_email.filter(|e| !e.trim().is_empty()) {
+                env.entry("GIT_AUTHOR_EMAIL".into()).or_insert_with(|| user_email.clone());
+                env.entry("GIT_COMMITTER_EMAIL".into()).or_insert(user_email);
+            }
 
             let activation_script = maybe!(async {
                 for toolchain in toolchains {

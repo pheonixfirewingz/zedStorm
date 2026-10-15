@@ -1483,6 +1483,10 @@
   "read_only_files": [],
   // Git gutter behavior configuration.
   "git": {
+    // Git user name used for commits and author information across open projects.
+    "user_name": null,
+    // Git user email used for commits and author information across open projects.
+    "user_email": null,
     // Global switch to enable or disable all git integration features.
     // If set to true, disables all git integration features.
     // If set to false, individual git integration features below will be independently enabled or disabled.

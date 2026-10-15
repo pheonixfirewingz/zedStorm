@@ -303,6 +303,8 @@ pub struct GitSettings {
     pub gpg_signing_key: Option<String>,
     pub ssh_signing_key: Option<String>,
     pub ssh_key: Option<String>,
+    pub user_name: Option<String>,
+    pub user_email: Option<String>,
     /// Whether or not git integration is enabled.
     ///
     /// Default: true
@@ -535,6 +537,8 @@ impl Settings for ProjectSettings {
             gpg_signing_key: git.gpg_signing_key.clone(),
             ssh_signing_key: git.ssh_signing_key.clone(),
             ssh_key: git.ssh_key.clone(),
+            user_name: git.user_name.clone(),
+            user_email: git.user_email.clone(),
             enabled: git_enabled,
             git_gutter: git.git_gutter.unwrap(),
             gutter_debounce: git.gutter_debounce.unwrap_or_default(),

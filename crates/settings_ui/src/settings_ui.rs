@@ -55,6 +55,11 @@ use crate::components::{
     SettingsSectionHeader, font_picker, icon_theme_picker, text_field_a11y_state,
 };
 
+#[derive(Clone, Default)]
+pub struct GitGlobalCommitter(pub Option<git::repository::GitCommitter>);
+
+impl Global for GitGlobalCommitter {}
+
 const NAVBAR_CONTAINER_TAB_INDEX: isize = 0;
 const NAVBAR_GROUP_TAB_INDEX: isize = 1;
 
@@ -416,14 +421,16 @@ impl Focusable for NonFocusableHandle {
 }
 
 #[derive(Default)]
-struct SettingsFieldMetadata {
-    allow_missing_default: bool,
-    placeholder: Option<&'static str>,
-    should_do_titlecase: Option<bool>,
-    display_confirm_button: bool,
-    display_clear_button: bool,
-    confirm_on_focus_out: bool,
-    treat_missing_text_as_empty: bool,
+pub(crate) struct SettingsFieldMetadata {
+    pub(crate) allow_missing_default: bool,
+    pub(crate) placeholder: Option<&'static str>,
+    pub(crate) placeholder_fn:
+        Option<fn(&SettingsWindow, &SettingsUiFile, &App) -> Option<SharedString>>,
+    pub(crate) should_do_titlecase: Option<bool>,
+    pub(crate) display_confirm_button: bool,
+    pub(crate) display_clear_button: bool,
+    pub(crate) confirm_on_focus_out: bool,
+    pub(crate) treat_missing_text_as_empty: bool,
 }
 
 pub fn init(cx: &mut App) {
@@ -509,8 +516,36 @@ fn init_renderers(cx: &mut App) {
             },
         )
         .add_basic_renderer::<bool>(render_toggle_button)
-        .add_basic_renderer::<String>(render_text_field)
-        .add_basic_renderer::<SharedString>(render_text_field)
+        .add_renderer::<String>(
+            |settings_window, item, field, settings_file, metadata, sub_field, window, cx| {
+                let control = render_text_field(
+                    settings_window,
+                    field,
+                    settings_file.clone(),
+                    metadata,
+                    item.title,
+                    item.description,
+                    window,
+                    cx,
+                );
+                render_settings_item(settings_window, item, settings_file, control, sub_field, cx)
+            },
+        )
+        .add_renderer::<SharedString>(
+            |settings_window, item, field, settings_file, metadata, sub_field, window, cx| {
+                let control = render_text_field(
+                    settings_window,
+                    field,
+                    settings_file.clone(),
+                    metadata,
+                    item.title,
+                    item.description,
+                    window,
+                    cx,
+                );
+                render_settings_item(settings_window, item, settings_file, control, sub_field, cx)
+            },
+        )
         .add_basic_renderer::<settings::SaturatingBool>(render_toggle_button)
         .add_basic_renderer::<settings::CursorShape>(render_dropdown)
         .add_basic_renderer::<settings::RestoreOnStartupBehavior>(render_dropdown)
@@ -920,6 +955,7 @@ pub struct SettingsWindow {
     shown_errors: HashSet<String>,
     pub(crate) regex_validation_error: Option<String>,
     last_copied_link_path: Option<&'static str>,
+    pub(crate) git_committer: Option<git::repository::GitCommitter>,
 }
 
 struct SearchDocument {
@@ -1707,6 +1743,19 @@ impl SettingsWindow {
         })
         .detach();
 
+        let cached_committer = cx.try_global::<GitGlobalCommitter>().and_then(|g| g.0.clone());
+        let git_committer = cached_committer.clone();
+
+        cx.spawn(async move |this, cx| {
+            let committer = git::repository::get_git_committer(&cx).await;
+            this.update(cx, |this, cx| {
+                cx.set_global(GitGlobalCommitter(Some(committer.clone())));
+                this.git_committer = Some(committer);
+                cx.notify();
+            })
+        })
+        .detach();
+
         let current_file = SettingsUiFile::User;
         let search_bar = cx.new(|cx| {
             let mut editor = Editor::single_line(window, cx);
@@ -1907,6 +1956,7 @@ impl SettingsWindow {
             regex_validation_error: None,
             list_state,
             last_copied_link_path: None,
+            git_committer,
         };
 
         this.fetch_files(window, cx);
@@ -1918,6 +1968,66 @@ impl SettingsWindow {
         });
 
         this
+    }
+
+    pub(crate) fn git_user_name_placeholder(
+        &self,
+        file: &SettingsUiFile,
+        cx: &App,
+    ) -> Option<SharedString> {
+        let committer = self.git_committer.as_ref().or_else(|| {
+            cx.try_global::<GitGlobalCommitter>()
+                .and_then(|g| g.0.as_ref())
+        });
+        match file {
+            SettingsUiFile::Project(_) => {
+                let store = SettingsStore::global(cx);
+                let (_, user_name) = store.get_value_from_file(settings::SettingsFile::User, |settings| {
+                    settings.git.as_ref()?.user_name.as_ref()
+                });
+                if let Some(user_name) = user_name.filter(|n| !n.trim().is_empty()) {
+                    return Some(SharedString::from(user_name.to_string()));
+                }
+                committer
+                    .and_then(|c| c.name.as_ref())
+                    .filter(|n| !n.trim().is_empty())
+                    .map(|s| SharedString::from(s.clone()))
+            }
+            SettingsUiFile::User | SettingsUiFile::Server(_) => committer
+                .and_then(|c| c.name.as_ref())
+                .filter(|n| !n.trim().is_empty())
+                .map(|s| SharedString::from(s.clone())),
+        }
+    }
+
+    pub(crate) fn git_user_email_placeholder(
+        &self,
+        file: &SettingsUiFile,
+        cx: &App,
+    ) -> Option<SharedString> {
+        let committer = self.git_committer.as_ref().or_else(|| {
+            cx.try_global::<GitGlobalCommitter>()
+                .and_then(|g| g.0.as_ref())
+        });
+        match file {
+            SettingsUiFile::Project(_) => {
+                let store = SettingsStore::global(cx);
+                let (_, user_email) = store.get_value_from_file(settings::SettingsFile::User, |settings| {
+                    settings.git.as_ref()?.user_email.as_ref()
+                });
+                if let Some(user_email) = user_email.filter(|e| !e.trim().is_empty()) {
+                    return Some(SharedString::from(user_email.to_string()));
+                }
+                committer
+                    .and_then(|c| c.email.as_ref())
+                    .filter(|e| !e.trim().is_empty())
+                    .map(|s| SharedString::from(s.clone()))
+            }
+            SettingsUiFile::User | SettingsUiFile::Server(_) => committer
+                .and_then(|c| c.email.as_ref())
+                .filter(|e| !e.trim().is_empty())
+                .map(|s| SharedString::from(s.clone())),
+        }
     }
 
     fn clear_search(&mut self, window: &mut Window, cx: &mut Context<SettingsWindow>) {
@@ -4630,6 +4740,7 @@ fn get_current_value<'a, T>(
 }
 
 fn render_text_field<T: From<String> + Into<String> + AsRef<str> + Clone>(
+    settings_window: &SettingsWindow,
     field: SettingField<T>,
     file: SettingsUiFile,
     metadata: Option<&SettingsFieldMetadata>,
@@ -4662,7 +4773,12 @@ fn render_text_field<T: From<String> + Into<String> + AsRef<str> + Clone>(
         })
         .when_some(initial_text, |editor, text| editor.with_initial_text(text))
         .when_some(
-            metadata.and_then(|metadata| metadata.placeholder),
+            metadata.and_then(|metadata| {
+                metadata
+                    .placeholder_fn
+                    .and_then(|f| f(settings_window, &file, cx))
+                    .or_else(|| metadata.placeholder.map(SharedString::new_static))
+            }),
             |editor, placeholder| editor.with_placeholder(placeholder),
         )
         .when(
@@ -5035,6 +5151,7 @@ pub mod test {
                 shown_errors: HashSet::default(),
                 regex_validation_error: None,
                 last_copied_link_path: None,
+                git_committer: cx.try_global::<GitGlobalCommitter>().and_then(|g| g.0.clone()),
             }
         }
     }
@@ -5161,6 +5278,7 @@ pub mod test {
             shown_errors: HashSet::default(),
             regex_validation_error: None,
             last_copied_link_path: None,
+            git_committer: None,
         };
 
         settings_window.build_filter_table();
@@ -6145,5 +6263,130 @@ mod project_settings_update_tests {
             "Buffer should not contain the external modification value: {}",
             text
         );
+    }
+
+    #[gpui::test]
+    async fn test_git_user_identity_placeholders(cx: &mut TestAppContext) {
+        let setup = init_test(cx, None).await;
+
+        cx.update(|cx| {
+            cx.set_global(GitGlobalCommitter(Some(git::repository::GitCommitter {
+                name: Some("Git Global User".to_string()),
+                email: Some("git@example.com".to_string()),
+            })));
+        });
+
+        let project_file = SettingsUiFile::Project((setup.worktree_id, setup.rel_path.clone()));
+        let user_file = SettingsUiFile::User;
+
+        let (settings_window, _) = cx.add_window_view(|window, cx| {
+            SettingsWindow::test(window, cx)
+        });
+
+        // 1. Initially with no Zed settings set:
+        // In User settings: placeholder is Git global committer
+        settings_window.update(cx, |sw, cx| {
+            assert_eq!(
+                sw.git_user_name_placeholder(&user_file, cx).as_deref(),
+                Some("Git Global User")
+            );
+            assert_eq!(
+                sw.git_user_email_placeholder(&user_file, cx).as_deref(),
+                Some("git@example.com")
+            );
+
+            // In Project settings: falls back to Git global committer
+            assert_eq!(
+                sw.git_user_name_placeholder(&project_file, cx).as_deref(),
+                Some("Git Global User")
+            );
+            assert_eq!(
+                sw.git_user_email_placeholder(&project_file, cx).as_deref(),
+                Some("git@example.com")
+            );
+        });
+
+        // 2. Set Zed User settings:
+        cx.update(|cx| {
+            cx.update_global::<SettingsStore, _>(|store, cx| {
+                store
+                    .set_user_settings(
+                        r#"{
+                            "git": {
+                                "user_name": "Zed User",
+                                "user_email": "zed@example.com"
+                            }
+                        }"#,
+                        cx,
+                    )
+                    .unwrap();
+            });
+        });
+
+        // In User settings: placeholder remains Git global committer
+        // In Project settings: placeholder is now from Zed User settings!
+        settings_window.update(cx, |sw, cx| {
+            assert_eq!(
+                sw.git_user_name_placeholder(&user_file, cx).as_deref(),
+                Some("Git Global User")
+            );
+            assert_eq!(
+                sw.git_user_email_placeholder(&user_file, cx).as_deref(),
+                Some("git@example.com")
+            );
+
+            assert_eq!(
+                sw.git_user_name_placeholder(&project_file, cx).as_deref(),
+                Some("Zed User")
+            );
+            assert_eq!(
+                sw.git_user_email_placeholder(&project_file, cx).as_deref(),
+                Some("zed@example.com")
+            );
+        });
+
+        // 3. If Zed User settings has empty strings, it falls back to Git global committer in Project settings
+        cx.update(|cx| {
+            cx.update_global::<SettingsStore, _>(|store, cx| {
+                store
+                    .set_user_settings(
+                        r#"{
+                            "git": {
+                                "user_name": "   ",
+                                "user_email": ""
+                            }
+                        }"#,
+                        cx,
+                    )
+                    .unwrap();
+            });
+        });
+
+        settings_window.update(cx, |sw, cx| {
+            assert_eq!(
+                sw.git_user_name_placeholder(&project_file, cx).as_deref(),
+                Some("Git Global User")
+            );
+            assert_eq!(
+                sw.git_user_email_placeholder(&project_file, cx).as_deref(),
+                Some("git@example.com")
+            );
+        });
+
+        // 4. If Git global committer is None, placeholder is None when unset
+        cx.update(|cx| {
+            cx.set_global(GitGlobalCommitter(None));
+        });
+
+        let (settings_window2, _) = cx.add_window_view(|window, cx| {
+            SettingsWindow::test(window, cx)
+        });
+
+        settings_window2.update(cx, |sw, cx| {
+            assert_eq!(sw.git_user_name_placeholder(&user_file, cx), None);
+            assert_eq!(sw.git_user_email_placeholder(&user_file, cx), None);
+            assert_eq!(sw.git_user_name_placeholder(&project_file, cx), None);
+            assert_eq!(sw.git_user_email_placeholder(&project_file, cx), None);
+        });
     }
 }

@@ -14,7 +14,7 @@ use ui::{Tooltip, prelude::*, rems};
 pub struct SettingsInputField {
     id: ElementId,
     initial_text: Option<String>,
-    placeholder: Option<&'static str>,
+    placeholder: Option<SharedString>,
     confirm: Option<Rc<dyn Fn(Option<String>, &mut Window, &mut App)>>,
     tab_index: Option<isize>,
     use_buffer_font: bool,
@@ -59,8 +59,8 @@ impl SettingsInputField {
         self
     }
 
-    pub fn with_placeholder(mut self, placeholder: &'static str) -> Self {
-        self.placeholder = Some(placeholder);
+    pub fn with_placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
+        self.placeholder = Some(placeholder.into());
         self
     }
 
@@ -127,7 +127,7 @@ impl RenderOnce for SettingsInputField {
 
         let editor = window.use_keyed_state((self.id.clone(), "editor"), cx, {
             let initial_text = self.initial_text.clone();
-            let placeholder = self.placeholder;
+            let placeholder = self.placeholder.clone();
             let mut confirm = self.confirm.clone();
 
             move |window, cx| {
@@ -155,7 +155,7 @@ impl RenderOnce for SettingsInputField {
                 }
 
                 if let Some(placeholder) = placeholder {
-                    editor.set_placeholder_text(placeholder, window, cx);
+                    editor.set_placeholder_text(&placeholder, window, cx);
                 }
                 editor.set_text_style_refinement(styles);
                 editor
@@ -185,6 +185,30 @@ impl RenderOnce for SettingsInputField {
             }
         }
 
+        let first_render_placeholder = window.use_keyed_state(
+            (self.id.clone(), "first-render-placeholder"),
+            cx,
+            |_, _| self.placeholder.clone(),
+        );
+        let synced_placeholder = first_render_placeholder.read(cx);
+        if &self.placeholder != synced_placeholder {
+            *first_render_placeholder.as_mut(cx) = self.placeholder.clone();
+            let weak_editor = editor.downgrade();
+            let new_placeholder = self.placeholder.clone();
+
+            window.defer(cx, move |window, cx| {
+                weak_editor
+                    .update(cx, |editor, cx| {
+                        editor.set_placeholder_text(
+                            new_placeholder.as_deref().unwrap_or_default(),
+                            window,
+                            cx,
+                        );
+                    })
+                    .ok();
+            });
+        }
+
         let weak_editor = editor.downgrade();
         let weak_editor_for_button = editor.downgrade();
         let weak_editor_for_clear = editor.downgrade();
@@ -199,7 +223,7 @@ impl RenderOnce for SettingsInputField {
 
         let aria_label = self
             .aria_label
-            .or_else(|| self.placeholder.map(SharedString::new_static));
+            .or_else(|| self.placeholder.clone());
         let aria_description = self.aria_description;
 
         let (a11y_value, a11y_text_runs) =

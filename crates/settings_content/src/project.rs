@@ -639,6 +639,12 @@ pub struct GitSettings {
     pub ssh_signing_key: Option<String>,
     /// SSH private key file used for remote authentication.
     pub ssh_key: Option<String>,
+    /// Git user name used for commits and author information across projects.
+    #[serde(alias = "name")]
+    pub user_name: Option<String>,
+    /// Git user email used for commits and author information across projects.
+    #[serde(alias = "email")]
+    pub user_email: Option<String>,
     /// Whether or not to enable git integration.
     ///
     /// Default: true

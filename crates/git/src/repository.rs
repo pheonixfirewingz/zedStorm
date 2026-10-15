@@ -1344,7 +1344,7 @@ pub struct GitRepositoryCheckpoint {
     pub commit_sha: Oid,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct GitCommitter {
     pub name: Option<String>,
     pub email: Option<String>,

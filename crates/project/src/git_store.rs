@@ -6937,6 +6937,8 @@ impl Repository {
         let (result_tx, result_rx) = futures::channel::oneshot::channel();
         let job_id = post_inc(&mut self.job_id);
         let this = self.this.clone();
+        let work_directory_abs_path = self.snapshot.work_directory_abs_path.clone();
+        let git_store = self.git_store.clone();
 
         let key_label = key.as_ref().map(format_job_key);
         self.job_debug_queue.add(job_id, description, key_label);
@@ -6948,8 +6950,20 @@ impl Repository {
                 job: Box::new(move |state, cx: &mut AsyncApp| {
                     let state = match state {
                         RepositoryState::Local(mut local) => {
-                            let settings =
-                                cx.update(|cx| ProjectSettings::get_global(cx).git.clone());
+                            let settings = cx.update(|cx| {
+                                let settings_location = git_store.upgrade().and_then(|git_store| {
+                                    let git_store = git_store.read(cx);
+                                    let project = git_store.project.as_ref()?.upgrade()?;
+                                    let project = project.read(cx);
+                                    let (worktree, _) =
+                                        project.find_worktree(&work_directory_abs_path, cx)?;
+                                    Some(SettingsLocation {
+                                        worktree_id: worktree.read(cx).id(),
+                                        path: RelPath::empty(),
+                                    })
+                                });
+                                ProjectSettings::get(settings_location, cx).git.clone()
+                            });
                             let environment = Arc::make_mut(&mut local.environment);
                             let mut config_count = environment
                                 .get("GIT_CONFIG_COUNT")
@@ -8698,11 +8712,33 @@ impl Repository {
         name_and_email: Option<(SharedString, SharedString)>,
         options: CommitOptions,
         askpass: AskPassDelegate,
-        _cx: &mut App,
+        cx: &mut App,
     ) -> oneshot::Receiver<Result<()>> {
         let id = self.id;
         let askpass_delegates = self.askpass_delegates.clone();
         let askpass_id = util::post_inc(&mut self.latest_askpass_id);
+        let work_directory_abs_path = self.snapshot.work_directory_abs_path.clone();
+        let name_and_email = name_and_email.or_else(|| {
+            let settings_location = self.git_store.upgrade().and_then(|git_store| {
+                let git_store = git_store.read(cx);
+                let project = git_store.project.as_ref()?.upgrade()?;
+                let project = project.read(cx);
+                let (worktree, _) = project.find_worktree(&work_directory_abs_path, cx)?;
+                Some(SettingsLocation {
+                    worktree_id: worktree.read(cx).id(),
+                    path: RelPath::empty(),
+                })
+            });
+            let git_settings = &ProjectSettings::get(settings_location, cx).git;
+            match (&git_settings.user_name, &git_settings.user_email) {
+                (Some(name), Some(email))
+                    if !name.trim().is_empty() && !email.trim().is_empty() =>
+                {
+                    Some((name.as_str().into(), email.as_str().into()))
+                }
+                _ => None,
+            }
+        });
 
         self.send_job(
             "commit",
