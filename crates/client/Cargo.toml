@@ -20,7 +20,6 @@ anyhow.workspace = true
 async-channel.workspace = true
 chrono.workspace = true
 clock.workspace = true
-cloud_api_types.workspace = true
 collections.workspace = true
 feature_flags.workspace = true
 fs.workspace = true

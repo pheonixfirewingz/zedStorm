@@ -2,13 +2,12 @@ mod components;
 mod extension_suggestions;
 mod extension_version_selector;
 
-use std::sync::OnceLock;
 use std::time::Duration;
 use std::{any::TypeId, ops::Range, sync::Arc};
 
 use anyhow::Context as _;
-use cloud_api_types::{ExtensionMetadata, ExtensionProvides};
-use collections::{BTreeMap, BTreeSet};
+use collections::BTreeSet;
+use extension::{ExtensionMetadata, ExtensionProvides};
 use command_palette_hooks::CommandPaletteFilter;
 use editor::{Editor, EditorElement, EditorStyle};
 use extension_host::{ExtensionIndexEntry, ExtensionManifest, ExtensionStore};
@@ -292,72 +291,6 @@ enum ExtensionFilter {
     NotInstalled,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
-enum Feature {
-    AgentClaude,
-    AgentCodex,
-    AgentGemini,
-    ExtensionBasedpyright,
-    ExtensionRuff,
-    ExtensionTailwind,
-    ExtensionTy,
-    Git,
-    LanguageBash,
-    LanguageC,
-    LanguageCpp,
-    LanguageGo,
-    LanguagePython,
-    LanguageReact,
-    LanguageRust,
-    LanguageTypescript,
-    OpenIn,
-}
-
-fn keywords_by_feature() -> &'static BTreeMap<Feature, Vec<&'static str>> {
-    static KEYWORDS_BY_FEATURE: OnceLock<BTreeMap<Feature, Vec<&'static str>>> = OnceLock::new();
-    KEYWORDS_BY_FEATURE.get_or_init(|| {
-        BTreeMap::from_iter([
-            (
-                Feature::AgentClaude,
-                vec!["claude", "claude code", "claude agent"],
-            ),
-            (Feature::AgentCodex, vec!["codex", "codex cli"]),
-            (Feature::AgentGemini, vec!["gemini", "gemini cli"]),
-            (
-                Feature::ExtensionBasedpyright,
-                vec!["basedpyright", "pyright"],
-            ),
-            (Feature::ExtensionRuff, vec!["ruff"]),
-            (Feature::ExtensionTailwind, vec!["tail", "tailwind"]),
-            (Feature::ExtensionTy, vec!["ty"]),
-            (Feature::Git, vec!["git"]),
-            (Feature::LanguageBash, vec!["sh", "bash"]),
-            (Feature::LanguageC, vec!["c", "clang"]),
-            (Feature::LanguageCpp, vec!["c++", "cpp", "clang"]),
-            (Feature::LanguageGo, vec!["go", "golang"]),
-            (Feature::LanguagePython, vec!["python", "py"]),
-            (Feature::LanguageReact, vec!["react"]),
-            (Feature::LanguageRust, vec!["rust", "rs"]),
-            (
-                Feature::LanguageTypescript,
-                vec!["type", "typescript", "ts"],
-            ),
-            (
-                Feature::OpenIn,
-                vec![
-                    "github",
-                    "gitlab",
-                    "bitbucket",
-                    "codeberg",
-                    "sourcehut",
-                    "permalink",
-                    "link",
-                    "open in",
-                ],
-            ),
-        ])
-    })
-}
 
 #[derive(Clone, Copy)]
 enum DisplayedExtension {
@@ -403,7 +336,6 @@ pub struct ExtensionsPage {
     _subscriptions: [gpui::Subscription; 2],
     extension_fetch_task: Option<Task<()>>,
     local_search_task: Option<Task<()>>,
-    upsells: BTreeSet<Feature>,
 }
 
 impl ExtensionsPage {
@@ -467,7 +399,6 @@ impl ExtensionsPage {
                 local_search_task: None,
                 _subscriptions: subscriptions,
                 query_editor,
-                upsells: BTreeSet::default(),
             };
             this.update_local_search_results(cx);
             this.fetch_extensions(FetchDebounce::Immediate, None, cx);
@@ -935,7 +866,6 @@ impl ExtensionsPage {
             })),
             cx,
         );
-        self.refresh_feature_upsells(cx);
     }
 
     pub fn focus_extension(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -1032,149 +962,6 @@ impl ExtensionsPage {
             })
     }
 
-    fn refresh_feature_upsells(&mut self, cx: &mut Context<Self>) {
-        let Some(search) = self.search_query(cx) else {
-            self.upsells.clear();
-            return;
-        };
-
-        if let Some(id) = search.strip_prefix("id:") {
-            self.upsells.clear();
-
-            let upsell = match id.to_lowercase().as_str() {
-                "ruff" => Some(Feature::ExtensionRuff),
-                "basedpyright" => Some(Feature::ExtensionBasedpyright),
-                "ty" => Some(Feature::ExtensionTy),
-                _ => None,
-            };
-
-            if let Some(upsell) = upsell {
-                self.upsells.insert(upsell);
-            }
-
-            return;
-        }
-
-        let search = search.to_lowercase();
-        let search_terms = search
-            .split_whitespace()
-            .map(|term| term.trim())
-            .collect::<Vec<_>>();
-
-        for (feature, keywords) in keywords_by_feature() {
-            if keywords
-                .iter()
-                .any(|keyword| search_terms.contains(keyword))
-            {
-                self.upsells.insert(*feature);
-            } else {
-                self.upsells.remove(feature);
-            }
-        }
-    }
-
-    fn render_feature_upsell_banner(
-        &self,
-        label: &'static str,
-        docs_url: &'static str,
-    ) -> impl IntoElement {
-        let docs_url_button = Button::new("open_docs", "View Documentation")
-            .end_icon(Icon::new(IconName::ArrowUpRight).size(IconSize::Small))
-            .on_click({
-                move |_event, _window, cx| {
-                    telemetry::event!(
-                        "Documentation Viewed",
-                        source = "Feature Upsell",
-                        url = docs_url,
-                    );
-                    cx.open_url(docs_url)
-                }
-            });
-
-        div()
-            .pt_4()
-            .px_4()
-            .child(
-                Banner::new()
-                    .severity(Severity::Success)
-                    .child(Label::new(SharedString::new_static(label)).mt_0p5())
-                    .action_slot(docs_url_button),
-            )
-            .into_any_element()
-    }
-
-    fn render_feature_upsells(&self) -> impl IntoElement {
-        v_flex().children(self.upsells.iter().map(|feature| match feature {
-            Feature::AgentClaude => self.render_feature_upsell_banner(
-                "Claude Agent support is built-in to ZedStorm!",
-                "https://zed.dev/docs/ai/external-agents#claude-agent",
-            ),
-            Feature::AgentCodex => self.render_feature_upsell_banner(
-                "Codex CLI support is built-in to ZedStorm!",
-                "https://zed.dev/docs/ai/external-agents#codex-cli",
-            ),
-            Feature::AgentGemini => self.render_feature_upsell_banner(
-                "Gemini CLI support is built-in to ZedStorm!",
-                "https://zed.dev/docs/ai/external-agents#gemini-cli",
-            ),
-            Feature::ExtensionBasedpyright => self.render_feature_upsell_banner(
-                "Basedpyright (Python language server) support is built-in to ZedStorm!",
-                "https://zed.dev/docs/languages/python#basedpyright",
-            ),
-            Feature::ExtensionRuff => self.render_feature_upsell_banner(
-                "Ruff (linter for Python) support is built-in to ZedStorm!",
-                "https://zed.dev/docs/languages/python#code-formatting--linting",
-            ),
-            Feature::ExtensionTailwind => self.render_feature_upsell_banner(
-                "Tailwind CSS support is built-in to ZedStorm!",
-                "https://zed.dev/docs/languages/tailwindcss",
-            ),
-            Feature::ExtensionTy => self.render_feature_upsell_banner(
-                "Ty (Python language server) support is built-in to ZedStorm!",
-                "https://zed.dev/docs/languages/python",
-            ),
-            Feature::Git => self.render_feature_upsell_banner(
-                "ZedStorm comes with basic Git support—more features are coming in the future.",
-                "https://zed.dev/docs/git",
-            ),
-            Feature::LanguageBash => self.render_feature_upsell_banner(
-                "Shell support is built-in to ZedStorm!",
-                "https://zed.dev/docs/languages/bash",
-            ),
-            Feature::LanguageC => self.render_feature_upsell_banner(
-                "C support is built-in to ZedStorm!",
-                "https://zed.dev/docs/languages/c",
-            ),
-            Feature::LanguageCpp => self.render_feature_upsell_banner(
-                "C++ support is built-in to ZedStorm!",
-                "https://zed.dev/docs/languages/cpp",
-            ),
-            Feature::LanguageGo => self.render_feature_upsell_banner(
-                "Go support is built-in to ZedStorm!",
-                "https://zed.dev/docs/languages/go",
-            ),
-            Feature::LanguagePython => self.render_feature_upsell_banner(
-                "Python support is built-in to ZedStorm!",
-                "https://zed.dev/docs/languages/python",
-            ),
-            Feature::LanguageReact => self.render_feature_upsell_banner(
-                "React support is built-in to ZedStorm!",
-                "https://zed.dev/docs/languages/typescript",
-            ),
-            Feature::LanguageRust => self.render_feature_upsell_banner(
-                "Rust support is built-in to ZedStorm!",
-                "https://zed.dev/docs/languages/rust",
-            ),
-            Feature::LanguageTypescript => self.render_feature_upsell_banner(
-                "Typescript support is built-in to ZedStorm!",
-                "https://zed.dev/docs/languages/typescript",
-            ),
-            Feature::OpenIn => self.render_feature_upsell_banner(
-                "ZedStorm supports linking to a source line on GitHub and others.",
-                "https://zed.dev/docs/git#git-integrations",
-            ),
-        }))
-    }
 }
 
 struct DevExtensionRebuildPickerDelegate {
@@ -1470,7 +1257,6 @@ impl Render for ExtensionsPage {
                             }),
                     ),
             )
-            .child(self.render_feature_upsells())
             .child(v_flex().px_4().size_full().overflow_y_hidden().map(|this| {
                 let count = self.displayed_extensions.len();
 

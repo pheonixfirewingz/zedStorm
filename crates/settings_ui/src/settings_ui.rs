@@ -5,7 +5,6 @@ pub mod pages;
 mod vibe_settings;
 
 use anyhow::{Context as _, Result};
-use cloud_api_types::OrganizationConfiguration;
 use editor::{Editor, EditorEvent};
 use futures::{StreamExt, channel::mpsc};
 use fuzzy::StringMatchCandidate;
@@ -107,11 +106,6 @@ struct FocusFile(pub u32);
 struct SettingField<T: 'static> {
     pick: fn(&SettingsContent) -> Option<&T>,
     write: fn(&mut SettingsContent, Option<T>, &App),
-    /// Tells us whether the setting is overridden by the currently selected
-    /// organization's settings. Takes the organization configuration and the
-    /// resolved settings value, and returns `Some(...)` if the organization
-    /// overrides the setting, otherwise `None`.
-    organization_override: Option<fn(&OrganizationConfiguration) -> Option<&T>>,
 
     /// A json-path-like string that gives a unique-ish string that identifies
     /// where in the JSON the setting is defined.
@@ -161,7 +155,6 @@ impl<T: 'static> SettingField<T> {
         SettingField {
             pick: |_| Some(&UnimplementedSettingField),
             write: |_, _, _| unreachable!(),
-            organization_override: None,
             json_path: self.json_path,
         }
     }
@@ -259,17 +252,8 @@ impl<T: PartialEq + Clone + Send + Sync + 'static> AnySettingField for SettingFi
         self.json_path
     }
 
-    fn is_overridden_by_organization(&self, cx: &App) -> bool {
-        let Some(org_override) = self.organization_override else {
-            return false;
-        };
-
-        let user_store = AppState::global(cx).user_store.read(cx);
-        let Some(org_config) = user_store.current_organization_configuration() else {
-            return false;
-        };
-
-        (org_override)(&org_config).is_some()
+    fn is_overridden_by_organization(&self, _cx: &App) -> bool {
+        false
     }
 }
 
@@ -4632,17 +4616,12 @@ fn get_current_value<'a, T>(
     settings_store: &'a SettingsStore,
     file: &SettingsUiFile,
     field: &'a SettingField<T>,
-    cx: &'a App,
+    _cx: &'a App,
 ) -> Option<CurrentSettingsValue<'a, T>> {
-    let user_store = AppState::global(cx).user_store.read(cx);
-    let org_config = user_store.current_organization_configuration();
-
     let (_file, value) = settings_store.get_value_from_file(file.to_settings(), field.pick);
     let value = value?;
 
-    let org_value = org_config
-        .zip(field.organization_override)
-        .and_then(|(org_config, org_override)| (org_override)(org_config));
+    let org_value: Option<&T> = None;
 
     Some(CurrentSettingsValue {
         disabled: org_value.is_some(),

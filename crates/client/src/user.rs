@@ -1,8 +1,5 @@
 use super::{Client, proto};
 use anyhow::{Context as _, Result};
-use chrono::{DateTime, Utc};
-use cloud_api_types::OrganizationConfiguration;
-use cloud_api_types::{Organization, OrganizationId, Plan, PlanInfo};
 use collections::HashMap;
 use gpui::{App, Context, EventEmitter, SharedString, SharedUri, Task, TaskExt, WeakEntity};
 use postage::watch;
@@ -65,13 +62,8 @@ impl Eq for User {}
 pub struct UserStore {
     users: HashMap<u64, Arc<User>>,
     participant_indices: HashMap<u64, ParticipantIndex>,
-    plan_info: Option<PlanInfo>,
     current_user: watch::Receiver<Option<Arc<User>>>,
     _current_user_sender: watch::Sender<Option<Arc<User>>>,
-    current_organization: Option<Arc<Organization>>,
-    organizations: Vec<Arc<Organization>>,
-    plans_by_organization: HashMap<OrganizationId, Plan>,
-    configuration_by_organization: HashMap<OrganizationId, OrganizationConfiguration>,
     client: Weak<Client>,
     weak_self: WeakEntity<Self>,
 }
@@ -91,12 +83,7 @@ impl UserStore {
         Self {
             users: Default::default(),
             participant_indices: Default::default(),
-            plan_info: None,
             current_user,
-            current_organization: None,
-            organizations: Vec::new(),
-            plans_by_organization: HashMap::default(),
-            configuration_by_organization: HashMap::default(),
             client: Arc::downgrade(&client),
             weak_self: cx.weak_entity(),
             _current_user_sender: current_user_sender,
@@ -182,136 +169,6 @@ impl UserStore {
 
     pub fn current_user(&self) -> Option<Arc<User>> {
         self.current_user.borrow().clone()
-    }
-
-    pub fn current_organization(&self) -> Option<Arc<Organization>> {
-        self.current_organization.clone()
-    }
-
-    pub fn set_current_organization(
-        &mut self,
-        organization: Arc<Organization>,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<()>> {
-        let is_same_organization = self
-            .current_organization
-            .as_ref()
-            .is_some_and(|current| current.id == organization.id);
-
-        if is_same_organization {
-            return Task::ready(Ok(()));
-        }
-
-        self.current_organization.replace(organization);
-        cx.emit(Event::OrganizationChanged);
-        cx.notify();
-
-        Task::ready(Ok(()))
-    }
-
-    pub fn organizations(&self) -> &Vec<Arc<Organization>> {
-        &self.organizations
-    }
-
-    pub fn plan_for_organization(&self, organization_id: &OrganizationId) -> Option<Plan> {
-        self.plans_by_organization.get(organization_id).copied()
-    }
-
-    pub fn current_organization_configuration(&self) -> Option<&OrganizationConfiguration> {
-        let current_organization = self.current_organization.as_ref()?;
-
-        self.configuration_by_organization
-            .get(&current_organization.id)
-    }
-
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn set_current_organization_configuration_for_test(
-        &mut self,
-        organization: Arc<Organization>,
-        configuration: OrganizationConfiguration,
-        cx: &mut Context<Self>,
-    ) {
-        self.current_organization = Some(organization.clone());
-        self.organizations = vec![organization.clone()];
-        self.configuration_by_organization
-            .insert(organization.id.clone(), configuration);
-        cx.emit(Event::OrganizationChanged);
-        cx.notify();
-    }
-
-    pub fn plan(&self) -> Option<Plan> {
-        #[cfg(debug_assertions)]
-        if let Ok(plan) = std::env::var("ZED_SIMULATE_PLAN").as_ref() {
-            use cloud_api_types::Plan;
-
-            return match plan.as_str() {
-                "free" => Some(Plan::ZedFree),
-                "trial" => Some(Plan::ZedProTrial),
-                "pro" => Some(Plan::ZedPro),
-                _ => {
-                    panic!("ZED_SIMULATE_PLAN must be one of 'free', 'trial', or 'pro'");
-                }
-            };
-        }
-
-        if let Some(organization) = &self.current_organization {
-            return self.plan_for_organization(&organization.id);
-        }
-
-        self.plan_info.as_ref().map(|info| info.plan())
-    }
-
-    pub fn subscription_period(&self) -> Option<(DateTime<Utc>, DateTime<Utc>)> {
-        self.plan_info
-            .as_ref()
-            .and_then(|plan| plan.subscription_period)
-            .map(|subscription_period| {
-                (
-                    subscription_period.started_at.0,
-                    subscription_period.ended_at.0,
-                )
-            })
-    }
-
-    pub fn trial_started_at(&self) -> Option<DateTime<Utc>> {
-        self.plan_info
-            .as_ref()
-            .and_then(|plan| plan.trial_started_at)
-            .map(|trial_started_at| trial_started_at.0)
-    }
-
-    /// Returns whether the user's account is too new to use the service.
-    ///
-    /// This only applies when operating under the user's personal organization,
-    /// not a business organization.
-    pub fn account_too_young(&self) -> bool {
-        if let Some(org) = &self.current_organization {
-            if !org.is_personal {
-                return false;
-            }
-        }
-
-        self.plan_info
-            .as_ref()
-            .map(|plan| plan.is_account_too_young)
-            .unwrap_or_default()
-    }
-
-    /// Returns whether the current user has overdue invoices and usage should be blocked.
-    pub fn has_overdue_invoices(&self) -> bool {
-        self.plan_info
-            .as_ref()
-            .map(|plan| plan.has_overdue_invoices)
-            .unwrap_or_default()
-    }
-
-    pub fn clear_organizations(&mut self) {
-        self.organizations.clear();
-        self.current_organization = None;
-    }
-
-    pub fn clear_plan_and_usage(&mut self) {
-        self.plan_info = None;
     }
 
     pub fn watch_current_user(&self) -> watch::Receiver<Option<Arc<User>>> {

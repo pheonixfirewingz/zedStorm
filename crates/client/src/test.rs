@@ -1,10 +1,6 @@
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result, anyhow};
-use cloud_api_types::{
-    AuthenticatedUser, GetAuthenticatedUserResponse, KnownOrUnknown, Plan, PlanInfo,
-};
 use futures::{StreamExt, stream::BoxStream};
 use gpui::{AppContext as _, TestAppContext};
 use http_client::{AsyncBody, Method, Request, http};
@@ -236,31 +232,31 @@ pub fn parse_authorization_header(req: &Request<AsyncBody>) -> Option<Credential
 pub fn make_get_authenticated_user_response(
     user_id: i32,
     username: String,
-) -> GetAuthenticatedUserResponse {
-    GetAuthenticatedUserResponse {
-        user: AuthenticatedUser {
-            id_v2: format!("user_{user_id}"),
-            legacy_user_id: user_id,
-            metrics_id: format!("metrics-id-{user_id}"),
-            username: username.clone(),
-            avatar_url: "".to_string(),
-            github_login: username,
-            name: None,
-            is_staff: false,
-            accepted_tos_at: None,
-            has_connected_to_collab_once: false,
+) -> serde_json::Value {
+    serde_json::json!({
+        "user": {
+            "id_v2": format!("user_{user_id}"),
+            "legacy_user_id": user_id,
+            "metrics_id": format!("metrics-id-{user_id}"),
+            "username": username.clone(),
+            "avatar_url": "",
+            "github_login": username,
+            "name": serde_json::Value::Null,
+            "is_staff": false,
+            "accepted_tos_at": serde_json::Value::Null,
+            "has_connected_to_collab_once": false,
         },
-        feature_flags: vec![],
-        organizations: vec![],
-        default_organization_id: None,
-        plans_by_organization: BTreeMap::new(),
-        configuration_by_organization: BTreeMap::new(),
-        plan: PlanInfo {
-            plan: KnownOrUnknown::Known(Plan::ZedPro),
-            subscription_period: None,
-            trial_started_at: None,
-            is_account_too_young: false,
-            has_overdue_invoices: false,
-        },
-    }
+        "feature_flags": [],
+        "organizations": [],
+        "default_organization_id": serde_json::Value::Null,
+        "plans_by_organization": {},
+        "configuration_by_organization": {},
+        "plan": {
+            "plan": "zed_pro",
+            "subscription_period": serde_json::Value::Null,
+            "trial_started_at": serde_json::Value::Null,
+            "is_account_too_young": false,
+            "has_overdue_invoices": false,
+        }
+    })
 }

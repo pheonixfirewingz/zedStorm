@@ -14,7 +14,6 @@ members = [
     "crates/cli",
     "crates/client",
     "crates/clock",
-    "crates/cloud_api_types",
     "crates/collections",
     "crates/command_palette",
     "crates/command_palette_hooks",
@@ -216,7 +215,6 @@ calculator_panel = { path = "crates/calculator_panel" }
 cli = { path = "crates/cli", default-features = false }
 client = { path = "crates/client" }
 clock = { path = "crates/clock" }
-cloud_api_types = { path = "crates/cloud_api_types" }
 collections = { path = "crates/collections", version = "0.1.0" }
 command_palette = { path = "crates/command_palette" }
 command_palette_hooks = { path = "crates/command_palette_hooks" }

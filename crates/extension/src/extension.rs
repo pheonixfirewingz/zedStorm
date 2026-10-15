@@ -4,6 +4,7 @@ mod extension_events;
 mod extension_host_proxy;
 mod extension_manifest;
 mod types;
+pub mod registry;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -23,6 +24,7 @@ pub use crate::capabilities::*;
 pub use crate::extension_events::*;
 pub use crate::extension_host_proxy::*;
 pub use crate::extension_manifest::*;
+pub use crate::registry::*;
 pub use crate::types::*;
 
 /// Initializes the `extension` crate.

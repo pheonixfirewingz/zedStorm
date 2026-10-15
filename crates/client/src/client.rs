@@ -12,7 +12,7 @@ use clock::SystemClock;
 #[cfg(any(test, feature = "test-support"))]
 use futures::StreamExt;
 use futures::{FutureExt, Stream, TryFutureExt as _, future::BoxFuture, stream::BoxStream};
-use gpui::{App, AsyncApp, Entity, Global, Task, WeakEntity, actions};
+use gpui::{App, AsyncApp, Entity, Global, Task, WeakEntity};
 use http_client::HttpClientWithUrl;
 use parking_lot::{Mutex, RwLock};
 use postage::watch;
@@ -42,17 +42,6 @@ pub static ZED_APP_PATH: LazyLock<Option<PathBuf>> =
 pub static ZED_ALWAYS_ACTIVE: LazyLock<bool> =
     LazyLock::new(|| std::env::var("ZED_ALWAYS_ACTIVE").is_ok_and(|e| !e.is_empty()));
 
-actions!(
-    client,
-    [
-        /// Signs in to Zed account.
-        SignIn,
-        /// Signs out of Zed account.
-        SignOut,
-        /// Reconnects to the collaboration server.
-        Reconnect
-    ]
-);
 
 pub fn init(_client: &Arc<Client>, _cx: &mut App) {}
 

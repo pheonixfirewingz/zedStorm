@@ -10,7 +10,7 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use async_compression::futures::bufread::GzipDecoder;
 use async_tar::Archive;
 use client::{Client, proto, telemetry::Telemetry};
-use cloud_api_types::{ExtensionMetadata, ExtensionProvides, GetExtensionsResponse};
+use extension::{ExtensionMetadata, ExtensionProvides, GetExtensionsResponse};
 use collections::{BTreeMap, BTreeSet, FxHashSet, HashMap, HashSet, btree_map};
 pub use extension::ExtensionManifest;
 use extension::extension_builder::{CompileExtensionOptions, ExtensionBuilder};
@@ -845,9 +845,9 @@ impl ExtensionStore {
                 .retain(|extension| !SUPPRESSED_EXTENSIONS.contains(extension.id.as_ref()));
 
             if !response.data.iter().any(|ext| ext.id.as_ref() == "drawio") {
-                response.data.push(cloud_api_types::ExtensionMetadata {
+                response.data.push(extension::ExtensionMetadata {
                     id: "drawio".into(),
-                    manifest: cloud_api_types::ExtensionApiManifest {
+                    manifest: extension::ExtensionApiManifest {
                         name: "Draw.io Diagrams".into(),
                         version: "0.1.0".into(),
                         description: Some("Diagram and drawing tab renderer extension for Zed".into()),

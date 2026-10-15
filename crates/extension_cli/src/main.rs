@@ -9,7 +9,7 @@ use std::sync::Arc;
 use ::fs::{CopyOptions, Fs, RealFs, RemoveOptions, copy_recursive};
 use anyhow::{Context as _, Result, anyhow, bail};
 use clap::Parser;
-use cloud_api_types::ExtensionProvides;
+use extension::ExtensionProvides;
 use extension::build_debug_adapter_schema_path;
 use extension::extension_builder::CompilationConcurrency;
 use extension::extension_builder::{CompileExtensionOptions, ExtensionBuilder};
@@ -154,7 +154,7 @@ async fn main() -> Result<()> {
         );
     }
 
-    let manifest_json = serde_json::to_string(&cloud_api_types::ExtensionApiManifest {
+    let manifest_json = serde_json::to_string(&extension::ExtensionApiManifest {
         name: manifest.name,
         version: manifest.version,
         description: manifest.description,
@@ -738,7 +738,7 @@ async fn test_debug_adapter_schemas(
 mod tests {
     use std::collections::BTreeMap;
 
-    use cloud_api_types::ExtensionProvides;
+    use extension::ExtensionProvides;
     use extension::{LanguageModelProviderManifestEntry, SchemaVersion};
 
     use super::*;
