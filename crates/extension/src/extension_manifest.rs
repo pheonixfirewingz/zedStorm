@@ -410,10 +410,9 @@ mod tests {
 
     use util::rel_path::rel_path_buf;
 
-    use crate::ProcessExecCapability;
-
     use super::*;
 
+    #[allow(dead_code)]
     fn extension_manifest() -> ExtensionManifest {
         ExtensionManifest {
             id: "test".into(),
