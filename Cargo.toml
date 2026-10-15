@@ -29,7 +29,6 @@ members = [
     "crates/debug_adapter_extension",
     "crates/debugger_tools",
     "crates/debugger_ui",
-    "crates/dev_container",
     "crates/diagnostics",
     "crates/docs_preprocessor",
     "crates/editor",
@@ -122,8 +121,6 @@ members = [
     "crates/refineable/derive_refineable",
     "crates/release_channel",
     "crates/remote",
-    "crates/remote_connection",
-    "crates/remote_server",
     "crates/repl",
     "crates/reqwest_client",
     "crates/rope",
@@ -240,7 +237,6 @@ debug_adapter_extension = { path = "crates/debug_adapter_extension" }
 debugger_tools = { path = "crates/debugger_tools" }
 debugger_ui = { path = "crates/debugger_ui" }
 derive_refineable = { path = "crates/refineable/derive_refineable" }
-dev_container = { path = "crates/dev_container" }
 diagnostics = { path = "crates/diagnostics" }
 editor = { path = "crates/editor" }
 encoding_selector = { path = "crates/encoding_selector" }
@@ -326,8 +322,6 @@ recent_projects = { path = "crates/recent_projects" }
 refineable = { path = "crates/refineable" }
 release_channel = { path = "crates/release_channel" }
 remote = { path = "crates/remote" }
-remote_connection = { path = "crates/remote_connection" }
-remote_server = { path = "crates/remote_server" }
 repl = { path = "crates/repl" }
 reqwest_client = { path = "crates/reqwest_client" }
 rope = { path = "crates/rope" }

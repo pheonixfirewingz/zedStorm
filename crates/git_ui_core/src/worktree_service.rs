@@ -1180,11 +1180,9 @@ async fn open_worktree_workspace(
         None
     };
 
-    let (workspace_task, modal_workspace) =
+    let workspace_task =
         window_handle.update(cx, |multi_workspace, window, cx| {
             let path_list = util::path_list::PathList::new(&all_paths);
-            let active_workspace = multi_workspace.workspace().clone();
-            let modal_workspace = active_workspace.clone();
 
             let init: Option<
                 Box<
@@ -1204,29 +1202,22 @@ async fn open_worktree_workspace(
                 None
             };
 
-            let task = multi_workspace.find_or_create_workspace(
+            multi_workspace.find_or_create_workspace(
                 path_list,
                 remote_connection_options,
                 None,
-                move |connection_options, window, cx| {
-                    remote_connection::connect_with_modal(
-                        &active_workspace,
-                        connection_options,
-                        window,
-                        cx,
-                    )
+                move |_connection_options, _window, _cx| {
+                    gpui::Task::ready(Err(anyhow::anyhow!("Remote projects are unavailable in ZedStorm.")))
                 },
                 init,
                 OpenMode::Add,
                 source_for_transfer.clone(),
                 window,
                 cx,
-            );
-            (task, modal_workspace)
+            )
         })?;
 
     let result = workspace_task.await;
-    remote_connection::dismiss_connection_modal(&modal_workspace, cx);
     let new_workspace = result?;
 
     let panels_task = new_workspace.update(cx, |workspace, _cx| workspace.take_panels_task());

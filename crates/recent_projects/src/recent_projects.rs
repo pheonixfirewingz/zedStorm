@@ -12,7 +12,6 @@ use chrono::{DateTime, Utc};
 use fs::Fs;
 
 use remote::{RemoteConnectionOptions, same_remote_connection_identity};
-pub use remote_connection::{RemoteConnectionModal, connect, connect_with_modal};
 pub use remote_connections::open_remote_project;
 
 use fuzzy_nucleo::{StringMatch, StringMatchCandidate, match_strings};
@@ -911,18 +910,12 @@ impl PickerDelegate for RecentProjectsDelegate {
                             let host = key.host();
                             if let Some(task) = handle
                                 .update(cx, |multi_workspace, window, cx| {
-                                    let modal_workspace = multi_workspace.workspace().clone();
                                     multi_workspace.find_or_create_workspace(
                                         path_list,
                                         host,
                                         Some(key.clone()),
-                                        move |options, window, cx| {
-                                            connect_with_modal(
-                                                &modal_workspace,
-                                                options,
-                                                window,
-                                                cx,
-                                            )
+                                        move |_options, _window, _cx| {
+                                            Task::ready(Err(anyhow::anyhow!("Remote projects are unavailable in ZedStorm.")))
                                         },
                                         None,
                                         OpenMode::Activate,
