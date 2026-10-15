@@ -79,6 +79,16 @@ jobs:
         if: runner.os == 'Linux'
         run: ./script/build-flatpak
 
+      - name: Build Draw.io extension
+        if: runner.os == 'Linux'
+        run: |
+          rustup target add wasm32-wasip2
+          cargo build --release --target wasm32-wasip2 --manifest-path extensions/drawio/Cargo.toml
+          mkdir -p dist/drawio-package
+          cp extensions/drawio/target/wasm32-wasip2/release/zed_drawio.wasm dist/drawio-package/extension.wasm
+          cp extensions/drawio/extension.toml dist/drawio-package/extension.toml
+          tar -czf dist/drawio.tar.gz -C dist/drawio-package .
+
       - name: Build Windows editor
         if: runner.os == 'Windows'
         shell: pwsh
@@ -110,6 +120,7 @@ jobs:
           path: |
             dist/*.flatpak
             dist/*.zip
+            dist/*.tar.gz
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -135,6 +146,7 @@ jobs:
           gh run download "$RUN_ID" --name zedstorm-windows-x86_64 --dir dist
           test -s dist/zedstorm-linux-x86_64.flatpak
           test -s dist/zedstorm-windows-x86_64.zip
+          test -s dist/drawio.tar.gz
 
       - name: Replace latest release downloads
         env:
@@ -152,9 +164,9 @@ jobs:
 
           notes="Latest successful build from the custom branch. Commit: $BUILD_COMMIT. Build: $RUN_URL"
           if [ -n "$release_id" ]; then
-            gh release upload latest dist/zedstorm-linux-x86_64.flatpak dist/zedstorm-windows-x86_64.zip --clobber
+            gh release upload latest dist/zedstorm-linux-x86_64.flatpak dist/zedstorm-windows-x86_64.zip dist/drawio.tar.gz --clobber
             gh release edit latest --title 'Latest ZedStorm build' --notes "$notes" --latest
           else
-            gh release create latest dist/zedstorm-linux-x86_64.flatpak dist/zedstorm-windows-x86_64.zip \
+            gh release create latest dist/zedstorm-linux-x86_64.flatpak dist/zedstorm-windows-x86_64.zip dist/drawio.tar.gz \
               --verify-tag --title 'Latest ZedStorm build' --notes "$notes" --latest
           fi
