@@ -132,12 +132,12 @@ impl TabRendererView {
                     }
                 }
                 Ok(ExtensionTabRendererBackend::WebEngine(web)) => {
-                    let helper = default_web_engine_helper();
-                    let mut args = vec!["--embedded".to_string()];
+                    let helper = default_web_engine_helper(&path);
+                    let mut args = vec!["--embedded".to_string(), path.to_string_lossy().into_owned()];
                     if let Some(html) = web.html {
                         args.push("--html".to_string());
                         args.push(html);
-                    } else {
+                    } else if !web.url.is_empty() {
                         args.push("--url".to_string());
                         args.push(web.url);
                     }
@@ -552,13 +552,8 @@ fn default_binary_for_path(_path: &PathBuf) -> PathBuf {
     tools_bin
 }
 
-fn default_web_engine_helper() -> PathBuf {
-    let binary_name = if cfg!(windows) {
-        "zed-diagrams-webview.exe"
-    } else {
-        "zed-diagrams-webview"
-    };
-    tools_directory().join("bin").join(binary_name)
+fn default_web_engine_helper(path: &PathBuf) -> PathBuf {
+    default_binary_for_path(path)
 }
 
 fn modifier_mask(modifiers: Modifiers) -> u32 {
