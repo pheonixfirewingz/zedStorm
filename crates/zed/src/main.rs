@@ -190,15 +190,6 @@ fn fail_to_open_window(e: anyhow::Error, _cx: &mut App) {
 static STARTUP_TIME: OnceLock<Instant> = OnceLock::new();
 
 fn main() {
-    let _codex_helpers = ai::dispatch_codex_helpers();
-    match http_client::managed_tools::path_with_tools(std::env::var_os("PATH").as_deref()) {
-        Ok(path) => {
-            // Codex's internal Git commands inherit the process environment, and no threads
-            // have started yet. Include these paths even before portable Git is installed.
-            unsafe { std::env::set_var("PATH", path) };
-        }
-        Err(error) => eprintln!("Could not prepare the bundled tool search path: {error:#}"),
-    }
     STARTUP_TIME.get_or_init(|| Instant::now());
 
     #[cfg(unix)]

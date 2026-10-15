@@ -481,27 +481,6 @@ impl DebugPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.start_configuration_session(
-            scenario,
-            task_context,
-            active_buffer,
-            worktree_id,
-            None,
-            window,
-            cx,
-        );
-    }
-
-    pub(crate) fn start_configuration_session(
-        &mut self,
-        scenario: DebugScenario,
-        task_context: SharedTaskContext,
-        active_buffer: Option<Entity<Buffer>>,
-        worktree_id: Option<WorktreeId>,
-        configuration_key: Option<crate::run_configurations::ConfigurationKey>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
         let dap_store = self.project.read(cx).dap_store();
         let Some(adapter) = DapRegistry::global(cx).adapter(&scenario.adapter) else {
             return;
@@ -534,15 +513,6 @@ impl DebugPanel {
             log::debug!("Could not find a worktree to spawn the debug session in");
             return;
         };
-
-        self.run_configurations.update(cx, |configurations, cx| {
-            if let Some(key) = configuration_key {
-                configurations.track_debug_session(key, &session, cx);
-            } else {
-                configurations.selected = None;
-                cx.notify();
-            }
-        });
 
         self.debug_scenario_scheduled_last = true;
         if let Some(inventory) = self

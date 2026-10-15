@@ -1660,7 +1660,7 @@ impl Render for CodexPanel {
                                 .child(h_flex().gap_1p5()
                                     .child(CircularProgress::new(percentage.unwrap_or(0.0), 100.0, px(16.0), cx).stroke_width(px(2.0)))
                                     .child(Label::new(text.clone()).size(LabelSize::Small).color(Color::Muted)))
-                                .tooltip(Tooltip::text(format!("{text}. Context used by the latest model request, reported by Codex. Updates when Codex reports token usage; not cumulative account usage.")))
+                                .tooltip(Tooltip::text(format!("{text}. Context used by the latest model request, reported by Codex CLI. Updates when Codex reports token usage; not cumulative account usage.")))
                         }),
                 )
             })

@@ -25,7 +25,6 @@ use gpui::{App, AppContext as _, Context, Window};
 use settings::Settings as _;
 use workspace::{Workspace, notifications::DetachAndPromptErr};
 
-pub use codex_runtime::dispatch_helpers as dispatch_codex_helpers;
 pub use context_mcp::serve as serve_context_mcp;
 
 pub const VIBE_CREDENTIAL_KEY: &str = "https://api.mistral.ai";
@@ -363,7 +362,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires an authenticated Codex account"]
+    #[ignore = "requires an authenticated Codex CLI"]
     fn commit_message_generation_live() -> anyhow::Result<()> {
         let directory = tempfile::tempdir()?;
         let message = smol::block_on(generate_commit_message(
@@ -378,7 +377,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires an authenticated Codex account"]
+    #[ignore = "requires an authenticated Codex CLI"]
     fn large_commit_message_generation_live() -> anyhow::Result<()> {
         let directory = tempfile::tempdir()?;
         let diff = format!(

@@ -665,8 +665,7 @@ impl TerminalPanel {
             return self.spawn_in_new_terminal(task, window, cx);
         }
 
-        let mut terminals_for_task =
-            self.terminals_for_task(|existing| existing.full_label == task.full_label, cx);
+        let mut terminals_for_task = self.terminals_for_task(&task.full_label, cx);
         let Some(existing) = terminals_for_task.pop() else {
             return self.spawn_in_new_terminal(task, window, cx);
         };
@@ -780,7 +779,7 @@ impl TerminalPanel {
 
     fn terminals_for_task(
         &self,
-        matches: impl Fn(&SpawnInTerminal) -> bool,
+        label: &str,
         cx: &mut App,
     ) -> Vec<(usize, Entity<Pane>, Entity<TerminalView>)> {
         let Some(workspace) = self.workspace.upgrade() else {
@@ -794,7 +793,7 @@ impl TerminalPanel {
                 .filter_map(|(index, item)| Some((index, item.act_as::<TerminalView>(cx)?)))
                 .filter_map(|(index, terminal_view)| {
                     let task_state = terminal_view.read(cx).terminal().read(cx).task()?;
-                    if matches(&task_state.spawned_task) {
+                    if &task_state.spawned_task.full_label == label {
                         Some((index, terminal_view))
                     } else {
                         None
@@ -1822,22 +1821,6 @@ impl Panel for TerminalPanel {
 struct TerminalProvider(Entity<TerminalPanel>);
 
 impl workspace::TerminalProvider for TerminalProvider {
-    fn stop_task(&self, task_id: &TaskId, cx: &mut App) {
-        let task_id = task_id.clone();
-        let panel = self.0.clone();
-        cx.defer(move |cx| {
-            panel.update(cx, |panel, cx| {
-                panel.deferred_tasks.remove(&task_id);
-                for (_, _, view) in panel.terminals_for_task(|task| task.id == task_id, cx) {
-                    view.read(cx)
-                        .terminal()
-                        .clone()
-                        .update(cx, |terminal, _| terminal.kill_active_task());
-                }
-            });
-        });
-    }
-
     fn spawn(
         &self,
         task: SpawnInTerminal,

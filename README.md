@@ -3,11 +3,11 @@
 
 # ZedStorm
 
-ZedStorm is a stripped-down, opinionated version of Zed, focused on a fast editor with embedded codex-core and Mistral API chat.
+ZedStorm is a stripped-down, opinionated version of Zed, focused on a fast editor with integrated Codex CLI and Mistral API chat.
 
-It uses a single fixed Islands Dark theme and removes Zed's account, collaboration, built-in agent, model-provider, and edit-prediction features from the application. The embedded Codex runtime handles its tools and authentication. Mistral connects directly from Rust using an API key configured in Settings → AI → Vibe, shares Codex skill files, and uses the same chat model dropdown without requiring another CLI.
+It uses a single fixed Islands Dark theme and removes Zed's account, collaboration, built-in agent, model-provider, and edit-prediction features from the application. Codex CLI handles its tools and authentication. Mistral connects directly from Rust using an API key configured in Settings → AI → Vibe, shares Codex skill files, and uses the same chat model dropdown without requiring another CLI.
 
-Crash dumps and hang reports are kept locally; ZedStorm does not upload them or collect usage telemetry. Zed account, update, feedback, and remote-development integrations are removed. Networking remains available for editor tools and Codex.
+Crash dumps and hang reports are kept locally; ZedStorm does not upload them or collect usage telemetry. Zed account, update, feedback, and remote-development integrations are removed. Networking remains available for editor tools and Codex CLI.
 
 The aim is a smaller, simpler editing experience with fewer settings and a consistent look.
 
@@ -15,7 +15,7 @@ The aim is a smaller, simpler editing experience with fewer settings and a consi
 
 The **Build ZedStorm** GitHub Actions workflow builds Linux and Windows x86_64 versions on pushes to `custom` and pull requests targeting `custom`, and can also be run manually on that branch. Successful builds on `custom` replace the downloads in the [latest release](https://github.com/pheonixfirewingz/zedStorm/releases/tag/latest).
 
-Linux produces a Flatpak bundle. Install it with `flatpak install --user zedstorm-linux-x86_64.flatpak` and launch it with `flatpak run dev.zedstorm.ZedStorm`. Codex is built into the application; sign in from the AI panel to use chat.
+Linux produces a Flatpak bundle. Install it with `flatpak install --user zedstorm-linux-x86_64.flatpak` and launch it with `flatpak run dev.zedstorm.ZedStorm`. Install Codex CLI on your host to use the chat panel.
 
 The Flatpak package exposes the host's C and C++ compilers through `cc`, `c++`, `gcc`, `g++`, `clang`, and `clang++`. Install the compilers on your host; these commands run there with the project's working directory and arguments, using Flatpak's host-command permission.
 

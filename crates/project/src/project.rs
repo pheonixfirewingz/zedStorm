@@ -1082,7 +1082,7 @@ pub enum PulledDiagnostics {
 
 /// Whether to disable all AI features in Zed.
 ///
-/// ZedStorm delegates AI to embedded codex-core.
+/// ZedStorm delegates AI to Codex CLI.
 #[derive(Copy, Clone, Debug, RegisterSetting)]
 pub struct DisableAiSettings {
     pub disable_ai: bool,
