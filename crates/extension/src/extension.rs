@@ -378,7 +378,16 @@ pub fn parse_wasm_extension_version(extension_id: &str, wasm_bytes: &[u8]) -> Re
             part.context("error parsing wasm extension")?
         {
             if s.name() == "zed:api-version" {
-                version = Some(Version::parse(std::str::from_utf8(s.data())?)?);
+                let data = s.data();
+                if data.len() == 6 {
+                    version = Some(Version::new(
+                        u16::from_be_bytes([data[0], data[1]]) as _,
+                        u16::from_be_bytes([data[2], data[3]]) as _,
+                        u16::from_be_bytes([data[4], data[5]]) as _,
+                    ));
+                } else {
+                    version = Some(Version::parse(std::str::from_utf8(data)?)?);
+                }
             }
         }
     }
