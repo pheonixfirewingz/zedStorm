@@ -597,6 +597,10 @@ printf '%s\n' "$passphrase" |
 #[inline]
 #[cfg(not(target_os = "windows"))]
 fn find_gpg_program() -> Option<std::path::PathBuf> {
+    let bundled = paths::zedstorm_tools_dir().join("gpg/bin/gpg");
+    if bundled.is_file() {
+        return Some(bundled);
+    }
     ["gpg", "gpg2"]
         .into_iter()
         .find_map(|candidate| which::which(candidate).ok())

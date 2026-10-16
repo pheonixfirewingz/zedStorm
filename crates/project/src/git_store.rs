@@ -780,28 +780,17 @@ impl LocalRepositoryState {
                     log::error!("failed to get working directory environment for repository {work_directory_abs_path:?}");
                     HashMap::default()
                 });
-        let search_paths = environment.get("PATH").map(|val| val.to_owned());
+        let _search_paths = environment.get("PATH").map(|val| val.to_owned());
         let http_client = cx.update(|cx| cx.http_client());
         let backend = cx
             .background_spawn({
                 let fs = fs.clone();
                 async move {
-                    let system_git_binary_path = search_paths
-                        .and_then(|search_paths| {
-                            which::which_in("git", Some(search_paths), &work_directory_abs_path)
-                                .ok()
-                        })
-                        .or_else(|| which::which("git").ok());
-                    let git_binary_path = match system_git_binary_path {
-                        Some(path) => path,
-                        None => {
-                            http_client::managed_tools::ensure_tool(
-                                http_client::managed_tools::Tool::Git,
-                                http_client,
-                            )
-                            .await?
-                        }
-                    };
+                    let git_binary_path = http_client::managed_tools::ensure_tool(
+                        http_client::managed_tools::Tool::Git,
+                        http_client,
+                    )
+                    .await?;
                     fs.open_repo(&dot_git_abs_path, Some(&git_binary_path))
                         .with_context(|| format!("opening repository at {dot_git_abs_path:?}"))
                 }

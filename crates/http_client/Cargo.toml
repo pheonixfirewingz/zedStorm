@@ -15,6 +15,7 @@ github-download = [
     "dep:async-compression",
     "dep:async-fs",
     "dep:async-tar",
+    "dep:paths",
     "dep:sha2",
     "dep:tempfile",
     "dep:util",
@@ -32,13 +33,14 @@ futures.workspace = true
 http-body.workspace = true
 http.workspace = true
 parking_lot.workspace = true
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 serde_urlencoded.workspace = true
 url.workspace = true
 
 log.workspace = true
 async-compression = { workspace = true, optional = true }
+paths = { workspace = true, optional = true }
 util = { workspace = true, optional = true }
 async-fs = { workspace = true, optional = true }
 async-tar = { workspace = true, optional = true }

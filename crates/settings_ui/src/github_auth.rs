@@ -31,12 +31,7 @@ pub(crate) struct GitHubAccount {
 static INSTALL_LOCK: futures::lock::Mutex<()> = futures::lock::Mutex::new(());
 
 fn tools_directory() -> Result<PathBuf> {
-    let executable =
-        std::env::current_exe().context("Could not locate the application executable")?;
-    Ok(executable
-        .parent()
-        .context("The application executable has no parent directory")?
-        .join("zedstorm-tools"))
+    http_client::managed_tools::tools_directory()
 }
 
 fn github_cli_path(directory: &Path) -> PathBuf {

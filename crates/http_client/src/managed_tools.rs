@@ -14,29 +14,35 @@ use std::{
 pub enum Tool {
     Git,
     Codex,
+    Gpg,
 }
 
 impl Tool {
-    fn name(self) -> &'static str {
+    pub fn name(self) -> &'static str {
         match self {
             Self::Git => "git",
             Self::Codex => "codex",
+            Self::Gpg => "gpg",
         }
     }
 
-    fn repository(self) -> &'static str {
-        match self {
-            Self::Git => "desktop/dugite-native",
-            Self::Codex => "openai/codex",
+    pub fn repository(self, operating_system: &str) -> &'static str {
+        match (self, operating_system) {
+            (Self::Git, _) => "desktop/dugite-native",
+            (Self::Codex, _) => "openai/codex",
+            (Self::Gpg, "windows") => "portapps/gnupg-portable",
+            (Self::Gpg, _) => "pheonixfirewingz/zedStorm",
         }
     }
 
-    fn binary(self, operating_system: &str) -> PathBuf {
+    pub fn binary(self, operating_system: &str) -> PathBuf {
         match (self, operating_system) {
             (Self::Git, "windows") => PathBuf::from("cmd/git.exe"),
             (Self::Git, _) => PathBuf::from("bin/git"),
             (Self::Codex, "windows") => PathBuf::from("bin/codex.exe"),
             (Self::Codex, _) => PathBuf::from("bin/codex"),
+            (Self::Gpg, "windows") => PathBuf::from("bin/gpg.exe"),
+            (Self::Gpg, _) => PathBuf::from("bin/gpg"),
         }
     }
 }
@@ -44,12 +50,7 @@ impl Tool {
 static INSTALL_LOCK: futures::lock::Mutex<()> = futures::lock::Mutex::new(());
 
 pub fn tools_directory() -> Result<PathBuf> {
-    let executable =
-        std::env::current_exe().context("Could not locate the application executable")?;
-    Ok(executable
-        .parent()
-        .context("The executable has no parent directory")?
-        .join("zedstorm-tools"))
+    Ok(paths::zedstorm_tools_dir().clone())
 }
 
 pub fn bundled_path(tool: Tool) -> Result<PathBuf> {
@@ -59,13 +60,21 @@ pub fn bundled_path(tool: Tool) -> Result<PathBuf> {
 }
 
 pub fn system_or_bundled(tool: Tool) -> Result<Option<PathBuf>> {
+    let binary = bundled_path(tool)?;
+    if binary.is_file() {
+        return Ok(Some(binary));
+    }
     match which::which(tool.name()) {
         Ok(binary) => return Ok(Some(binary)),
         Err(which::Error::CannotFindBinaryPath) => {}
         Err(error) => return Err(error).context("Could not search for a system tool"),
     }
-    let binary = bundled_path(tool)?;
-    Ok(binary.is_file().then_some(binary))
+    if tool == Tool::Gpg {
+        if let Ok(binary) = which::which("gpg2") {
+            return Ok(Some(binary));
+        }
+    }
+    Ok(None)
 }
 
 pub fn path_with_tools(existing: Option<&OsStr>) -> Result<OsString> {
@@ -81,6 +90,8 @@ pub fn path_with_tools(existing: Option<&OsStr>) -> Result<OsString> {
         directory.join("git/usr/bin"),
         directory.join("codex/bin"),
         directory.join("github-cli/bin"),
+        directory.join("gpg/bin"),
+        directory.join("gpg"),
     ]);
     std::env::join_paths(paths).context("Could not add bundled tools to the command search path")
 }
@@ -107,10 +118,26 @@ pub fn configure_git(binary: &Path, command: &mut util::command::Command) -> Res
 }
 
 pub async fn ensure_tool(tool: Tool, http: Arc<dyn HttpClient>) -> Result<PathBuf> {
-    if let Some(binary) = system_or_bundled(tool)? {
-        return Ok(binary);
+    let bundled = bundled_path(tool)?;
+    if bundled.is_file() {
+        return Ok(bundled);
     }
-    install_tool(tool, tools_directory()?, http).await
+    match install_tool(tool, tools_directory()?, http).await {
+        Ok(binary) => Ok(binary),
+        Err(install_error) => {
+            if let Some(system) = system_or_bundled(tool)? {
+                log::warn!(
+                    "Could not install bundled {}: {:#}. Falling back to system binary at {}",
+                    tool.name(),
+                    install_error,
+                    system.display()
+                );
+                Ok(system)
+            } else {
+                Err(install_error)
+            }
+        }
+    }
 }
 
 fn asset_suffix(tool: Tool, operating_system: &str, architecture: &str) -> Result<String> {
@@ -144,6 +171,26 @@ fn asset_suffix(tool: Tool, operating_system: &str, architecture: &str) -> Resul
             };
             Ok(format!("codex-{architecture}-{target}.tar.gz"))
         }
+        Tool::Gpg => match operating_system {
+            "windows" => Ok("gnupg-portable-win32.zip".to_string()),
+            "linux" => {
+                let architecture = match architecture {
+                    "x86_64" => "x86_64",
+                    "aarch64" => "aarch64",
+                    other => anyhow::bail!("Portable GPG is unavailable for {other}"),
+                };
+                Ok(format!("gpg-{architecture}-unknown-linux-musl.tar.gz"))
+            }
+            "macos" => {
+                let architecture = match architecture {
+                    "x86_64" => "x86_64",
+                    "aarch64" => "aarch64",
+                    other => anyhow::bail!("Portable GPG is unavailable for {other}"),
+                };
+                Ok(format!("gpg-{architecture}-apple-darwin.tar.gz"))
+            }
+            other => anyhow::bail!("Portable GPG is unavailable for {other}"),
+        },
     }
 }
 
@@ -159,27 +206,40 @@ async fn install_tool(
     if binary.is_file() {
         return Ok(binary);
     }
-    async_fs::create_dir_all(&directory).await.with_context(|| format!("Could not install {} beside the application at {}. Move the application to a writable folder and retry", tool.name(), directory.display()))?;
+    async_fs::create_dir_all(&directory).await.with_context(|| format!("Could not create tool directory for {} at {}. Ensure the directory is writable and retry", tool.name(), directory.display()))?;
     let staging = tempfile::Builder::new()
         .prefix(".tool-install-")
         .tempdir_in(&directory)?;
-    let release = latest_github_release(tool.repository(), true, false, http.clone()).await?;
+    let repository = tool.repository(std::env::consts::OS);
+    let release = latest_github_release(repository, true, false, http.clone()).await?;
     let suffix = asset_suffix(tool, std::env::consts::OS, std::env::consts::ARCH)?;
-    let asset = release
+    let (kind, asset) = release
         .assets
         .iter()
-        .find(|asset| {
-            if tool == Tool::Git {
-                asset.name.starts_with("dugite-native-") && asset.name.ends_with(&suffix)
+        .find_map(|asset| {
+            let matches = match tool {
+                Tool::Git => asset.name.starts_with("dugite-native-") && asset.name.ends_with(&suffix),
+                Tool::Codex => asset.name == suffix,
+                Tool::Gpg => asset.name.contains("gpg") && asset.name.ends_with(&suffix),
+            };
+            if matches {
+                let kind = if asset.name.ends_with(".zip") {
+                    AssetKind::Zip
+                } else if asset.name.ends_with(".tar.bz2") {
+                    AssetKind::TarBz2
+                } else {
+                    AssetKind::TarGz
+                };
+                Some((kind, asset))
             } else {
-                asset.name == suffix
+                None
             }
         })
         .context("No supported download was found for this tool and platform")?;
     ensure!(
         asset.browser_download_url.starts_with(&format!(
             "https://github.com/{}/releases/download/",
-            tool.repository()
+            repository
         )),
         "Unexpected tool download URL"
     );
@@ -193,7 +253,7 @@ async fn install_tool(
         &asset.browser_download_url,
         Some(digest),
         &payload,
-        AssetKind::TarGz,
+        kind,
     )
     .await
     .with_context(|| format!("Could not download and verify {}", tool.name()))?;
@@ -208,6 +268,24 @@ async fn install_tool(
         {
             use std::os::unix::fs::PermissionsExt as _;
             async_fs::set_permissions(destination, std::fs::Permissions::from_mode(0o755)).await?;
+        }
+    } else if tool == Tool::Gpg {
+        let destination = payload.join(tool.binary(std::env::consts::OS));
+        if !destination.is_file() {
+            let binary_name = tool.binary(std::env::consts::OS);
+            let file_name = binary_name.file_name().context("Invalid tool binary name")?;
+            let direct = payload.join(file_name);
+            if direct.is_file() {
+                async_fs::create_dir_all(destination.parent().context("Invalid tool layout")?).await?;
+                async_fs::rename(direct, &destination)
+                    .await
+                    .context("Could not place gpg executable in tool layout")?;
+            }
+        }
+        #[cfg(unix)]
+        if destination.is_file() {
+            use std::os::unix::fs::PermissionsExt as _;
+            async_fs::set_permissions(&destination, std::fs::Permissions::from_mode(0o755)).await?;
         }
     }
     ensure!(
@@ -241,8 +319,17 @@ mod tests {
             asset_suffix(Tool::Codex, "windows", "x86_64")?,
             "codex-x86_64-pc-windows-msvc.exe.tar.gz"
         );
+        assert_eq!(
+            asset_suffix(Tool::Gpg, "linux", "x86_64")?,
+            "gpg-x86_64-unknown-linux-musl.tar.gz"
+        );
+        assert_eq!(
+            asset_suffix(Tool::Gpg, "windows", "x86_64")?,
+            "gnupg-portable-win32.zip"
+        );
         assert!(asset_suffix(Tool::Codex, "linux", "x86").is_err());
         assert!(asset_suffix(Tool::Git, "unknown", "x86_64").is_err());
+        assert!(asset_suffix(Tool::Gpg, "unknown", "x86_64").is_err());
         Ok(())
     }
 }

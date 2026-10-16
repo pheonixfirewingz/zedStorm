@@ -21,10 +21,25 @@ pub struct GpgKeyInfo {
 }
 
 pub fn find_gpg_binary() -> Option<PathBuf> {
+    if let Ok(Some(binary)) = http_client::managed_tools::system_or_bundled(http_client::managed_tools::Tool::Gpg) {
+        return Some(binary);
+    }
     which::which("gpg")
         .or_else(|_| which::which("gpg2"))
         .or_else(|_| which::which("gpg.exe"))
         .ok()
+}
+
+pub fn find_gpgconf_binary() -> PathBuf {
+    if let Some(gpg) = find_gpg_binary() {
+        if let Some(parent) = gpg.parent() {
+            let candidate = parent.join(if cfg!(windows) { "gpgconf.exe" } else { "gpgconf" });
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+    }
+    PathBuf::from("gpgconf")
 }
 
 pub async fn ensure_loopback_pinentry() -> Result<()> {
@@ -51,7 +66,8 @@ pub async fn ensure_loopback_pinentry() -> Result<()> {
             use std::os::unix::fs::PermissionsExt as _;
             let _ = smol::fs::set_permissions(&agent_conf, std::fs::Permissions::from_mode(0o600)).await;
         }
-        let _ = smol::process::Command::new("gpgconf")
+        let gpgconf = find_gpgconf_binary();
+        let _ = smol::process::Command::new(gpgconf)
             .arg("--reload")
             .arg("gpg-agent")
             .output()
@@ -169,7 +185,8 @@ pub async fn generate_gpg_key(
         anyhow::bail!("GPG key generation failed: {stderr}");
     }
 
-    let _ = smol::process::Command::new("gpgconf")
+    let gpgconf = find_gpgconf_binary();
+    let _ = smol::process::Command::new(gpgconf)
         .arg("--reload")
         .arg("gpg-agent")
         .output()
@@ -515,14 +532,23 @@ impl GpgSigningSettings {
     }
 
     pub fn refresh(&mut self, cx: &mut Context<Self>) {
-        if self.gpg_binary.is_none() {
-            return;
-        }
-
         self.is_loading = true;
         cx.notify();
 
+        let http = cx.http_client();
         cx.spawn(async move |this, cx| {
+            if let Ok(binary) = http_client::managed_tools::ensure_tool(
+                http_client::managed_tools::Tool::Gpg,
+                http,
+            )
+            .await
+            {
+                this.update(cx, |this, _| {
+                    this.gpg_binary = Some(binary);
+                })
+                .ok();
+            }
+
             let keys = list_gpg_secret_keys().await.unwrap_or_default();
             this.update(cx, |this, cx| {
                 this.keys = keys;
