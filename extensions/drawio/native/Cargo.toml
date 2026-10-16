@@ -42,5 +42,6 @@ cairo-rs = { version = "0.18", features = ["png"], optional = true }
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
+    "Win32_Storage_Xps",
     "Win32_UI_WindowsAndMessaging",
 ] }

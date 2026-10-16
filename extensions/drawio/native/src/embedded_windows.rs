@@ -18,13 +18,10 @@ use tao::{
     window::WindowBuilder,
 };
 use windows_sys::Win32::Graphics::Gdi::*;
+use windows_sys::Win32::Storage::Xps::PrintWindow;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use wry::WebViewBuilder;
 use zed_diagrams::Document;
-
-unsafe extern "system" {
-    fn PrintWindow(hwnd: *mut c_void, hdc_blt: *mut c_void, n_flags: u32) -> i32;
-}
 
 enum CustomEvent {
     Input,
@@ -318,7 +315,7 @@ fn capture_window(hwnd: *mut c_void, width: u32, height: u32) -> Result<Vec<u8>>
         let old_bm = SelectObject(hdc_mem, hbm);
 
         // PW_RENDERFULLCONTENT = 2
-        PrintWindow(hwnd, hdc_mem, 2);
+        PrintWindow(hwnd, hdc_mem, PW_RENDERFULLCONTENT);
 
         let mut bmi: BITMAPINFO = std::mem::zeroed();
         bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
