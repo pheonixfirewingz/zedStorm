@@ -1317,6 +1317,7 @@ fn init_paths() -> HashMap<io::ErrorKind, Vec<&'static Path>> {
         paths::debug_adapters_dir(),
         paths::database_dir(),
         paths::telemetry_dir(),
+        paths::zedstorm_tools_dir(),
         paths::logs_dir(),
         paths::temp_dir(),
         paths::hang_traces_dir(),

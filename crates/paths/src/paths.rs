@@ -387,9 +387,79 @@ pub const GLOBAL_AGENTS_FILE_DISPLAY: &str =
 /// Returns the path to the extensions directory.
 ///
 /// This is where installed extensions are stored.
+/// - On Windows, outputs to an `extensions` directory next to the binary (falling back to
+///   `%LOCALAPPDATA%\\Zed\\extensions` if the binary directory cannot be determined or written to).
+/// - On Linux, outputs to `$XDG_DATA_HOME/zed/extensions` (defaulting to `~/.local/share/zed/extensions`),
+///   at the same place as the telemetry directory.
+/// - On macOS, outputs to `~/Library/Application Support/Zed/extensions`.
 pub fn extensions_dir() -> &'static PathBuf {
     static EXTENSIONS_DIR: OnceLock<PathBuf> = OnceLock::new();
-    EXTENSIONS_DIR.get_or_init(|| data_dir().join("extensions"))
+    EXTENSIONS_DIR.get_or_init(|| {
+        if let Some(custom_dir) = CUSTOM_DATA_DIR.get() {
+            return custom_dir.join("extensions");
+        }
+
+        if cfg!(target_os = "windows") {
+            if let Some(exe_extensions) = binary_extensions_dir() {
+                if std::fs::create_dir_all(&exe_extensions).is_ok() {
+                    return exe_extensions;
+                }
+            }
+            data_dir().join("extensions")
+        } else if cfg!(target_os = "linux") {
+            data_dir().join("extensions")
+        } else {
+            data_dir().join("extensions")
+        }
+    })
+}
+
+/// Returns the path to an `extensions` directory next to the current executable, if it can be determined.
+pub fn binary_extensions_dir() -> Option<PathBuf> {
+    env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|p| p.join("extensions")))
+}
+
+/// Returns the path to the `zedstorm-tools` directory used for bundled and managed tools
+/// (e.g., git, codex, github-cli).
+///
+/// - On Windows, outputs to a `zedstorm-tools` directory next to the binary (falling back to
+///   `%LOCALAPPDATA%\\Zed\\zedstorm-tools` if the binary directory cannot be determined or written to).
+/// - On Linux, outputs to `$XDG_DATA_HOME/zed/zedstorm-tools` (defaulting to `~/.local/share/zed/zedstorm-tools`),
+///   at the same place as the telemetry directory.
+/// - On macOS, outputs to `~/Library/Application Support/Zed/zedstorm-tools`.
+pub fn zedstorm_tools_dir() -> &'static PathBuf {
+    static ZEDSTORM_TOOLS_DIR: OnceLock<PathBuf> = OnceLock::new();
+    ZEDSTORM_TOOLS_DIR.get_or_init(|| {
+        if let Some(custom) = std::env::var_os("ZEDSTORM_TOOLS_DIR").map(PathBuf::from) {
+            return custom;
+        }
+
+        if let Some(custom_dir) = CUSTOM_DATA_DIR.get() {
+            return custom_dir.join("zedstorm-tools");
+        }
+
+        if cfg!(target_os = "windows") {
+            if let Some(exe_tools) = binary_zedstorm_tools_dir() {
+                if std::fs::create_dir_all(&exe_tools).is_ok() {
+                    return exe_tools;
+                }
+            }
+            data_dir().join("zedstorm-tools")
+        } else if cfg!(target_os = "linux") {
+            data_dir().join("zedstorm-tools")
+        } else {
+            data_dir().join("zedstorm-tools")
+        }
+    })
+}
+
+/// Returns the path to a `zedstorm-tools` directory next to the current executable, if it can be determined.
+pub fn binary_zedstorm_tools_dir() -> Option<PathBuf> {
+    env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|p| p.join("zedstorm-tools")))
 }
 
 /// Returns the path to the extensions directory.
@@ -698,6 +768,22 @@ mod tests {
             assert_eq!(hang_traces_dir(), &telemetry.join("hang_traces"));
             assert_eq!(log_file(), &telemetry.join("Zed.log"));
             assert_eq!(old_log_file(), &telemetry.join("Zed.log.old"));
+
+            let extensions = extensions_dir();
+            assert!(
+                extensions.ends_with("zed/extensions") || extensions.ends_with("Zed/extensions"),
+                "expected path ending in zed/extensions, got: {:?}",
+                extensions
+            );
+            assert_eq!(extensions.parent(), telemetry.parent());
+
+            let tools = zedstorm_tools_dir();
+            assert!(
+                tools.ends_with("zed/zedstorm-tools") || tools.ends_with("Zed/zedstorm-tools"),
+                "expected path ending in zed/zedstorm-tools, got: {:?}",
+                tools
+            );
+            assert_eq!(tools.parent(), telemetry.parent());
         } else if cfg!(target_os = "windows") {
             assert!(
                 telemetry.ends_with("telemetry"),
@@ -708,6 +794,20 @@ mod tests {
             assert_eq!(hang_traces_dir(), &telemetry.join("hang_traces"));
             assert_eq!(log_file(), &telemetry.join("Zed.log"));
             assert_eq!(old_log_file(), &telemetry.join("Zed.log.old"));
+
+            let extensions = extensions_dir();
+            assert!(
+                extensions.ends_with("extensions"),
+                "expected path ending in extensions, got: {:?}",
+                extensions
+            );
+
+            let tools = zedstorm_tools_dir();
+            assert!(
+                tools.ends_with("zedstorm-tools"),
+                "expected path ending in zedstorm-tools, got: {:?}",
+                tools
+            );
         }
     }
 }
