@@ -546,27 +546,34 @@ impl MultiWorkspace {
         let project = workspace.read(cx).project().clone();
         cx.subscribe_in(&project, window, {
             let workspace = workspace.downgrade();
-            move |this, _project, event, _window, cx| match event {
+            move |_this, _project, event, window, cx| match event {
                 project::Event::WorktreePathsChanged { old_worktree_paths } => {
-                    if let Some(workspace) = workspace.upgrade() {
-                        let host = workspace
-                            .read(cx)
-                            .project()
-                            .read(cx)
-                            .remote_connection_options(cx);
-                        let old_key =
-                            ProjectGroupKey::from_worktree_paths(old_worktree_paths, host);
-                        this.handle_project_group_key_change(&workspace, &old_key, cx);
-                    }
+                    let old_worktree_paths = old_worktree_paths.clone();
+                    let workspace = workspace.clone();
+                    cx.defer_in(window, move |this, _window, cx| {
+                        if let Some(workspace) = workspace.upgrade() {
+                            let host = workspace
+                                .read(cx)
+                                .project()
+                                .read(cx)
+                                .remote_connection_options(cx);
+                            let old_key =
+                                ProjectGroupKey::from_worktree_paths(&old_worktree_paths, host);
+                            this.handle_project_group_key_change(&workspace, &old_key, cx);
+                        }
+                    });
                 }
                 _ => {}
             }
         })
         .detach();
 
-        cx.subscribe_in(workspace, window, |this, workspace, event, window, cx| {
+        cx.subscribe_in(workspace, window, |_this, workspace, event, window, cx| {
             if let WorkspaceEvent::Activate = event {
-                this.activate(workspace.clone(), None, window, cx);
+                let workspace = workspace.clone();
+                cx.defer_in(window, move |this, window, cx| {
+                    this.activate(workspace, None, window, cx);
+                });
             }
         })
         .detach();

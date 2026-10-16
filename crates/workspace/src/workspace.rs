@@ -1511,7 +1511,7 @@ pub enum Event {
         title: &'static str,
         language: &'static str,
     },
-    ZoomChanged,
+    ZoomChanged(bool),
     ModalOpened,
     Activate,
     PanelAdded(AnyView),
@@ -4767,7 +4767,7 @@ impl Workspace {
         if self.zoomed_position != dock_to_reveal {
             self.zoomed = None;
             self.zoomed_position = None;
-            cx.emit(Event::ZoomChanged);
+            cx.emit(Event::ZoomChanged(false));
         }
 
         cx.notify();
@@ -5813,7 +5813,7 @@ impl Workspace {
             self.zoomed = None;
         }
         self.zoomed_position = None;
-        cx.emit(Event::ZoomChanged);
+        cx.emit(Event::ZoomChanged(false));
         pane.update(cx, |pane, _| {
             pane.track_alternate_file_items();
         });
@@ -5947,7 +5947,7 @@ impl Workspace {
                     if pane.read(cx).has_focus(window, cx) {
                         self.zoomed = Some(pane.downgrade().into());
                         self.zoomed_position = None;
-                        cx.emit(Event::ZoomChanged);
+                        cx.emit(Event::ZoomChanged(true));
                     }
                     cx.notify();
                 }
@@ -5956,7 +5956,7 @@ impl Workspace {
                 pane.update(cx, |pane, cx| pane.set_zoomed(false, cx));
                 if self.zoomed_position.is_none() {
                     self.zoomed = None;
-                    cx.emit(Event::ZoomChanged);
+                    cx.emit(Event::ZoomChanged(false));
                 }
                 cx.notify();
             }
@@ -7838,7 +7838,7 @@ impl Workspace {
             });
             self.zoomed = None;
             self.zoomed_position = None;
-            cx.emit(Event::ZoomChanged);
+            cx.emit(Event::ZoomChanged(false));
         }
 
         if let Some(maximized) = self.maximized_pane.take() {
@@ -18786,6 +18786,31 @@ mod tests {
             );
             assert!(!first_panel.read(cx).zoomed);
             assert!(second_panel.read(cx).zoomed);
+        });
+    }
+
+    #[gpui::test]
+    async fn test_dock_zoom_changed_event_does_not_double_lease_workspace(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        init_test(cx);
+        let fs = FakeFs::new(cx.executor());
+        let project = Project::test(fs, [], cx).await;
+        let (workspace, cx) =
+            cx.add_window_view(|window, cx| Workspace::test_new(project, window, cx));
+
+        // When workspace emits Event::ZoomChanged from inside an update closure,
+        // dock's subscription should receive the event without attempting to read
+        // the workspace while it is currently leased for updating.
+        workspace.update_in(cx, |_workspace, _window, cx| {
+            cx.emit(Event::ZoomChanged(true));
+            cx.emit(Event::ZoomChanged(false));
+        });
+
+        workspace.read_with(cx, |workspace, cx| {
+            assert!(!workspace.left_dock().read(cx).zoom_layer_open);
+            assert!(!workspace.bottom_dock().read(cx).zoom_layer_open);
+            assert!(!workspace.right_dock().read(cx).zoom_layer_open);
         });
     }
 

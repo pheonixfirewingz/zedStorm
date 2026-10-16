@@ -481,9 +481,17 @@ impl ProjectSearch {
         cx: &mut Context<Self>,
     ) -> Option<Subscription> {
         workspace.upgrade().map(|workspace| {
-            cx.subscribe(&workspace, |this, _, event, cx| {
+            let this = cx.weak_entity();
+            cx.subscribe(&workspace, move |_, _, event, cx| {
                 if matches!(event, workspace::Event::ItemRemoved { .. }) {
-                    this.remove_closed_untitled_buffers(cx);
+                    let this = this.clone();
+                    cx.defer(move |cx| {
+                        if let Some(this) = this.upgrade() {
+                            this.update(cx, |this, cx| {
+                                this.remove_closed_untitled_buffers(cx);
+                            });
+                        }
+                    });
                 }
             })
         })

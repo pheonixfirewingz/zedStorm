@@ -289,7 +289,7 @@ pub struct Dock {
     focus_handle: FocusHandle,
     focus_follows_mouse: FocusFollowsMouse,
     restoration: DockRestoreState,
-    zoom_layer_open: bool,
+    pub(crate) zoom_layer_open: bool,
     modal_layer: Entity<ModalLayer>,
     _subscriptions: [Subscription; 2],
 }
@@ -441,10 +441,9 @@ impl Dock {
                             .focus(window, cx)
                     }
                 });
-            let zoom_subscription = cx.subscribe(&workspace, |dock, workspace, e: &Event, cx| {
-                if matches!(e, Event::ZoomChanged) {
-                    let is_zoomed = workspace.read(cx).zoomed.is_some();
-                    dock.zoom_layer_open = is_zoomed;
+            let zoom_subscription = cx.subscribe(&workspace, |dock, _workspace, e: &Event, _cx| {
+                if let Event::ZoomChanged(is_zoomed) = e {
+                    dock.zoom_layer_open = *is_zoomed;
                 }
             });
             Self {
@@ -471,14 +470,15 @@ impl Dock {
                 let Some(panel) = dock.read(cx).active_panel() else {
                     return;
                 };
-                if panel.is_zoomed(window, cx) {
+                let is_zoomed = panel.is_zoomed(window, cx);
+                if is_zoomed {
                     workspace.zoomed = Some(panel.to_any().downgrade());
                     workspace.zoomed_position = Some(position);
                 } else {
                     workspace.zoomed = None;
                     workspace.zoomed_position = None;
                 }
-                cx.emit(Event::ZoomChanged);
+                cx.emit(Event::ZoomChanged(is_zoomed));
                 workspace.dismiss_zoomed_items_to_reveal(Some(position), window, cx);
                 cx.notify()
             }
@@ -492,13 +492,13 @@ impl Dock {
             {
                 workspace.zoomed = Some(panel.to_any().downgrade());
                 workspace.zoomed_position = Some(position);
-                cx.emit(Event::ZoomChanged);
+                cx.emit(Event::ZoomChanged(true));
                 return;
             }
             if workspace.zoomed_position == Some(position) {
                 workspace.zoomed = None;
                 workspace.zoomed_position = None;
-                cx.emit(Event::ZoomChanged);
+                cx.emit(Event::ZoomChanged(false));
             }
         })
         .detach();
@@ -741,7 +741,7 @@ impl Dock {
                                 workspace.zoomed = Some(panel.downgrade().into());
                                 workspace.zoomed_position =
                                     Some(panel.read(cx).position(window, cx));
-                                cx.emit(Event::ZoomChanged);
+                                cx.emit(Event::ZoomChanged(true));
                             })
                             .ok();
                     }
@@ -752,7 +752,7 @@ impl Dock {
                                 if workspace.zoomed_position == Some(this.position) {
                                     workspace.zoomed = None;
                                     workspace.zoomed_position = None;
-                                    cx.emit(Event::ZoomChanged);
+                                    cx.emit(Event::ZoomChanged(false));
                                 }
                                 cx.notify();
                             })
