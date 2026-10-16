@@ -16,19 +16,115 @@ pub struct Conversation {
     messages: Vec<Value>,
     items: Vec<Value>,
     next_turn: usize,
+    #[serde(default)]
+    pub context_tokens: Option<u64>,
+    #[serde(default)]
+    pub context_window: Option<u64>,
     #[serde(skip)]
     active_turn: Option<String>,
     #[serde(skip)]
     steering: Vec<Value>,
 }
 
+pub fn known_context_length(model: &str) -> Option<u64> {
+    let lower = model.to_ascii_lowercase();
+    if lower.contains("large-4") {
+        Some(1_048_576)
+    } else if lower.contains("codestral-2405")
+        || lower.contains("open-mistral-7b")
+        || lower.contains("open-mixtral-8x7b")
+        || lower.contains("mistral-small-2402")
+        || lower.contains("mistral-small-2409")
+    {
+        Some(32_768)
+    } else if lower.contains("open-mixtral-8x22b") {
+        Some(65_536)
+    } else if lower.contains("2603")
+        || lower.contains("devstral")
+        || lower.contains("codestral-25")
+        || lower.contains("codestral-latest")
+        || lower.contains("mistral-medium-3-5")
+        || lower.contains("mistral-large-2411")
+        || lower.contains("mistral-large-latest")
+    {
+        Some(262_144)
+    } else if lower.contains("mistral-large")
+        || lower.contains("mistral-medium")
+        || lower.contains("mistral-small")
+        || lower.contains("ministral")
+        || lower.contains("pixtral")
+    {
+        Some(131_072)
+    } else {
+        None
+    }
+}
+
+pub fn auto_continue_delay() -> std::time::Duration {
+    if let Ok(ms) = std::env::var("MISTRAL_AUTO_CONTINUE_DELAY_MS") {
+        if let Ok(ms) = ms.parse::<u64>() {
+            return std::time::Duration::from_millis(ms);
+        }
+    }
+    std::time::Duration::from_secs(5)
+}
+
+fn is_tool_limit_continuation_needed(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    lower.contains("limit")
+        || lower.contains("continue")
+        || lower.contains("30 tool")
+        || lower.contains("30 step")
+        || lower.contains("reach")
+}
+
 struct Client {
     http: Arc<dyn HttpClient>,
     key: String,
     base: String,
+    context_lengths: Mutex<BTreeMap<String, u64>>,
 }
 
 impl Client {
+    fn new(http: Arc<dyn HttpClient>, key: String, base: String) -> Self {
+        Self {
+            http,
+            key,
+            base,
+            context_lengths: Mutex::new(BTreeMap::new()),
+        }
+    }
+
+    fn record_model_context_lengths(&self, data: &Value) {
+        if let Some(models) = data.get("data").and_then(Value::as_array) {
+            if let Ok(mut map) = self.context_lengths.lock() {
+                for m in models {
+                    if let Some(len) = m.get("max_context_length").and_then(Value::as_u64) {
+                        if let Some(id) = m.get("id").and_then(Value::as_str) {
+                            map.insert(id.to_owned(), len);
+                        }
+                        if let Some(aliases) = m.get("aliases").and_then(Value::as_array) {
+                            for alias in aliases {
+                                if let Some(a) = alias.as_str() {
+                                    map.insert(a.to_owned(), len);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn context_window(&self, model: &str) -> Option<u64> {
+        if let Ok(map) = self.context_lengths.lock() {
+            if let Some(&len) = map.get(model) {
+                return Some(len);
+            }
+        }
+        known_context_length(model)
+    }
+
     async fn request(
         &self,
         endpoint: &str,
@@ -89,11 +185,11 @@ pub async fn serve(
     outgoing: channel::Receiver<Value>,
     incoming: channel::Sender<Result<Value>>,
 ) -> Result<()> {
-    let client = Arc::new(Client {
+    let client = Arc::new(Client::new(
         http,
         key,
-        base: "https://api.mistral.ai/v1".into(),
-    });
+        "https://api.mistral.ai/v1".into(),
+    ));
     let default_model = std::env::var("MISTRAL_MODEL").unwrap_or_else(|_| "devstral-latest".into());
     serve_with_client(
         client,
@@ -135,6 +231,7 @@ async fn serve_with_client(
                         .read_to_end(&mut bytes)
                         .await?;
                     let data: Value = serde_json::from_slice(&bytes)?;
+                    client.record_model_context_lengths(&data);
                     Ok::<_, anyhow::Error>(model_list(&data))
                 }
                 .await;
@@ -151,11 +248,34 @@ async fn serve_with_client(
                 }
             }
             Some("thread/start" | "thread/resume") => {
-                let items = conversation
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("Mistral conversation lock failed"))?
-                    .items
-                    .clone();
+                let (items, context_tokens, context_window) = {
+                    let state = conversation
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("Mistral conversation lock failed"))?;
+                    (
+                        state.items.clone(),
+                        state.context_tokens,
+                        state.context_window.or_else(|| client.context_window(&default_model)),
+                    )
+                };
+                if let Some(tokens) = context_tokens {
+                    send(
+                        &incoming,
+                        json!({
+                            "method": "thread/tokenUsage/updated",
+                            "params": {
+                                "threadId": "mistral-local",
+                                "tokenUsage": {
+                                    "last": {
+                                        "totalTokens": tokens,
+                                    },
+                                    "modelContextWindow": context_window,
+                                }
+                            }
+                        }),
+                    )
+                    .await?;
+                }
                 json!({"thread": {"id": "mistral-local", "turns": [{"items": items}]}, "model": default_model})
             }
             Some("turn/start") => {
@@ -417,6 +537,195 @@ fn read_bounded(path: &Path) -> Result<String> {
     Ok(String::from_utf8(bytes)?)
 }
 
+
+fn find_compaction_split_point(messages: &[Value]) -> usize {
+    if messages.len() <= 3 {
+        return messages.len();
+    }
+    // Try keeping the last 2 messages
+    let mut split = messages.len().saturating_sub(2).max(1);
+    while split > 1 && messages[split].get("role").and_then(Value::as_str) == Some("tool") {
+        split -= 1;
+    }
+    if split > 1 && messages[split].get("role").and_then(Value::as_str) == Some("assistant") {
+        if messages[split].get("tool_calls").is_some() {
+            split -= 1;
+        }
+    }
+    if split <= 1 {
+        messages.len()
+    } else {
+        split
+    }
+}
+
+fn fallback_summary(messages: &[Value]) -> String {
+    let mut parts = Vec::new();
+    for msg in messages {
+        let role = msg.get("role").and_then(Value::as_str).unwrap_or("unknown");
+        let content = content_text(&msg["content"]);
+        if !content.is_empty() {
+            let snippet = if content.len() > 200 {
+                format!("{}…", &content[..200])
+            } else {
+                content
+            };
+            parts.push(format!("- {role}: {snippet}"));
+        } else if let Some(calls) = msg.get("tool_calls").and_then(Value::as_array) {
+            let names = calls
+                .iter()
+                .filter_map(|c| c["function"]["name"].as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            parts.push(format!("- tool calls: {names}"));
+        }
+    }
+    parts.join("\n")
+}
+
+async fn summarize_messages(
+    client: &Client,
+    model: &str,
+    messages_to_summarize: &[Value],
+) -> String {
+    let mut formatted = String::new();
+    for msg in messages_to_summarize {
+        let role = msg["role"].as_str().unwrap_or("unknown");
+        let mut content = content_text(&msg["content"]);
+        if content.is_empty() {
+            if let Some(text) = msg["content"].as_str() {
+                content = text.to_string();
+            } else if let Some(calls) = msg["tool_calls"].as_array() {
+                let names = calls
+                    .iter()
+                    .filter_map(|c| c["function"]["name"].as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                content = format!("Called tools: {names}");
+            }
+        }
+        if !content.is_empty() {
+            let truncated = if content.len() > 2000 {
+                format!("{}... [truncated]", &content[..2000])
+            } else {
+                content
+            };
+            formatted.push_str(&format!("{role}: {truncated}\n\n"));
+        }
+    }
+
+    let summary_prompt = format!(
+        "Summarize the following interaction history between the user and assistant concisely for a coding assistant context compaction. Retain all key user requirements, completed tasks, findings, code modifications, and current status:\n\n{formatted}"
+    );
+
+    let request = json!({
+        "model": model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a concise assistant summarizing past conversation history for context compaction."
+            },
+            {
+                "role": "user",
+                "content": summary_prompt
+            }
+        ],
+        "temperature": 0.2
+    });
+
+    let api_summary = async {
+        let mut response = client.request("chat/completions", Some(request)).await.ok()?;
+        let mut bytes = Vec::new();
+        response.body_mut().take(64 * 1024).read_to_end(&mut bytes).await.ok()?;
+        let result: Value = serde_json::from_slice(&bytes).ok()?;
+        let text = result["choices"][0]["message"]["content"].as_str()?.to_owned();
+        Some(text)
+    }
+    .await;
+
+    if let Some(summary) = api_summary.filter(|s| !s.trim().is_empty()) {
+        summary
+    } else {
+        fallback_summary(messages_to_summarize)
+    }
+}
+
+async fn compact_context(
+    client: &Client,
+    model: &str,
+    conversation: &SharedConversation,
+    messages: &mut Vec<Value>,
+    items: &mut Vec<Value>,
+    turn: &str,
+    step: usize,
+    incoming: &channel::Sender<Result<Value>>,
+) -> Result<()> {
+    if messages.len() <= 2 {
+        return Ok(());
+    }
+
+    let compaction_id = format!("{turn}-compaction-{step}");
+    send(
+        incoming,
+        json!({
+            "method": "item/started",
+            "params": {
+                "threadId": "mistral-local",
+                "turnId": turn,
+                "item": {
+                    "id": &compaction_id,
+                    "type": "contextCompaction",
+                }
+            }
+        }),
+    )
+    .await?;
+
+    let split_point = find_compaction_split_point(messages);
+    let to_summarize = if split_point >= messages.len() {
+        &messages[1..]
+    } else {
+        &messages[1..split_point]
+    };
+    let summary = summarize_messages(client, model, to_summarize).await;
+
+    let mut compacted = Vec::with_capacity(3 + messages.len().saturating_sub(split_point));
+    compacted.push(messages[0].clone());
+    compacted.push(json!({
+        "role": "user",
+        "content": format!("[Context Compaction Summary]:\n{summary}")
+    }));
+    compacted.push(json!({
+        "role": "assistant",
+        "content": "Understood. I have absorbed the compacted summary and will continue the task from here."
+    }));
+    if split_point < messages.len() {
+        compacted.extend_from_slice(&messages[split_point..]);
+    }
+    *messages = compacted;
+
+    let compaction_item = json!({
+        "id": &compaction_id,
+        "type": "contextCompaction",
+        "status": "completed",
+    });
+    send(
+        incoming,
+        json!({
+            "method": "item/completed",
+            "params": {
+                "threadId": "mistral-local",
+                "turnId": turn,
+                "item": &compaction_item,
+            }
+        }),
+    )
+    .await?;
+    items.push(compaction_item);
+    save_progress(conversation, messages, items)?;
+    Ok(())
+}
+
 async fn run_turn(
     client: Arc<Client>,
     conversation: SharedConversation,
@@ -482,11 +791,61 @@ async fn run_turn(
         json!({"id": format!("{turn}-user"), "type": "userMessage", "content": [{"type":"inputText", "text":prompt}]}),
     ];
     save_progress(&conversation, &messages, &mut items)?;
-    for step in 0..32 {
+    let context_window = client.context_window(&model);
+    let mut current_tokens = {
+        let state = conversation
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Mistral conversation lock failed"))?;
+        state.context_tokens
+    };
+    if let Some(tokens) = current_tokens {
+        send(
+            incoming,
+            json!({
+                "method": "thread/tokenUsage/updated",
+                "params": {
+                    "threadId": "mistral-local",
+                    "tokenUsage": {
+                        "last": {
+                            "totalTokens": tokens,
+                        },
+                        "modelContextWindow": context_window,
+                    }
+                }
+            }),
+        )
+        .await?;
+    }
+    let mut tools_in_run: usize = 0;
+    let mut tools_since_auto_continue: usize = 0;
+    for step in 0..512 {
+        if let (Some(tokens), Some(window)) = (current_tokens, context_window) {
+            if window > 0 && tokens >= (window * 80) / 100 {
+                compact_context(
+                    &client,
+                    &model,
+                    &conversation,
+                    &mut messages,
+                    &mut items,
+                    turn,
+                    step,
+                    incoming,
+                )
+                .await?;
+                current_tokens = None;
+            }
+        }
         if apply_steering(&conversation, &mut messages, &mut items, false)? {
             save_progress(&conversation, &messages, &mut items)?;
         }
-        let mut request = json!({"model": model, "messages": messages, "tools": tools, "stream": true, "parallel_tool_calls": false});
+        let mut request = json!({
+            "model": model,
+            "messages": messages,
+            "tools": tools,
+            "stream": true,
+            "stream_options": {"include_usage": true},
+            "parallel_tool_calls": false
+        });
         if let Some(effort) = effort.filter(|_| !supported_efforts.is_empty()) {
             request["reasoning_effort"] = json!(effort);
         }
@@ -514,19 +873,57 @@ async fn run_turn(
                 if let Some(error) = chunk.get("error") {
                     bail!("Mistral stream: {error}");
                 }
-                let delta = &chunk["choices"][0]["delta"];
-                if let Some(chunks) = delta["content"].as_array() {
-                    has_thinking |= chunks.iter().any(|chunk| chunk["type"] == "thinking");
-                    content_chunks.extend(chunks.iter().cloned());
-                } else if let Some(text) = delta["content"].as_str() {
-                    content_chunks.push(json!({"type": "text", "text": text}));
+                if let Some(usage) = chunk.get("usage").filter(|u| !u.is_null()) {
+                    let total = usage
+                        .get("total_tokens")
+                        .and_then(Value::as_u64)
+                        .or_else(|| {
+                            let prompt = usage.get("prompt_tokens").and_then(Value::as_u64)?;
+                            let completion = usage
+                                .get("completion_tokens")
+                                .and_then(Value::as_u64)
+                                .unwrap_or(0);
+                            Some(prompt + completion)
+                        });
+                    if let Some(total) = total {
+                        current_tokens = Some(total);
+                        if let Ok(mut state) = conversation.lock() {
+                            state.context_tokens = Some(total);
+                            state.context_window = context_window;
+                        }
+                        send(
+                            incoming,
+                            json!({
+                                "method": "thread/tokenUsage/updated",
+                                "params": {
+                                    "threadId": "mistral-local",
+                                    "tokenUsage": {
+                                        "last": {
+                                            "totalTokens": total,
+                                        },
+                                        "modelContextWindow": context_window,
+                                    }
+                                }
+                            }),
+                        )
+                        .await?;
+                    }
                 }
-                let content = content_text(&delta["content"]);
-                if !content.is_empty() {
-                    text.push_str(&content);
-                    send(incoming, json!({"method": "item/agentMessage/delta", "params": {"threadId": "mistral-local", "turnId": turn, "itemId": message_id, "delta":content}})).await?;
+                if let Some(choice) = chunk.get("choices").and_then(Value::as_array).and_then(|c| c.first()) {
+                    let delta = &choice["delta"];
+                    if let Some(chunks) = delta["content"].as_array() {
+                        has_thinking |= chunks.iter().any(|chunk| chunk["type"] == "thinking");
+                        content_chunks.extend(chunks.iter().cloned());
+                    } else if let Some(text) = delta["content"].as_str() {
+                        content_chunks.push(json!({"type": "text", "text": text}));
+                    }
+                    let content = content_text(&delta["content"]);
+                    if !content.is_empty() {
+                        text.push_str(&content);
+                        send(incoming, json!({"method": "item/agentMessage/delta", "params": {"threadId": "mistral-local", "turnId": turn, "itemId": message_id, "delta":content}})).await?;
+                    }
+                    merge_calls(&mut calls, &delta["tool_calls"])?;
                 }
-                merge_calls(&mut calls, &delta["tool_calls"])?;
             }
             line.clear();
         }
@@ -547,6 +944,51 @@ async fn run_turn(
         items.push(item);
         if calls.is_empty() {
             if apply_steering(&conversation, &mut messages, &mut items, true)? {
+                save_progress(&conversation, &messages, &mut items)?;
+                continue;
+            }
+            if tools_in_run > 0 && tools_in_run % 30 == 0 && is_tool_limit_continuation_needed(&text) {
+                let delay_id = format!("{turn}-autocontinue-{step}");
+                send(
+                    incoming,
+                    json!({
+                        "method": "item/started",
+                        "params": {
+                            "threadId": "mistral-local",
+                            "turnId": turn,
+                            "item": {
+                                "id": &delay_id,
+                                "type": "autoContinue",
+                                "text": "30 tools reached for this run. Auto-continuing after 5 seconds delay…",
+                            }
+                        }
+                    }),
+                )
+                .await?;
+                smol::Timer::after(auto_continue_delay()).await;
+                send(
+                    incoming,
+                    json!({
+                        "method": "item/completed",
+                        "params": {
+                            "threadId": "mistral-local",
+                            "turnId": turn,
+                            "item": {
+                                "id": &delay_id,
+                                "type": "autoContinue",
+                                "text": "Auto-continuing run…",
+                                "status": "completed",
+                            }
+                        }
+                    }),
+                )
+                .await?;
+                messages.push(json!({"role": "user", "content": "Continue."}));
+                items.push(json!({
+                    "id": format!("{turn}-autocontinue-msg-{step}"),
+                    "type": "userMessage",
+                    "content": [{"type": "inputText", "text": "Continue."}],
+                }));
                 save_progress(&conversation, &messages, &mut items)?;
                 continue;
             }
@@ -610,10 +1052,50 @@ async fn run_turn(
             let item = json!({"id":format!("{turn}-{call_id}"),"type":"mcpToolCall","server":"zedstorm","tool":name,"status":if output["isError"] == true {"failed"} else {"completed"},"result":output});
             send(incoming,json!({"method":"item/completed","params":{"threadId":"mistral-local","turnId":turn,"item":item}})).await?;
             items.push(item);
+            tools_in_run += 1;
+            tools_since_auto_continue += 1;
         }
         save_progress(&conversation, &messages, &mut items)?;
+        if tools_since_auto_continue >= 30 {
+            tools_since_auto_continue = 0;
+            let delay_id = format!("{turn}-autocontinue-{step}");
+            send(
+                incoming,
+                json!({
+                    "method": "item/started",
+                    "params": {
+                        "threadId": "mistral-local",
+                        "turnId": turn,
+                        "item": {
+                            "id": &delay_id,
+                            "type": "autoContinue",
+                            "text": "30 tools reached for this run. Auto-continuing after 5 seconds delay…",
+                        }
+                    }
+                }),
+            )
+            .await?;
+            smol::Timer::after(auto_continue_delay()).await;
+            send(
+                incoming,
+                json!({
+                    "method": "item/completed",
+                    "params": {
+                        "threadId": "mistral-local",
+                        "turnId": turn,
+                        "item": {
+                            "id": &delay_id,
+                            "type": "autoContinue",
+                            "text": "Auto-continuing run…",
+                            "status": "completed",
+                        }
+                    }
+                }),
+            )
+            .await?;
+        }
     }
-    bail!("Mistral reached the 32-step tool limit. Send a follow-up to continue.")
+    bail!("Mistral reached the execution step limit. Send a follow-up to continue.")
 }
 
 fn save_progress(
@@ -783,11 +1265,7 @@ mod tests {
             let (outgoing, commands) = channel::unbounded();
             let (incoming, events) = channel::unbounded();
             let server = smol::spawn(serve_with_client(
-                Arc::new(Client {
-                    http,
-                    key: "test".into(),
-                    base: "https://api.mistral.ai/v1".into(),
-                }),
+                Arc::new(Client::new(http, "test".into(), "https://api.mistral.ai/v1".into())),
                 "devstral-latest".into(),
                 conversation.clone(),
                 directory.path().into(),
@@ -962,13 +1440,13 @@ mod tests {
     fn unsupported_reasoning_fails_before_sending_a_request() -> Result<()> {
         smol::block_on(async {
             let directory = tempfile::tempdir()?;
-            let client = Arc::new(Client {
-                http: http_client::FakeHttpClient::create(|_| async {
+            let client = Arc::new(Client::new(
+                http_client::FakeHttpClient::create(|_| async {
                     bail!("Unexpected HTTP request")
                 }),
-                key: "test-key".into(),
-                base: "https://api.mistral.ai/v1".into(),
-            });
+                "test-key".into(),
+                "https://api.mistral.ai/v1".into(),
+            ));
             let (incoming, _receiver) = channel::unbounded();
             let (_approvals, approval_receiver) = channel::unbounded();
             for (model, effort) in [
@@ -1057,11 +1535,7 @@ mod tests {
                     Ok(http_client::Response::builder().body(stream.into())?)
                 }
             });
-            let client = Arc::new(Client {
-                http,
-                key: "test-key".into(),
-                base: "https://api.mistral.ai/v1".into(),
-            });
+            let client = Arc::new(Client::new(http, "test-key".into(), "https://api.mistral.ai/v1".into()));
             let conversation = SharedConversation::default();
             let (incoming, receiver) = channel::unbounded();
             let (_approvals, approval_receiver) = channel::unbounded();
@@ -1148,11 +1622,7 @@ mod tests {
                         )?)
                     }
                 });
-                let client = Arc::new(Client {
-                    http,
-                    key: "test".into(),
-                    base: "https://api.mistral.ai/v1".into(),
-                });
+                let client = Arc::new(Client::new(http, "test".into(), "https://api.mistral.ai/v1".into()));
                 let (incoming, receiver) = channel::unbounded();
                 let (approvals, approval_receiver) = channel::unbounded();
                 let runner = run_turn(
@@ -1204,11 +1674,7 @@ mod tests {
                     .status(401)
                     .body("Invalid API key".into())?)
             });
-            let client = Client {
-                http,
-                key: "test".into(),
-                base: "https://api.mistral.ai/v1".into(),
-            };
+            let client = Client::new(http, "test".into(), "https://api.mistral.ai/v1".into());
             let error = client
                 .request("models", None)
                 .await
@@ -1231,11 +1697,7 @@ mod tests {
                     futures::future::pending::<Result<http_client::Response<http_client::AsyncBody>>>().await
                 }
             });
-            let client = Arc::new(Client {
-                http,
-                key: "test".into(),
-                base: "https://api.mistral.ai/v1".into(),
-            });
+            let client = Arc::new(Client::new(http, "test".into(), "https://api.mistral.ai/v1".into()));
             let conversation = SharedConversation::default();
             let (outgoing, commands) = channel::unbounded();
             let (incoming, events) = channel::unbounded();
@@ -1274,6 +1736,410 @@ mod tests {
                     .messages
                     .is_empty()
             );
+            drop(outgoing);
+            server.await?;
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn known_model_context_length_and_dynamic_model_caching() {
+        assert_eq!(known_context_length("devstral-latest"), Some(262_144));
+        assert_eq!(known_context_length("mistral-small-latest"), Some(131_072));
+        assert_eq!(known_context_length("mistral-large-latest"), Some(262_144));
+        assert_eq!(known_context_length("mistral-large-2411"), Some(262_144));
+        assert_eq!(known_context_length("mistral-large-4-0"), Some(1_048_576));
+        assert_eq!(known_context_length("codestral-2405"), Some(32_768));
+        assert_eq!(known_context_length("unknown-custom-model"), None);
+
+        let client = Client::new(
+            http_client::FakeHttpClient::create(|_| async { bail!("Not used") }),
+            "key".into(),
+            "https://api.mistral.ai/v1".into(),
+        );
+        assert_eq!(client.context_window("devstral-latest"), Some(262_144));
+        assert_eq!(client.context_window("custom-model"), None);
+
+        client.record_model_context_lengths(&json!({
+            "data": [
+                {
+                    "id": "custom-model",
+                    "max_context_length": 123456,
+                    "aliases": ["custom-alias"]
+                }
+            ]
+        }));
+        assert_eq!(client.context_window("custom-model"), Some(123456));
+        assert_eq!(client.context_window("custom-alias"), Some(123456));
+    }
+
+    #[test]
+    fn tokens_used_are_tracked_and_sent_to_session() -> Result<()> {
+        smol::block_on(async {
+            let directory = tempfile::tempdir()?;
+            let http = http_client::FakeHttpClient::create(|request| async move {
+                if request.uri().path() == "/v1/chat/completions" {
+                    let mut bytes = Vec::new();
+                    request.into_body().read_to_end(&mut bytes).await?;
+                    let body: Value = serde_json::from_slice(&bytes)?;
+                    assert_eq!(body["stream_options"]["include_usage"], true);
+                    Ok(http_client::Response::builder().body(
+                        format!(
+                            "data: {}\n\ndata: {}\n\ndata: [DONE]\n\n",
+                            json!({"choices": [{"delta": {"content": "Hello world"}}]}),
+                            json!({
+                                "choices": [],
+                                "usage": {
+                                    "prompt_tokens": 120,
+                                    "completion_tokens": 80,
+                                    "total_tokens": 200
+                                }
+                            })
+                        )
+                        .into(),
+                    )?)
+                } else {
+                    bail!("Unexpected request: {}", request.uri())
+                }
+            });
+            let conversation = SharedConversation::default();
+            let (outgoing, commands) = channel::unbounded();
+            let (incoming, events) = channel::unbounded();
+            let server = smol::spawn(serve_with_client(
+                Arc::new(Client::new(http, "test".into(), "https://api.mistral.ai/v1".into())),
+                "devstral-latest".into(),
+                conversation.clone(),
+                directory.path().into(),
+                commands,
+                incoming,
+            ));
+            outgoing.send(json!({"id": 1, "method": "initialize"})).await?;
+            assert_eq!(events.recv().await??["id"], 1);
+
+            outgoing.send(json!({
+                "id": 2,
+                "method": "turn/start",
+                "params": {"input": [{"text": "Hello"}]}
+            })).await?;
+
+            let mut received_usage_update = false;
+            let mut turn_completed = false;
+            while let Ok(msg) = events.recv().await {
+                let msg = msg?;
+                if msg.get("method").and_then(Value::as_str) == Some("thread/tokenUsage/updated") {
+                    let tokens = msg["params"]["tokenUsage"]["last"]["totalTokens"].as_u64();
+                    let window = msg["params"]["tokenUsage"]["modelContextWindow"].as_u64();
+                    assert_eq!(tokens, Some(200));
+                    assert_eq!(window, Some(262_144));
+                    received_usage_update = true;
+                } else if msg.get("method").and_then(Value::as_str) == Some("turn/completed") {
+                    turn_completed = true;
+                    break;
+                }
+            }
+            assert!(received_usage_update, "Token usage update notification was not received");
+            assert!(turn_completed, "Turn did not complete");
+
+            let state = conversation.lock().unwrap();
+            assert_eq!(state.context_tokens, Some(200));
+            assert_eq!(state.context_window, Some(262_144));
+            drop(state);
+
+            outgoing.send(json!({"id": 3, "method": "thread/resume"})).await?;
+            let resume_token_update = events.recv().await??;
+            assert_eq!(resume_token_update["method"], "thread/tokenUsage/updated");
+            assert_eq!(resume_token_update["params"]["tokenUsage"]["last"]["totalTokens"], 200);
+            assert_eq!(resume_token_update["params"]["tokenUsage"]["modelContextWindow"], 262_144);
+
+            let resume_res = events.recv().await??;
+            assert_eq!(resume_res["id"], 3);
+
+            drop(outgoing);
+            server.await?;
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn auto_compacts_context_at_80_percent_of_known_model_context_length() -> Result<()> {
+        smol::block_on(async {
+            let directory = tempfile::tempdir()?;
+            let http = http_client::FakeHttpClient::create(|request| async move {
+                if request.uri().path() == "/v1/chat/completions" {
+                    let mut bytes = Vec::new();
+                    request.into_body().read_to_end(&mut bytes).await?;
+                    let body: Value = serde_json::from_slice(&bytes)?;
+                    if body["messages"].as_array().map_or(false, |msgs| {
+                        msgs.iter().any(|m| m["role"] == "system" && m["content"].as_str().unwrap_or("").contains("summarizing past conversation"))
+                    }) {
+                        return Ok(http_client::Response::builder().body(
+                            json!({
+                                "choices": [{"message": {"role": "assistant", "content": "Summary of previous tasks"}}]
+                            }).to_string().into()
+                        )?);
+                    }
+                    Ok(http_client::Response::builder().body(
+                        format!(
+                            "data: {}\n\ndata: {}\n\ndata: [DONE]\n\n",
+                            json!({"choices": [{"delta": {"content": "Continuing after compaction"}}]}),
+                            json!({
+                                "choices": [],
+                                "usage": {
+                                    "prompt_tokens": 1000,
+                                    "completion_tokens": 50,
+                                    "total_tokens": 1050
+                                }
+                            })
+                        )
+                        .into(),
+                    )?)
+                } else {
+                    bail!("Unexpected request: {}", request.uri())
+                }
+            });
+
+            let conversation = SharedConversation::default();
+            {
+                let mut state = conversation.lock().unwrap();
+                state.context_tokens = Some(27_000);
+                state.context_window = Some(32_768);
+                state.messages = vec![
+                    json!({"role": "system", "content": "You are a coding assistant"}),
+                    json!({"role": "user", "content": "Long past task 1"}),
+                    json!({"role": "assistant", "content": "Completed task 1"}),
+                ];
+            }
+
+            let (outgoing, commands) = channel::unbounded();
+            let (incoming, events) = channel::unbounded();
+            let server = smol::spawn(serve_with_client(
+                Arc::new(Client::new(http, "test".into(), "https://api.mistral.ai/v1".into())),
+                "codestral-2405".into(),
+                conversation.clone(),
+                directory.path().into(),
+                commands,
+                incoming,
+            ));
+            outgoing.send(json!({"id": 1, "method": "initialize"})).await?;
+            assert_eq!(events.recv().await??["id"], 1);
+
+            outgoing.send(json!({
+                "id": 2,
+                "method": "turn/start",
+                "params": {"input": [{"text": "Next prompt"}]}
+            })).await?;
+
+            let mut saw_compaction_started = false;
+            let mut saw_compaction_completed = false;
+            while let Ok(msg) = events.recv().await {
+                let msg = msg?;
+                if let Some(item) = msg.pointer("/params/item") {
+                    if item["type"] == "contextCompaction" {
+                        if msg["method"] == "item/started" {
+                            saw_compaction_started = true;
+                        } else if msg["method"] == "item/completed" {
+                            saw_compaction_completed = true;
+                        }
+                    }
+                }
+                if msg.get("method").and_then(Value::as_str) == Some("turn/completed") {
+                    break;
+                }
+            }
+            assert!(saw_compaction_started, "contextCompaction item was not started");
+            assert!(saw_compaction_completed, "contextCompaction item was not completed");
+
+            let state = conversation.lock().unwrap();
+            let summary_msg = state.messages.iter().find(|m| {
+                m["content"].as_str().map_or(false, |c| c.contains("[Context Compaction Summary]"))
+            });
+            assert!(summary_msg.is_some(), "Compacted summary message not found in conversation messages");
+            drop(state);
+
+            drop(outgoing);
+            server.await?;
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn auto_continues_after_30_tools_with_delay() -> Result<()> {
+        unsafe { std::env::set_var("MISTRAL_AUTO_CONTINUE_DELAY_MS", "10"); }
+        smol::block_on(async {
+            let directory = tempfile::tempdir()?;
+            let call_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let call_count_clone = call_count.clone();
+            let http = http_client::FakeHttpClient::create(move |request| {
+                let count = call_count_clone.clone();
+                async move {
+                    if request.uri().path() == "/v1/chat/completions" {
+                        let step = count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        if step < 30 {
+                            let tool_call = json!([{
+                                "index": 0,
+                                "id": format!("call-{step}"),
+                                "type": "function",
+                                "function": {
+                                    "name": "read_skill",
+                                    "arguments": json!({"name": "nonexistent"}).to_string()
+                                }
+                            }]);
+                            Ok(http_client::Response::builder().body(
+                                format!(
+                                    "data: {}\n\ndata: [DONE]\n\n",
+                                    json!({"choices": [{"delta": {"tool_calls": tool_call}}]})
+                                )
+                                .into(),
+                            )?)
+                        } else {
+                            Ok(http_client::Response::builder().body(
+                                format!(
+                                    "data: {}\n\ndata: [DONE]\n\n",
+                                    json!({"choices": [{"delta": {"content": "Finished all steps!"}}]})
+                                )
+                                .into(),
+                            )?)
+                        }
+                    } else {
+                        bail!("Unexpected request: {}", request.uri())
+                    }
+                }
+            });
+
+            let conversation = SharedConversation::default();
+            let (outgoing, commands) = channel::unbounded();
+            let (incoming, events) = channel::unbounded();
+            let server = smol::spawn(serve_with_client(
+                Arc::new(Client::new(http, "test".into(), "https://api.mistral.ai/v1".into())),
+                "devstral-latest".into(),
+                conversation.clone(),
+                directory.path().into(),
+                commands,
+                incoming,
+            ));
+            outgoing.send(json!({"id": 1, "method": "initialize"})).await?;
+            assert_eq!(events.recv().await??["id"], 1);
+
+            outgoing.send(json!({
+                "id": 2,
+                "method": "turn/start",
+                "params": {"input": [{"text": "Run tools"}]}
+            })).await?;
+
+            let mut saw_auto_continue_started = false;
+            let mut saw_auto_continue_completed = false;
+            while let Ok(msg) = events.recv().await {
+                let msg = msg?;
+                if let Some(item) = msg.pointer("/params/item") {
+                    if item["type"] == "autoContinue" {
+                        if msg["method"] == "item/started" {
+                            saw_auto_continue_started = true;
+                        } else if msg["method"] == "item/completed" {
+                            saw_auto_continue_completed = true;
+                        }
+                    }
+                }
+                if msg.get("method").and_then(Value::as_str) == Some("turn/completed") {
+                    break;
+                }
+            }
+            assert!(saw_auto_continue_started, "autoContinue item was not started");
+            assert!(saw_auto_continue_completed, "autoContinue item was not completed");
+            assert_eq!(call_count.load(std::sync::atomic::Ordering::SeqCst), 31);
+
+            drop(outgoing);
+            server.await?;
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn auto_continues_when_model_stops_at_30_tools() -> Result<()> {
+        unsafe { std::env::set_var("MISTRAL_AUTO_CONTINUE_DELAY_MS", "10"); }
+        smol::block_on(async {
+            let directory = tempfile::tempdir()?;
+            let call_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let call_count_clone = call_count.clone();
+            let http = http_client::FakeHttpClient::create(move |request| {
+                let count = call_count_clone.clone();
+                async move {
+                    if request.uri().path() == "/v1/chat/completions" {
+                        let step = count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        if step < 30 {
+                            let tool_call = json!([{
+                                "index": 0,
+                                "id": format!("call-{step}"),
+                                "type": "function",
+                                "function": {
+                                    "name": "read_skill",
+                                    "arguments": json!({"name": "nonexistent"}).to_string()
+                                }
+                            }]);
+                            Ok(http_client::Response::builder().body(
+                                format!(
+                                    "data: {}\n\ndata: [DONE]\n\n",
+                                    json!({"choices": [{"delta": {"tool_calls": tool_call}}]})
+                                )
+                                .into(),
+                            )?)
+                        } else if step == 30 {
+                            Ok(http_client::Response::builder().body(
+                                format!(
+                                    "data: {}\n\ndata: [DONE]\n\n",
+                                    json!({"choices": [{"delta": {"content": "I reached the 30 tool limit per run. Please continue."}}]})
+                                )
+                                .into(),
+                            )?)
+                        } else {
+                            Ok(http_client::Response::builder().body(
+                                format!(
+                                    "data: {}\n\ndata: [DONE]\n\n",
+                                    json!({"choices": [{"delta": {"content": "Now all done!"}}]})
+                                )
+                                .into(),
+                            )?)
+                        }
+                    } else {
+                        bail!("Unexpected request: {}", request.uri())
+                    }
+                }
+            });
+
+            let conversation = SharedConversation::default();
+            let (outgoing, commands) = channel::unbounded();
+            let (incoming, events) = channel::unbounded();
+            let server = smol::spawn(serve_with_client(
+                Arc::new(Client::new(http, "test".into(), "https://api.mistral.ai/v1".into())),
+                "devstral-latest".into(),
+                conversation.clone(),
+                directory.path().into(),
+                commands,
+                incoming,
+            ));
+            outgoing.send(json!({"id": 1, "method": "initialize"})).await?;
+            assert_eq!(events.recv().await??["id"], 1);
+
+            outgoing.send(json!({
+                "id": 2,
+                "method": "turn/start",
+                "params": {"input": [{"text": "Run 30 tools"}]}
+            })).await?;
+
+            let mut auto_continue_count = 0;
+            while let Ok(msg) = events.recv().await {
+                let msg = msg?;
+                if msg.get("method").and_then(Value::as_str) == Some("item/completed") {
+                    if msg.pointer("/params/item/type") == Some(&json!("autoContinue")) {
+                        auto_continue_count += 1;
+                    }
+                }
+                if msg.get("method").and_then(Value::as_str) == Some("turn/completed") {
+                    break;
+                }
+            }
+            assert!(auto_continue_count >= 1, "Expected autoContinue notification");
+            assert!(call_count.load(std::sync::atomic::Ordering::SeqCst) >= 31);
+
             drop(outgoing);
             server.await?;
             Ok(())
