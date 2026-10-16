@@ -422,6 +422,7 @@ fn read_process_memory(pid: u32, address: u64, len: usize) -> Option<Vec<u8>> {
 
 impl minidumper::ServerHandler for CrashServer {
     fn create_minidump_file(&self) -> Result<(File, PathBuf), io::Error> {
+        fs::create_dir_all(&self.logs_dir)?;
         let dump_path = self
             .logs_dir
             .join(

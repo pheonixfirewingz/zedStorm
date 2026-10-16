@@ -228,7 +228,12 @@ fn main() {
 
     // `zed --crash-handler` Makes zed operate in minidump crash handler mode
     if let Some(socket) = &args.crash_handler {
-        crashes::crash_server(socket.as_path(), paths::logs_dir().clone());
+        crashes::crash_server(
+            socket.as_path(),
+            paths::crashes_dir()
+                .clone()
+                .unwrap_or_else(|| paths::telemetry_dir().clone()),
+        );
         return;
     }
 
@@ -1311,6 +1316,7 @@ fn init_paths() -> HashMap<io::ErrorKind, Vec<&'static Path>> {
         paths::languages_dir(),
         paths::debug_adapters_dir(),
         paths::database_dir(),
+        paths::telemetry_dir(),
         paths::logs_dir(),
         paths::temp_dir(),
         paths::hang_traces_dir(),

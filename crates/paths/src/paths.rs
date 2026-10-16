@@ -218,22 +218,59 @@ pub fn temp_dir() -> &'static PathBuf {
     })
 }
 
+/// Returns the path to the telemetry directory used for crash reports, logs, and diagnostic traces.
+///
+/// - On Windows, outputs to a `telemetry` directory next to the binary (falling back to
+///   `%LOCALAPPDATA%\Zed\telemetry` if the binary directory cannot be determined or written to).
+/// - On Linux, outputs to `$XDG_DATA_HOME/zed/telemetry` (defaulting to `~/.local/share/zed/telemetry`),
+///   following the XDG desktop standard for long-term data storage.
+/// - On macOS, outputs to `~/Library/Logs/Zed`.
+pub fn telemetry_dir() -> &'static PathBuf {
+    static TELEMETRY_DIR: OnceLock<PathBuf> = OnceLock::new();
+    TELEMETRY_DIR.get_or_init(|| {
+        if let Some(custom_dir) = CUSTOM_DATA_DIR.get() {
+            return custom_dir.join("telemetry");
+        }
+
+        if cfg!(target_os = "windows") {
+            if let Some(exe_telemetry) = binary_telemetry_dir() {
+                if std::fs::create_dir_all(&exe_telemetry).is_ok() {
+                    return exe_telemetry;
+                }
+            }
+            data_dir().join("telemetry")
+        } else if cfg!(target_os = "linux") {
+            data_dir().join("telemetry")
+        } else if cfg!(target_os = "macos") {
+            home_dir().join("Library/Logs").join(APP_NAME)
+        } else {
+            data_dir().join("telemetry")
+        }
+    })
+}
+
+/// Returns the path to a `telemetry` directory next to the current executable, if it can be determined.
+pub fn binary_telemetry_dir() -> Option<PathBuf> {
+    env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|p| p.join("telemetry")))
+}
+
 /// Returns the path to the hang traces directory.
 pub fn hang_traces_dir() -> &'static PathBuf {
-    static LOGS_DIR: OnceLock<PathBuf> = OnceLock::new();
-    LOGS_DIR.get_or_init(|| data_dir().join("hang_traces"))
+    static HANG_TRACES_DIR: OnceLock<PathBuf> = OnceLock::new();
+    HANG_TRACES_DIR.get_or_init(|| {
+        if cfg!(target_os = "macos") {
+            data_dir().join("hang_traces")
+        } else {
+            telemetry_dir().join("hang_traces")
+        }
+    })
 }
 
 /// Returns the path to the logs directory.
 pub fn logs_dir() -> &'static PathBuf {
-    static LOGS_DIR: OnceLock<PathBuf> = OnceLock::new();
-    LOGS_DIR.get_or_init(|| {
-        if cfg!(target_os = "macos") {
-            home_dir().join("Library/Logs").join(APP_NAME)
-        } else {
-            data_dir().join("logs")
-        }
-    })
+    telemetry_dir()
 }
 
 /// Returns the path to the Zed server directory on this SSH host.
@@ -264,7 +301,11 @@ pub fn database_dir() -> &'static PathBuf {
 pub fn crashes_dir() -> &'static Option<PathBuf> {
     static CRASHES_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
     CRASHES_DIR.get_or_init(|| {
-        cfg!(target_os = "macos").then_some(home_dir().join("Library/Logs/DiagnosticReports"))
+        if cfg!(target_os = "macos") {
+            Some(home_dir().join("Library/Logs/DiagnosticReports"))
+        } else {
+            Some(telemetry_dir().clone())
+        }
     })
 }
 
@@ -273,6 +314,7 @@ pub fn crashes_retired_dir() -> &'static Option<PathBuf> {
     static CRASHES_RETIRED_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
     CRASHES_RETIRED_DIR.get_or_init(|| crashes_dir().as_ref().map(|dir| dir.join("Retired")))
 }
+
 
 /// Returns the path to the `settings.json` file.
 pub fn settings_file() -> &'static PathBuf {
@@ -634,4 +676,38 @@ pub fn global_gitignore_path() -> Option<PathBuf> {
     GLOBAL_GITIGNORE_PATH
         .get_or_init(::ignore::gitignore::gitconfig_excludes_path)
         .clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_telemetry_and_logs_dir() {
+        let telemetry = telemetry_dir();
+        let logs = logs_dir();
+        assert_eq!(telemetry, logs);
+
+        if cfg!(target_os = "linux") {
+            assert!(
+                telemetry.ends_with("zed/telemetry") || telemetry.ends_with("Zed/telemetry"),
+                "expected path ending in zed/telemetry, got: {:?}",
+                telemetry
+            );
+            assert_eq!(crashes_dir(), &Some(telemetry.clone()));
+            assert_eq!(hang_traces_dir(), &telemetry.join("hang_traces"));
+            assert_eq!(log_file(), &telemetry.join("Zed.log"));
+            assert_eq!(old_log_file(), &telemetry.join("Zed.log.old"));
+        } else if cfg!(target_os = "windows") {
+            assert!(
+                telemetry.ends_with("telemetry"),
+                "expected path ending in telemetry, got: {:?}",
+                telemetry
+            );
+            assert_eq!(crashes_dir(), &Some(telemetry.clone()));
+            assert_eq!(hang_traces_dir(), &telemetry.join("hang_traces"));
+            assert_eq!(log_file(), &telemetry.join("Zed.log"));
+            assert_eq!(old_log_file(), &telemetry.join("Zed.log.old"));
+        }
+    }
 }
