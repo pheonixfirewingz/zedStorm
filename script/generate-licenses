@@ -21,6 +21,9 @@ echo -n "" >"$OUTPUT_FILE"
     echo -e "# ###### THEME LICENSES ######\n"
     cat assets/themes/LICENSES
 
+    echo -e "\n# ###### FONT LICENSES ######\n"
+    cat assets/fonts/LICENSES
+
     echo -e "\n# ###### ICON LICENSES ######\n"
     cat assets/icons/LICENSES
 

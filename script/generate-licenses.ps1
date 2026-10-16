@@ -10,6 +10,8 @@ New-Item -Path "$outputFile" -ItemType File -Value "" -Force
 @(
     "# ###### THEME LICENSES ######\n"
     Get-Content assets/themes/LICENSES
+    "\n# ###### FONT LICENSES ######\n"
+    Get-Content assets/fonts/LICENSES
     "\n# ###### ICON LICENSES ######\n"
     Get-Content assets/icons/LICENSES
     "\n# ###### CODE LICENSES ######\n"
