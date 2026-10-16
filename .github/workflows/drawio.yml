@@ -1,0 +1,210 @@
+name: Build Draw.io Extension
+
+on:
+  push:
+    branches: [custom]
+    paths:
+      - 'extensions/drawio/**'
+      - '.github/workflows/drawio.yml'
+  pull_request:
+    branches: [custom]
+    paths:
+      - 'extensions/drawio/**'
+      - '.github/workflows/drawio.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: drawio-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_RELEASE_DEBUG: "0"
+  CARGO_PROFILE_RELEASE_LTO: "false"
+
+jobs:
+  build:
+    name: ${{ matrix.platform }} x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            runner: ubuntu-24.04
+          - platform: windows
+            runner: windows-2022
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev pkg-config
+
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain
+
+      - name: Install WASM target
+        run: rustup target add wasm32-wasip2
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-drawio-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'extensions/drawio/Cargo.lock') }}
+          restore-keys: |
+            cargo-drawio-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Build WASM extension
+        run: |
+          cargo build --release --target wasm32-wasip2 --manifest-path extensions/drawio/Cargo.toml -p zed_drawio
+
+      - name: Build Linux native companion
+        if: runner.os == 'Linux'
+        run: |
+          cargo build --release --manifest-path extensions/drawio/Cargo.toml -p zed-diagrams
+
+      - name: Package Linux extension and binaries
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dist/drawio-package
+          mkdir -p dist/drawio-linux-package/bin
+          mkdir -p dist/drawio-linux-binaries
+
+          # WASM and manifest
+          cp extensions/drawio/target/wasm32-wasip2/release/zed_drawio.wasm dist/drawio-package/extension.wasm
+          cp extensions/drawio/extension.toml dist/drawio-package/extension.toml
+
+          cp extensions/drawio/target/wasm32-wasip2/release/zed_drawio.wasm dist/drawio-linux-package/extension.wasm
+          cp extensions/drawio/extension.toml dist/drawio-linux-package/extension.toml
+
+          # Linux companion binaries
+          cp extensions/drawio/target/release/zed-diagrams dist/drawio-linux-package/bin/zed-diagrams
+          cp extensions/drawio/target/release/zed-diagrams-webview dist/drawio-linux-package/bin/zed-diagrams-webview
+          chmod +x dist/drawio-linux-package/bin/*
+
+          cp extensions/drawio/target/release/zed-diagrams dist/drawio-linux-binaries/zed-diagrams
+          cp extensions/drawio/target/release/zed-diagrams-webview dist/drawio-linux-binaries/zed-diagrams-webview
+          chmod +x dist/drawio-linux-binaries/*
+
+          # Direct binaries for root dist
+          cp dist/drawio-linux-binaries/* dist/
+
+          # Archives
+          tar -czf dist/drawio.tar.gz -C dist/drawio-package .
+          tar -czf dist/drawio-linux-x86_64.tar.gz -C dist/drawio-linux-package .
+          tar -czf dist/zed-diagrams-linux-x86_64.tar.gz -C dist/drawio-linux-binaries .
+
+      - name: Build Windows native companion
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $visualStudio = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if ($visualStudio) {
+            & "$visualStudio\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+          }
+          cargo build --release --manifest-path extensions/drawio/Cargo.toml -p zed-diagrams
+
+      - name: Package Windows extension and binaries
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path dist/drawio-windows-package/bin -Force
+          New-Item -ItemType Directory -Path dist/drawio-windows-binaries -Force
+
+          # WASM and manifest
+          Copy-Item extensions/drawio/target/wasm32-wasip2/release/zed_drawio.wasm -Destination dist/drawio-windows-package/extension.wasm
+          Copy-Item extensions/drawio/extension.toml -Destination dist/drawio-windows-package/extension.toml
+
+          # Windows companion binaries
+          Copy-Item extensions/drawio/target/release/zed-diagrams.exe -Destination dist/drawio-windows-package/bin/
+          Copy-Item extensions/drawio/target/release/zed-diagrams-webview.exe -Destination dist/drawio-windows-package/bin/
+
+          Copy-Item extensions/drawio/target/release/zed-diagrams.exe -Destination dist/drawio-windows-binaries/
+          Copy-Item extensions/drawio/target/release/zed-diagrams-webview.exe -Destination dist/drawio-windows-binaries/
+
+          # Direct binaries for root dist
+          Copy-Item extensions/drawio/target/release/zed-diagrams.exe -Destination dist/
+          Copy-Item extensions/drawio/target/release/zed-diagrams-webview.exe -Destination dist/
+
+          # Archives
+          Compress-Archive -Path dist/drawio-windows-package/* -DestinationPath dist/drawio-windows-x86_64.zip
+          Compress-Archive -Path dist/drawio-windows-binaries/* -DestinationPath dist/zed-diagrams-windows-x86_64.zip
+
+      - name: Upload build archive
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: drawio-${{ matrix.platform }}-x86_64
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+            dist/zed-diagrams*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  release:
+    name: Publish Draw.io extension release
+    needs: build
+    if: (github.ref == 'refs/heads/custom' || github.event_name == 'workflow_dispatch') && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download build archives
+        env:
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist-linux dist-windows release-assets
+          gh run download "$RUN_ID" --name drawio-linux-x86_64 --dir dist-linux
+          gh run download "$RUN_ID" --name drawio-windows-x86_64 --dir dist-windows
+          cp -r dist-linux/* release-assets/ 2>/dev/null || true
+          cp -r dist-windows/* release-assets/ 2>/dev/null || true
+          ls -la release-assets/
+
+      - name: Replace latest-extensions-build release downloads
+        env:
+          BUILD_COMMIT: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TAG_NAME: latest-extensions-build
+        run: |
+          set -euo pipefail
+          release_id=$(gh api "repos/$GH_REPO/releases" --paginate --jq ".[] | select(.tag_name == \"$TAG_NAME\") | .id" || true)
+          tag_reference=$(gh api "repos/$GH_REPO/git/matching-refs/tags/$TAG_NAME" --jq ".[] | select(.ref == \"refs/tags/$TAG_NAME\") | .ref" || true)
+          if [ -n "$tag_reference" ]; then
+            gh api --method PATCH "repos/$GH_REPO/git/refs/tags/$TAG_NAME" -f sha="$BUILD_COMMIT" -F force=true
+          else
+            gh api --method POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG_NAME" -f sha="$BUILD_COMMIT"
+          fi
+
+          notes="Latest extensions build from the custom branch. Commit: $BUILD_COMMIT. Build: $RUN_URL"
+          if [ -n "$release_id" ]; then
+            gh release upload "$TAG_NAME" release-assets/* --clobber
+            gh release edit "$TAG_NAME" --title 'Latest Extensions Build' --notes "$notes"
+          else
+            gh release create "$TAG_NAME" release-assets/* \
+              --verify-tag --title 'Latest Extensions Build' --notes "$notes"
+          fi
