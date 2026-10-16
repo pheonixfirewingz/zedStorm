@@ -130,6 +130,7 @@ serves external clients. Use one window per root when querying unsaved changes.
 | `hover` | Type information, signatures and documentation |
 | `incoming_calls`, `outgoing_calls` | Callers/callees and their call sites |
 | `rename` | Revision-checked symbol rename in undoable, unsaved editor buffers |
+| `open_file`, `open_tab` | Open a file in the active editor workspace tab, optionally navigating to line and column |
 
 Source positions use **one-based lines and zero-based UTF-16 columns**. These
 columns differ from filesystem search/read byte columns when a line contains

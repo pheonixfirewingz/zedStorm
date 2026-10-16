@@ -1,7 +1,7 @@
 use anyhow::{Context as _, Result, bail, ensure};
 use context_mcp::semantic::{Arguments, Endpoint, Request, Response, page};
 use futures::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, FutureExt as _};
-use gpui::{AnyWindowHandle, App, AppContext as _, AsyncApp, Context, Entity, Task, WeakEntity};
+use gpui::{AnyWindowHandle, App, AppContext as _, AsyncApp, Context, Entity, Focusable as _, Task, WeakEntity};
 use language::Buffer;
 use project::{
     DocumentSymbol, Location, Project,
@@ -272,6 +272,60 @@ async fn execute(
     buffers.retain(&buffer, cx);
     if name == "read_buffer" {
         return buffer.read_with(cx, |buffer, _| live_source(buffer, &arguments));
+    }
+    if matches!(name, "open_file" | "open_tab" | "open_buffer") {
+        let review = buffers
+            .1
+            .as_ref()
+            .context("Editor workspace is not available")?;
+        let project_path = project
+            .read_with(cx, |project, cx| project.find_project_path(&path, cx))?
+            .context("File is not in this editor project")?;
+        let item = cx
+            .update_window(review.window, |_, window, cx| {
+                review.workspace.update(cx, |workspace, cx| {
+                    workspace.open_path(project_path, None, true, window, cx)
+                })
+            })??
+            .await?;
+        let position = if let Some(line) = arguments.line {
+            let column = arguments.column.unwrap_or(0);
+            Some(buffer.read_with(cx, |buffer, _| {
+                let position = PointUtf16::new(line.saturating_sub(1), column);
+                let clipped = buffer.clip_point_utf16(Unclipped(position), Bias::Left);
+                Unclipped(clipped).to_point(buffer)
+            }))
+        } else {
+            None
+        };
+        cx.update_window(review.window, |_, window, cx| {
+            if let Some(editor) = item.downcast::<editor::Editor>() {
+                editor.update(cx, |editor, cx| {
+                    if let Some(point) = position {
+                        editor.change_selections(
+                            editor::SelectionEffects::scroll(editor::scroll::Autoscroll::center()),
+                            window,
+                            cx,
+                            |s| s.select_ranges([point..point]),
+                        );
+                    }
+                    editor.focus_handle(cx).focus(window, cx);
+                });
+            }
+        })?;
+        return Ok(format!(
+            "opened tab for {}{}",
+            display_path(&path, root),
+            if let Some(line) = arguments.line {
+                if let Some(column) = arguments.column {
+                    format!(":{line}:{column}")
+                } else {
+                    format!(":{line}")
+                }
+            } else {
+                String::new()
+            }
+        ));
     }
     if let Some((_, registration)) = buffers
         .0
@@ -660,7 +714,9 @@ mod tests {
         cx.update(|cx| {
             let settings = settings::SettingsStore::test(cx);
             cx.set_global(settings);
+            theme_settings::init(theme::LoadThemes::JustBase, cx);
             release_channel::init(semver::Version::new(0, 0, 0), cx);
+            editor::init(cx);
         });
     }
 
@@ -1363,6 +1419,113 @@ mod tests {
                 .buffer
                 .read_with(cx, |buffer, _| buffer.text().contains("fn gamma"))
         );
+        Ok(())
+    }
+
+    #[gpui::test]
+    async fn open_file_tab_opens_in_workspace_and_positions_cursor(cx: &mut TestAppContext) {
+        let result = open_file_tab_result(cx).await;
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    async fn open_file_tab_result(cx: &mut TestAppContext) -> Result<()> {
+        let fixture = fixture(cx, semantic_adapter()).await?;
+        let mut buffers = Buffers::default();
+        let mut async_cx = cx.to_async();
+        let project = fixture.project.downgrade();
+        let error = execute(
+            &project,
+            fixture.directory.path(),
+            "open_file",
+            Arguments {
+                path: Some("main.rs".into()),
+                ..Default::default()
+            },
+            &mut buffers,
+            &mut async_cx,
+        )
+        .await
+        .err()
+        .context("Expected missing workspace error")?;
+        assert!(format!("{error:#}").contains("Editor workspace is not available"));
+
+        let mut workspace_entity = None;
+        let window = cx.add_window(|window, cx| {
+            let workspace = workspace::Workspace::test_new(fixture.project.clone(), window, cx);
+            workspace_entity = Some(cx.entity().clone());
+            workspace
+        });
+        let workspace = workspace_entity.context("Missing workspace")?;
+        buffers.1 = Some(Review {
+            workspace: workspace.downgrade(),
+            window: window.into(),
+        });
+
+        let output = execute(
+            &project,
+            fixture.directory.path(),
+            "open_file",
+            Arguments {
+                path: Some("main.rs".into()),
+                line: Some(2),
+                column: Some(4),
+                ..Default::default()
+            },
+            &mut buffers,
+            &mut async_cx,
+        )
+        .await?;
+        assert_eq!(output, "opened tab for main.rs:2:4");
+
+        workspace.update(cx, |workspace, cx| {
+            let active_editor = workspace
+                .active_item(cx)
+                .context("No active item in workspace")?
+                .downcast::<editor::Editor>()
+                .context("Active item is not an editor")?;
+            active_editor.update(cx, |editor, cx| {
+                let display_snapshot = editor.display_snapshot(cx);
+                let selection = editor.selections.newest::<text::Point>(&display_snapshot);
+                assert_eq!(selection.start, text::Point::new(1, 4));
+            });
+            anyhow::Ok(())
+        })?;
+
+        let output = execute(
+            &project,
+            fixture.directory.path(),
+            "open_tab",
+            Arguments {
+                path: Some("helper.rs".into()),
+                ..Default::default()
+            },
+            &mut buffers,
+            &mut async_cx,
+        )
+        .await?;
+        assert_eq!(output, "opened tab for helper.rs");
+
+        workspace.update(cx, |workspace, cx| {
+            let active_editor = workspace
+                .active_item(cx)
+                .context("No active item in workspace")?
+                .downcast::<editor::Editor>()
+                .context("Active item is not an editor")?;
+            let buffer = active_editor
+                .read(cx)
+                .buffer()
+                .read(cx)
+                .as_singleton()
+                .context("Missing singleton buffer")?;
+            let file_path = buffer
+                .read(cx)
+                .file()
+                .context("Missing file")?
+                .full_path(cx);
+            assert!(file_path.ends_with("helper.rs"));
+            anyhow::Ok(())
+        })?;
+
         Ok(())
     }
 }

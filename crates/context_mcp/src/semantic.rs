@@ -25,10 +25,12 @@ pub const TOOLS: &[&str] = &[
     "incoming_calls",
     "outgoing_calls",
     "rename",
+    "open_file",
+    "open_tab",
 ];
 
 pub fn is_tool(name: &str) -> bool {
-    TOOLS.contains(&name)
+    TOOLS.contains(&name) || name == "open_buffer"
 }
 
 #[derive(Clone, Default, Deserialize, Serialize)]
@@ -60,7 +62,13 @@ impl Arguments {
         }
         if !matches!(
             name,
-            "semantic_status" | "workspace_symbols" | "symbols" | "read_buffer"
+            "semantic_status"
+                | "workspace_symbols"
+                | "symbols"
+                | "read_buffer"
+                | "open_file"
+                | "open_tab"
+                | "open_buffer"
         ) {
             ensure!(
                 self.line.is_some_and(|line| line > 0),
@@ -98,6 +106,13 @@ impl Arguments {
                 self.offset == 0 || self.line.is_none() && self.column.is_none(),
                 "Use either a source position or a continuation offset"
             );
+        }
+        if matches!(name, "open_file" | "open_tab" | "open_buffer") {
+            ensure!(
+                self.line.is_none_or(|line| line > 0),
+                "Invalid one-based line"
+            );
+            ensure!(self.offset == 0, "Open file cannot be paginated");
         }
         Ok(())
     }
@@ -262,7 +277,15 @@ pub fn tool_definitions(writable: bool) -> Vec<Value> {
             properties["path"] = json!({"type": "string", "description": "Project-relative source path."});
             required.push("path");
         }
-        if !matches!(*name, "semantic_status" | "workspace_symbols" | "symbols" | "read_buffer") {
+        if !matches!(
+            *name,
+            "semantic_status"
+                | "workspace_symbols"
+                | "symbols"
+                | "read_buffer"
+                | "open_file"
+                | "open_tab"
+        ) {
             properties["line"] = json!({"type": "integer", "minimum": 1, "description": "One-based line."});
             properties["column"] = json!({"type": "integer", "minimum": 0, "description": "Zero-based UTF-16 column, not a UTF-8 byte offset."});
             required.extend(["line", "column"]);
@@ -274,6 +297,10 @@ pub fn tool_definitions(writable: bool) -> Vec<Value> {
         if *name == "read_buffer" {
             properties["line"] = json!({"type": "integer", "minimum": 1, "description": "Optional one-based starting line; omit when continuing with offset."});
             properties["column"] = json!({"type": "integer", "minimum": 0, "default": 0, "description": "Optional zero-based UTF-16 column; omit when continuing with offset."});
+        }
+        if matches!(*name, "open_file" | "open_tab") {
+            properties["line"] = json!({"type": "integer", "minimum": 1, "description": "Optional one-based line to navigate to."});
+            properties["column"] = json!({"type": "integer", "minimum": 0, "description": "Optional zero-based UTF-16 column to navigate to."});
         }
         if *name == "rename" {
             properties["new_name"] = json!({"type": "string", "minLength": 1});
@@ -294,6 +321,8 @@ pub fn tool_definitions(writable: bool) -> Vec<Value> {
             "incoming_calls" => "Find callers of the symbol at a source position, where supported.",
             "outgoing_calls" => "Find callees of the symbol at a source position, where supported.",
             "rename" => "Rename a symbol across undoable editor buffers. Requires writes enabled in both client and editor. Changes remain unsaved; use the editor to review and save.",
+            "open_file" => "Open a file in the editor as a tab for the user. Optionally scrolls to a specified line and column.",
+            "open_tab" => "Open a file in the editor as a tab for the user. Optionally scrolls to a specified line and column.",
             _ => unreachable!(),
         };
         tool(name, description, properties, &required, *name != "rename")
@@ -347,6 +376,26 @@ mod tests {
         };
         assert!(arguments.validate("definitions").is_ok());
         assert!(arguments.validate("rename").is_err());
+        assert!(arguments.validate("open_file").is_ok());
+        assert!(arguments.validate("open_tab").is_ok());
+        assert!(
+            Arguments {
+                path: Some("src/main.rs".into()),
+                line: Some(0),
+                ..Default::default()
+            }
+            .validate("open_file")
+            .is_err()
+        );
+        assert!(
+            Arguments {
+                path: Some("src/main.rs".into()),
+                offset: 1,
+                ..Default::default()
+            }
+            .validate("open_file")
+            .is_err()
+        );
         assert!(
             !tool_definitions(false)
                 .iter()
@@ -356,6 +405,16 @@ mod tests {
             tool_definitions(true)
                 .iter()
                 .any(|tool| tool["name"] == "rename")
+        );
+        assert!(
+            tool_definitions(false)
+                .iter()
+                .any(|tool| tool["name"] == "open_file")
+        );
+        assert!(
+            tool_definitions(false)
+                .iter()
+                .any(|tool| tool["name"] == "open_tab")
         );
     }
 

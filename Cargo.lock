@@ -194,6 +194,8 @@ dependencies = [
  "smol",
  "tempfile",
  "text",
+ "theme",
+ "theme_settings",
  "ui",
  "util",
  "workspace",
