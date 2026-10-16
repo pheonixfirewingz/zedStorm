@@ -2528,6 +2528,9 @@ impl DisplaySnapshot {
         }
         let is_import = |node| is_import_node(node, &node_text);
         let is_contiguous = |end: MultiBufferOffset, start: MultiBufferOffset| {
+            if end > start {
+                return false;
+            }
             let mut at_line_start = end.to_point(snapshot).column == 0;
             snapshot.text_for_range(end..start).all(|chunk| {
                 chunk.chars().all(|character| {
@@ -2543,14 +2546,13 @@ impl DisplaySnapshot {
         };
         while !is_import(node) || node.parent().is_some_and(is_import) {
             let parent = node.parent()?;
-            range.start.0 = range
-                .start
-                .0
-                .checked_sub(node.start_byte() - parent.start_byte())?;
-            range.end.0 += parent.end_byte() - node.end_byte();
+            let start_delta = node.start_byte().checked_sub(parent.start_byte())?;
+            let end_delta = parent.end_byte().checked_sub(node.end_byte())?;
+            range.start.0 = range.start.0.checked_sub(start_delta)?;
+            range.end.0 = range.end.0.checked_add(end_delta)?;
             node = parent;
         }
-        if range.start.to_point(snapshot).row != buffer_row.0 {
+        if range.end <= range.start || range.start.to_point(snapshot).row != buffer_row.0 {
             return None;
         }
         let (_, enclosing_range) = snapshot
@@ -2577,10 +2579,22 @@ impl DisplaySnapshot {
             if !is_import(next) {
                 break;
             }
-            let next_start = MultiBufferOffset(range.end.0 + next.start_byte() - node.end_byte());
-            let next_end = MultiBufferOffset(next_start.0 + next.byte_range().len());
+            let Some(distance) = next.start_byte().checked_sub(node.end_byte()) else {
+                break;
+            };
+            let Some(next_start_offset) = range.end.0.checked_add(distance) else {
+                break;
+            };
+            let next_start = MultiBufferOffset(next_start_offset);
+            let Some(next_end_offset) = next_start.0.checked_add(next.byte_range().len()) else {
+                break;
+            };
+            let next_end = MultiBufferOffset(next_end_offset);
+            let Some(ancestor_end_offset) = next_end.0.checked_sub(1) else {
+                break;
+            };
             if snapshot
-                .syntax_ancestor(first_start..MultiBufferOffset(next_end.0 - 1))
+                .syntax_ancestor(first_start..MultiBufferOffset(ancestor_end_offset))
                 .is_none_or(|(_, enclosing_range)| enclosing_range.end < next_end)
             {
                 break;
@@ -4775,5 +4789,57 @@ pub mod tests {
         //   would produce an offset exceeding the buffer length
         let snapshot = map.update(cx, |map, cx| map.snapshot(cx));
         assert_eq!(snapshot.text(), "prefix more initial");
+    }
+
+    #[gpui::test]
+    async fn test_import_fold_range(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| init_test(cx, &|_| {}));
+
+        let text = r#"
+            use std::collections::HashMap;
+            use std::sync::Arc;
+
+            fn main() {}
+        "#
+        .unindent();
+
+        let language = Arc::new(Language::new(
+            LanguageConfig {
+                name: "Rust".into(),
+                ..Default::default()
+            },
+            Some(tree_sitter_rust::LANGUAGE.into()),
+        ));
+
+        let buffer = cx.new(|cx| Buffer::local(text, cx).with_language(language, cx));
+        cx.condition(&buffer, |buf, _| !buf.is_parsing()).await;
+        let buffer = cx.new(|cx| MultiBuffer::singleton(buffer, cx));
+
+        let map = cx.new(|cx| {
+            DisplayMap::new(
+                buffer,
+                font("Helvetica"),
+                px(14.0),
+                None,
+                1,
+                1,
+                FoldPlaceholder::test(),
+                DiagnosticSeverity::Warning,
+                cx,
+            )
+        });
+
+        let snapshot = map.update(cx, |map, cx| map.snapshot(cx));
+        let crease_0 = snapshot.crease_for_buffer_row(MultiBufferRow(0));
+        assert!(crease_0.is_some(), "row 0 should have import fold crease");
+
+        let crease_1 = snapshot.crease_for_buffer_row(MultiBufferRow(1));
+        assert!(
+            crease_1.is_none(),
+            "row 1 should not have an import crease as it folds into row 0"
+        );
+
+        let crease_3 = snapshot.crease_for_buffer_row(MultiBufferRow(3));
+        assert!(crease_3.is_none(), "row 3 should not have an import fold crease");
     }
 }
