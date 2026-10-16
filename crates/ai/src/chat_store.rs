@@ -20,6 +20,10 @@ pub struct SavedChat {
     pub settings: SessionSettings,
     pub messages: Vec<Message>,
     pub conversation: Conversation,
+    #[serde(default)]
+    pub context_tokens: Option<u64>,
+    #[serde(default)]
+    pub context_window: Option<u64>,
 }
 
 impl SavedChat {
@@ -31,6 +35,8 @@ impl SavedChat {
             settings: session.settings.clone(),
             messages: session.messages.clone(),
             conversation,
+            context_tokens: session.context_tokens,
+            context_window: session.context_window,
         }
     }
 
@@ -39,6 +45,8 @@ impl SavedChat {
         session.thread_id = self.thread_id;
         session.settings = self.settings;
         session.messages = self.messages;
+        session.context_tokens = self.context_tokens;
+        session.context_window = self.context_window;
         (
             self.backend,
             session,
@@ -107,6 +115,8 @@ mod tests {
         let mut session = Session::new(directory.path().into());
         session.thread_id = Some("codex-thread".into());
         session.busy = true;
+        session.context_tokens = Some(1234);
+        session.context_window = Some(128000);
         session.messages.push(Message {
             id: "user-1".into(),
             kind: MessageKind::User,
@@ -132,6 +142,8 @@ mod tests {
         let (backend, session, _) = restored.active.into_session();
         assert!(backend == Backend::Codex);
         assert_eq!(session.thread_id.as_deref(), Some("codex-thread"));
+        assert_eq!(session.context_tokens, Some(1234));
+        assert_eq!(session.context_window, Some(128000));
         assert_eq!(
             session
                 .messages
