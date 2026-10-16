@@ -39,8 +39,7 @@ impl project::ProjectItem for TabRendererFile {
         }
 
         let is_supported =
-            extension::TabRendererRegistry::renderer_for_path(&absolute_path, cx).is_some()
-                || absolute_path.extension().and_then(|val| val.to_str()) == Some("drawio");
+            extension::TabRendererRegistry::renderer_for_path(&absolute_path, cx).is_some();
 
         if !is_supported {
             return None;
@@ -102,25 +101,25 @@ impl TabRendererView {
         let backend_query =
             extension::TabRendererRegistry::renderer_for_path(&path, cx);
 
-        let backend_future = if let Some((_, _, callback)) = backend_query {
-            Some(callback(path.clone(), cx))
-        } else {
-            None
+        let Some((_, _, callback)) = backend_query else {
+            return Self {
+                file,
+                focus: cx.focus_handle(),
+                frame: None,
+                bounds: None,
+                commands,
+                error: Some("No tab renderer registered for this file type".into()),
+                active: false,
+                last_motion: None,
+                save_waiters: Vec::new(),
+                _process: Task::ready(()),
+                _events: Task::ready(()),
+            };
         };
 
-        let default_binary = default_binary_for_path(&path);
+        let backend_future = callback(path.clone(), cx);
         let process = cx.background_spawn(async move {
-            let backend_res = if let Some(future) = backend_future {
-                future.await
-            } else {
-                Ok(ExtensionTabRendererBackend::Command(
-                    extension::ExtensionTabRendererCommand {
-                        path: default_binary,
-                        args: vec!["--embedded".to_string(), path.to_string_lossy().into_owned()],
-                        env: Vec::new(),
-                    },
-                ))
-            };
+            let backend_res = backend_future.await;
 
             match backend_res {
                 Ok(ExtensionTabRendererBackend::Command(cmd)) => {
@@ -131,19 +130,12 @@ impl TabRendererView {
                         let _ = output.send(BackendEvent::Error(format!("{error:#}"))).await;
                     }
                 }
-                Ok(ExtensionTabRendererBackend::WebEngine(web)) => {
-                    let helper = default_web_engine_helper(&path);
-                    let mut args = vec!["--embedded".to_string(), path.to_string_lossy().into_owned()];
-                    if let Some(html) = web.html {
-                        args.push("--html".to_string());
-                        args.push(html);
-                    } else if !web.url.is_empty() {
-                        args.push("--url".to_string());
-                        args.push(web.url);
-                    }
-                    if let Err(error) = run_command_backend(helper, args, Vec::new(), input, output.clone()).await {
-                        let _ = output.send(BackendEvent::Error(format!("{error:#}"))).await;
-                    }
+                Ok(ExtensionTabRendererBackend::WebEngine(_)) => {
+                    let _ = output
+                        .send(BackendEvent::Error(
+                            "Extensions using a web engine must provide an executable command backend".into(),
+                        ))
+                        .await;
                 }
                 Err(error) => {
                     let _ = output.send(BackendEvent::Error(format!("{error:#}"))).await;
@@ -513,47 +505,6 @@ impl Render for TabRendererView {
                 element.child(div().absolute().top_0().left_0().p_3().child("Loading renderer…"))
             })
     }
-}
-
-fn tools_directory() -> PathBuf {
-    std::env::var_os("ZEDSTORM_TOOLS_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| paths::data_dir().join("zedstorm-tools"))
-        .join("extensions/drawio")
-}
-
-fn default_binary_for_path(_path: &PathBuf) -> PathBuf {
-    let binary_name = if cfg!(windows) {
-        "zed-diagrams.exe"
-    } else {
-        "zed-diagrams"
-    };
-
-    // Check custom tools dir
-    let tools_bin = tools_directory().join("bin").join(binary_name);
-    if tools_bin.exists() {
-        return tools_bin;
-    }
-
-    // Check installed extension dir
-    let installed_bin = paths::data_dir()
-        .join("extensions/installed/drawio/bin")
-        .join(binary_name);
-    if installed_bin.exists() {
-        return installed_bin;
-    }
-
-    // Check project workspace directory for dev
-    let repo_bin = PathBuf::from("extensions/drawio/native/target/debug").join(binary_name);
-    if repo_bin.exists() {
-        return repo_bin;
-    }
-
-    tools_bin
-}
-
-fn default_web_engine_helper(path: &PathBuf) -> PathBuf {
-    default_binary_for_path(path)
 }
 
 fn modifier_mask(modifiers: Modifiers) -> u32 {
