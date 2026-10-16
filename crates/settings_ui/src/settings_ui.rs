@@ -3,13 +3,15 @@ mod github_auth;
 mod page_data;
 pub mod pages;
 mod vibe_settings;
+pub mod gpg_settings;
+pub use gpg_settings::*;
 
 use anyhow::{Context as _, Result};
 use editor::{Editor, EditorEvent};
 use futures::{StreamExt, channel::mpsc};
 use fuzzy::StringMatchCandidate;
 use gpui::{
-    Action, App, AsyncApp, ClipboardItem, DEFAULT_ADDITIONAL_WINDOW_SIZE, Div, Entity, FocusHandle,
+    Action, DismissEvent, App, AsyncApp, ClipboardItem, DEFAULT_ADDITIONAL_WINDOW_SIZE, Div, Entity, FocusHandle,
     Focusable, Global, KeyContext, ListState, ReadGlobal as _, Role, ScrollHandle, Stateful,
     Subscription, Task, TitlebarOptions, UniformListScrollHandle, WeakEntity, Window, WindowBounds,
     WindowHandle, WindowOptions, actions, div, list, point, prelude::*, px, uniform_list,
@@ -83,6 +85,7 @@ actions!(
         ExpandNavEntry,
         /// Collapses the navigation entry.
         CollapseNavEntry,
+        OpenGenerateGpgModalAction,
         /// Focuses the next file in the file list.
         FocusNextFile,
         /// Focuses the previous file in the file list.
@@ -956,6 +959,8 @@ pub struct SettingsWindow {
     pub(crate) regex_validation_error: Option<String>,
     last_copied_link_path: Option<&'static str>,
     pub(crate) git_committer: Option<git::repository::GitCommitter>,
+    pub(crate) gpg_modal: Option<Entity<gpg_settings::GenerateGpgModal>>,
+    pub(crate) _gpg_modal_subscription: Option<gpui::Subscription>,
 }
 
 struct SearchDocument {
@@ -1033,11 +1038,13 @@ enum SettingsPageItem {
     SubPageLink(SubPageLink),
     DynamicItem(DynamicItem),
     ActionLink(ActionLink),
+    GpgSigning,
 }
 
 impl std::fmt::Debug for SettingsPageItem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            SettingsPageItem::GpgSigning => write!(f, "GpgSigning"),
             SettingsPageItem::SectionHeader(header) => write!(f, "SectionHeader({})", header),
             SettingsPageItem::SettingItem(setting_item) => {
                 write!(f, "SettingItem({})", setting_item.title)
@@ -1297,6 +1304,29 @@ impl SettingsPageItem {
                 }
 
                 return content.into_any_element();
+            }
+            SettingsPageItem::GpgSigning => {
+                let gpg_card = window.use_keyed_state("gpg-signing-settings", cx, |window, cx| {
+                    gpg_settings::GpgSigningSettings::new(window, cx)
+                });
+                let row = render_settings_item_layout(
+                    settings_window,
+                    "GPG Signing Key",
+                    "Select or generate a GPG key to sign your Git commits. Passphrases are requested via popup when committing, never stored in settings.",
+                    gpg_card.into_any_element(),
+                    None,
+                    None,
+                    Some("git.gpg_signing_key"),
+                    false,
+                    cx,
+                );
+
+                v_flex()
+                    .group("setting-item")
+                    .px_8()
+                    .child(row.map(apply_padding))
+                    .when(bottom_border, |this| this.child(Divider::horizontal()))
+                    .into_any_element()
             }
             SettingsPageItem::ActionLink(action_link) => v_flex()
                 .group("setting-item")
@@ -1957,6 +1987,8 @@ impl SettingsWindow {
             list_state,
             last_copied_link_path: None,
             git_committer,
+            gpg_modal: None,
+            _gpg_modal_subscription: None,
         };
 
         this.fetch_files(window, cx);
@@ -2036,6 +2068,29 @@ impl SettingsWindow {
                 editor.set_text("", window, cx);
             });
         }
+    }
+
+    pub(crate) fn open_generate_gpg_modal(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (name, email) = self
+            .git_committer
+            .as_ref()
+            .map(|c| (c.name.clone().unwrap_or_default(), c.email.clone().unwrap_or_default()))
+            .unwrap_or_default();
+
+        let modal = cx.new(|cx| {
+            gpg_settings::GenerateGpgModal::new(Some(name), Some(email), window, cx)
+        });
+        let subscription = cx.subscribe(&modal, |this: &mut Self, _, _: &DismissEvent, cx| {
+            this.gpg_modal = None;
+            cx.notify();
+        });
+        self.gpg_modal = Some(modal);
+        self._gpg_modal_subscription = Some(subscription);
+        cx.notify();
     }
 
     fn handle_project_event(
@@ -2214,6 +2269,13 @@ impl SettingsWindow {
                         ..
                     }) => {
                         if !files.contains(current_file) {
+                            page_filter[index] = false;
+                        } else {
+                            any_found_since_last_header = true;
+                        }
+                    }
+                    SettingsPageItem::GpgSigning => {
+                        if !USER.contains(current_file) {
                             page_filter[index] = false;
                         } else {
                             any_found_since_last_header = true;
@@ -2459,6 +2521,22 @@ impl SettingsWindow {
                         for alias in sub_page_link.search_aliases {
                             push_candidates(&mut fuzzy_match_candidates, key_index, alias);
                         }
+                    }
+                    SettingsPageItem::GpgSigning => {
+                        documents.push(SearchDocument {
+                            id: key_index,
+                            words: split_into_words(&[
+                                page.title,
+                                header_str,
+                                "GPG",
+                                "Key",
+                                "Signing",
+                                "Generate",
+                                "Commit",
+                            ]),
+                        });
+                        push_candidates(&mut fuzzy_match_candidates, key_index, "GPG Signing Key");
+                        push_candidates(&mut fuzzy_match_candidates, key_index, "Generate GPG Key");
                     }
                     SettingsPageItem::ActionLink(action_link) => {
                         documents.push(SearchDocument {
@@ -4268,6 +4346,7 @@ impl SettingsWindow {
             for (item_index, item) in page.items.iter().enumerate() {
                 let item_json_path = match item {
                     SettingsPageItem::SettingItem(setting_item) => setting_item.field.json_path(),
+                    SettingsPageItem::GpgSigning => Some("git.gpg_signing_key"),
                     SettingsPageItem::DynamicItem(dynamic_item) => {
                         dynamic_item.discriminant.field.json_path()
                     }
@@ -4430,6 +4509,9 @@ impl Render for SettingsWindow {
                                 window.focus_next(cx);
                             }
                         }))
+                        .on_action(cx.listener(|this, _: &OpenGenerateGpgModalAction, window, cx| {
+                            this.open_generate_gpg_modal(window, cx);
+                        }))
                         .on_action(|_: &menu::SelectPrevious, window, cx| {
                             window.focus_prev(cx);
                         })
@@ -4444,7 +4526,24 @@ impl Render for SettingsWindow {
                             this.border_t_1().border_color(cx.theme().colors().border)
                         })
                         .child(self.render_nav(window, cx))
-                        .child(self.render_page(window, cx)),
+                        .child(self.render_page(window, cx))
+                        .when_some(self.gpg_modal.as_ref(), |this, modal| {
+                            this.child(
+                                div()
+                                    .absolute()
+                                    .size_full()
+                                    .top_0()
+                                    .left_0()
+                                    .bg(gpui::rgba(0x00000088))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+                                        cx.stop_propagation();
+                                    })
+                                    .child(modal.clone()),
+                            )
+                        }),
                 ),
             window,
             cx,
@@ -5152,6 +5251,8 @@ pub mod test {
                 regex_validation_error: None,
                 last_copied_link_path: None,
                 git_committer: cx.try_global::<GitGlobalCommitter>().and_then(|g| g.0.clone()),
+                gpg_modal: None,
+                _gpg_modal_subscription: None,
             }
         }
     }
@@ -5279,6 +5380,8 @@ pub mod test {
             regex_validation_error: None,
             last_copied_link_path: None,
             git_committer: None,
+            gpg_modal: None,
+            _gpg_modal_subscription: None,
         };
 
         settings_window.build_filter_table();

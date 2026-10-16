@@ -37,6 +37,7 @@ impl AskPassModal {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let prompt: gpui::SharedString = prompt.trim_matches('\0').trim().to_string().into();
         let editor = cx.new(|cx| {
             let mut editor = Editor::single_line(window, cx);
             if prompt.contains("yes/no") || prompt.contains("Username") {

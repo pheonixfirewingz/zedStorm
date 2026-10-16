@@ -318,7 +318,10 @@ impl PasswordProxy {
                     if reader.read_until(b'\0', &mut buffer).await.is_err() {
                         buffer.clear();
                     }
-                    let prompt = String::from_utf8_lossy(&buffer).into_owned();
+                    let mut prompt = String::from_utf8_lossy(&buffer).into_owned();
+                    if prompt.ends_with('\0') {
+                        prompt.pop();
+                    }
                     let password = get_password(prompt).await;
                     match password {
                         ControlFlow::Continue(password) => {

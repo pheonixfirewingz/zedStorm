@@ -6855,24 +6855,7 @@ fn version_control_page() -> SettingsPage {
                     ..Default::default()
                 })),
             }),
-            SettingsPageItem::SettingItem(SettingItem {
-                files: USER,
-                title: "GPG Signing Key",
-                description: "GPG key ID or fingerprint. Passphrases are requested when signing, never stored in settings.",
-                field: Box::new(SettingField::<String> {
-                    json_path: Some("git.gpg_signing_key"),
-                    pick: |settings| settings.git.as_ref()?.gpg_signing_key.as_ref(),
-                    write: |settings, value, _| {
-                        settings.git.get_or_insert_default().gpg_signing_key = value
-                    },
-                }),
-                metadata: Some(Box::new(SettingsFieldMetadata {
-                    allow_missing_default: true,
-                    display_clear_button: true,
-                    display_confirm_button: true,
-                    ..Default::default()
-                })),
-            }),
+            SettingsPageItem::GpgSigning,
             SettingsPageItem::SettingItem(SettingItem {
                 files: USER,
                 title: "SSH Signing Key",
