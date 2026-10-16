@@ -13,6 +13,7 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
+async-tungstenite.workspace = true
 ignore.workspace = true
 paths.workspace = true
 regex = { workspace = true, features = ["unicode"] }

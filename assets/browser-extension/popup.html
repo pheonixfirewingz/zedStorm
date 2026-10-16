@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ZedStorm Search Bridge</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 16px;
+      width: 290px;
+      background: #18181b;
+      color: #f4f4f5;
+    }
+    h2 {
+      font-size: 14px;
+      margin: 0 0 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      background: #27272a;
+      width: 100%;
+      box-sizing: border-box;
+      margin-bottom: 12px;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #71717a;
+    }
+    .status-dot.connected {
+      background: #22c55e;
+    }
+    .status-dot.connecting {
+      background: #eab308;
+    }
+    label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #a1a1aa;
+      display: block;
+      margin-bottom: 4px;
+    }
+    input[type="number"], select {
+      width: 100%;
+      box-sizing: border-box;
+      background: #27272a;
+      border: 1px solid #3f3f46;
+      border-radius: 4px;
+      color: #f4f4f5;
+      padding: 6px 8px;
+      font-size: 12px;
+      margin-bottom: 10px;
+    }
+    input:focus, select:focus {
+      outline: none;
+      border-color: #3b82f6;
+    }
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      font-size: 12px;
+      color: #d4d4d8;
+    }
+    .checkbox-row input {
+      margin: 0;
+    }
+    .button-group {
+      display: flex;
+      gap: 8px;
+    }
+    button {
+      flex: 1;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      padding: 8px 12px;
+      font-size: 12px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    button:hover {
+      background: #1d4ed8;
+    }
+    button.disconnect-btn {
+      background: #3f3f46;
+    }
+    button.disconnect-btn:hover {
+      background: #52525b;
+    }
+    .hint {
+      font-size: 11px;
+      color: #71717a;
+      margin-top: 12px;
+      line-height: 1.4;
+      border-top: 1px solid #27272a;
+      padding-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h2>ZedStorm Web Bridge</h2>
+  <div class="status-badge">
+    <div class="status-dot" id="statusDot"></div>
+    <span id="statusText">Disconnected</span>
+  </div>
+
+  <label for="port">ZedStorm MCP Port</label>
+  <input type="number" id="port" value="42124">
+
+  <label for="engine">Search Engine</label>
+  <select id="engine">
+    <option value="bing" selected>Bing (Default, Fast)</option>
+    <option value="duckduckgo">DuckDuckGo</option>
+  </select>
+
+  <div class="checkbox-row">
+    <input type="checkbox" id="autoConnect">
+    <label for="autoConnect" style="cursor:pointer;">Auto-connect when browser opens</label>
+  </div>
+
+  <div class="button-group">
+    <button id="toggleBtn">Connect to ZedStorm</button>
+  </div>
+
+  <div class="hint">
+    <strong>Tab Rules:</strong><br>
+    &bull; <strong>AI Searches:</strong> Run in the background in an isolated tab (never affects your active tab).<br>
+    &bull; <strong>Tab Debugging:</strong> Brings up the tab and asks for your permission with an in-tab alert.
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

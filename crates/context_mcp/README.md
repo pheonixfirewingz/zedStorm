@@ -22,6 +22,7 @@ project's installed build program and keep normal build logs out of model contex
 | `copy` | `cp` | Copy one revision-checked text file without overwriting |
 | `move` | `mv` | Copy then delete one revision-checked text file |
 | `build` | Project build | Only `built` on success, or bounded compiler errors |
+| `web_search` | Web search | Search results from connected Chromium browser (hidden when disconnected) |
 
 The panel starts the server read-only. To expose mutation and build tools, launch
 ZedStorm with `ZEDSTORM_CONTEXT_MCP_WRITE=1` in its environment. Reconnect the
@@ -270,3 +271,15 @@ The Windows build workflow runs crate tests and
 smoke test checks filesystem/build tools, semantic tool discovery and unavailable-editor
 errors, successful/failed Cargo builds, UTF-8 paths,
 CRLF, read-only copies, junction restrictions, piped stdio, and EOF shutdown.
+
+## Web search via Chromium extension
+
+ZedStorm includes an optional loopback bridge for Chromium web searches. When connected to the extension in `assets/browser-extension`, the context MCP server automatically exposes `web_search`.
+
+If the browser is closed or the extension is disconnected, `web_search` is **completely hidden** from `tools/list` to save model context and prevent failed tool calls.
+
+### Installation in your browser of choice:
+1. Open your Chromium browser (Chrome, Brave, Edge, Chromium, Vivaldi, Arc, etc.).
+2. Navigate to `chrome://extensions` (or `brave://extensions` / `edge://extensions`).
+3. Enable **Developer mode**.
+4. Click **Load unpacked** and select the [`assets/browser-extension`](../../assets/browser-extension) directory.
