@@ -1574,16 +1574,16 @@ impl Render for CodexPanel {
                             ),
                     ),
             )
-            .when(self.backend == super::Backend::Codex, |element| {
-                element.child(
-                    h_flex()
-                        .gap_x(px(5.0))
-                        .gap_y_2()
-                        .px_3()
-                        .py_2()
-                        .border_b_1()
-                        .border_color(cx.theme().colors().border)
-                        .children(
+            .child(
+                h_flex()
+                    .gap_x(px(5.0))
+                    .gap_y_2()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(cx.theme().colors().border)
+                    .when(self.backend == super::Backend::Codex, |bar| {
+                        bar.children(
                             [
                                 (
                                     "codex-five-hour-usage",
@@ -1648,22 +1648,27 @@ impl Render for CodexPanel {
                                     .tooltip(Tooltip::text(tooltip))
                             }),
                         )
-                        .child({
-                            let used = self.session.context_tokens;
-                            let window = self.session.context_window;
-                            let percentage = used.zip(window).map(|(used, window)| (used as f64 / window as f64 * 100.0).clamp(0.0, 100.0) as f32);
-                            let text = context_usage_label(used, window);
-                            v_flex()
-                                .id("codex-context-usage")
-                                .flex_shrink_0()
-                                .gap_1()
-                                .child(h_flex().gap_1p5()
-                                    .child(CircularProgress::new(percentage.unwrap_or(0.0), 100.0, px(16.0), cx).stroke_width(px(2.0)))
-                                    .child(Label::new(text.clone()).size(LabelSize::Small).color(Color::Muted)))
-                                .tooltip(Tooltip::text(format!("{text}. Context used by the latest model request, reported by Codex CLI. Updates when Codex reports token usage; not cumulative account usage.")))
-                        }),
-                )
-            })
+                    })
+                    .child({
+                        let used = self.session.context_tokens;
+                        let window = self.session.context_window;
+                        let percentage = used.zip(window).map(|(used, window)| (used as f64 / window as f64 * 100.0).clamp(0.0, 100.0) as f32);
+                        let text = context_usage_label(used, window);
+                        let reporter = match self.backend {
+                            super::Backend::Codex => "Codex CLI",
+                            super::Backend::Mistral => "Mistral",
+                        };
+                        let updater = self.backend.name();
+                        v_flex()
+                            .id("codex-context-usage")
+                            .flex_shrink_0()
+                            .gap_1()
+                            .child(h_flex().gap_1p5()
+                                .child(CircularProgress::new(percentage.unwrap_or(0.0), 100.0, px(16.0), cx).stroke_width(px(2.0)))
+                                .child(Label::new(text.clone()).size(LabelSize::Small).color(Color::Muted)))
+                            .tooltip(Tooltip::text(format!("{text}. Context used by the latest model request, reported by {reporter}. Updates when {updater} reports token usage; not cumulative account usage.")))
+                    }),
+            )
             .when(self.remote || self.session.signing_in, |element| {
                 element.child(
                     div().px_3().py_2().child(
@@ -1867,19 +1872,22 @@ impl Panel for CodexPanel {
                 .unwrap_or_else(|| "—".into());
             format!("{label} {percentage} · {}", reset_countdown(resets_at, now))
         };
-        let labels = [
-            limit_label(
+        let mut labels = Vec::new();
+        if self.backend == super::Backend::Codex {
+            labels.push(limit_label(
                 "5-hour",
                 self.session.five_hour_usage,
                 self.session.five_hour_resets_at,
-            ),
-            limit_label(
+            ));
+            labels.push(limit_label(
                 "Weekly",
                 self.session.weekly_usage,
                 self.session.weekly_resets_at,
-            ),
-            context_usage_label(self.session.context_tokens, self.session.context_window),
-        ];
+            ));
+        }
+        labels.push(context_usage_label(self.session.context_tokens, self.session.context_window));
+        let num_items = labels.len() as f32;
+        let num_gaps = labels.len().saturating_sub(1) as f32;
         let text_width = labels
             .into_iter()
             .map(|label| {
@@ -1895,7 +1903,7 @@ impl Panel for CodexPanel {
             })
             .fold(px(0.0), |width, label_width| width + label_width);
         Some(
-            (text_width + px(3.0 * 16.0 + 2.0 * 5.0) + window.rem_size() * (3.0 * 0.375 + 1.5))
+            (text_width + px(num_items * 16.0 + num_gaps * 5.0) + window.rem_size() * (num_items * 0.375 + 1.5))
                 .max(px(280.0)),
         )
     }
@@ -1974,6 +1982,18 @@ fn context_usage_label(tokens: Option<u64>, window: Option<u64>) -> String {
 #[cfg(test)]
 mod tests {
     use super::reset_countdown;
+
+    #[test]
+    fn context_usage_label_formats_tokens_and_windows() {
+        assert_eq!(super::context_usage_label(None, None), "Context · —");
+        assert_eq!(super::context_usage_label(None, Some(128_000)), "Context · —");
+        assert_eq!(super::context_usage_label(Some(500), None), "Context · 500");
+        assert_eq!(super::context_usage_label(Some(1500), None), "Context · 2k");
+        assert_eq!(
+            super::context_usage_label(Some(10_000), Some(100_000)),
+            "Context 10% · 10k / 100k"
+        );
+    }
 
     #[test]
     fn reset_countdowns_handle_boundaries_and_missing_timestamps() {
