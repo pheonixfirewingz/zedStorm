@@ -21,6 +21,8 @@ mod dropdown_menus;
 mod new_process_modal;
 mod persistence;
 pub mod run_configurations;
+pub mod run_panel;
+pub use run_panel::RunPanel;
 pub(crate) mod session;
 
 #[cfg(any(test, feature = "test-support"))]
@@ -122,6 +124,14 @@ pub fn init(cx: &mut App) {
             .register_action(|workspace, _: &Toggle, window, cx| {
                 if !workspace.toggle_panel_focus::<DebugPanel>(window, cx) {
                     workspace.close_panel::<DebugPanel>(window, cx);
+                }
+            })
+            .register_action(|workspace, _: &run_panel::ToggleFocus, window, cx| {
+                workspace.toggle_panel_focus::<RunPanel>(window, cx);
+            })
+            .register_action(|workspace, _: &run_panel::Toggle, window, cx| {
+                if !workspace.toggle_panel_focus::<RunPanel>(window, cx) {
+                    workspace.close_panel::<RunPanel>(window, cx);
                 }
             })
             .register_action(|workspace: &mut Workspace, _: &Start, window, cx| {

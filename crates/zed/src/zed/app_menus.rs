@@ -221,26 +221,58 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
             name: "Run".into(),
             disabled: false,
             items: vec![
+                MenuItem::action("Run", debugger_ui::run_configurations::RunSelected),
+                MenuItem::action("Debug", debugger_ui::run_configurations::DebugSelected),
+                MenuItem::action("Run…", debugger_ui::run_configurations::RunPrompt),
+                MenuItem::action("Debug…", debugger_ui::run_configurations::DebugPrompt),
+                MenuItem::separator(),
                 MenuItem::action(
-                    "Spawn Task",
-                    zed_actions::Spawn::ViaModal {
-                        reveal_target: None,
-                    },
+                    "Edit Configurations…",
+                    debugger_ui::run_configurations::EditConfigurations,
                 ),
-                MenuItem::action("Start Debugger", debugger_ui::Start),
+                MenuItem::action(
+                    "Manage Targets…",
+                    debugger_ui::run_configurations::ManageTargets,
+                ),
                 MenuItem::separator(),
-                MenuItem::action("Edit tasks.json…", zed_actions::OpenProjectTasks),
-                MenuItem::action("Edit debug.json…", zed_actions::OpenProjectDebugTasks),
+                MenuItem::action("Stop", debugger_ui::run_configurations::StopSelectedRun),
+                MenuItem::action(
+                    "Stop Background Processes",
+                    debugger_ui::run_configurations::StopAllProcesses,
+                ),
+                MenuItem::action(
+                    "Show Running List",
+                    debugger_ui::run_configurations::ShowRunningList,
+                ),
                 MenuItem::separator(),
-                MenuItem::action("Continue", debugger_ui::Continue),
-                MenuItem::action("Step Over", debugger_ui::StepOver),
-                MenuItem::action("Step Into", debugger_ui::StepInto),
-                MenuItem::action("Step Out", debugger_ui::StepOut),
+                MenuItem::submenu(Menu::new("Debugging Actions").items([
+                    MenuItem::action("Step Over", debugger_ui::StepOver),
+                    MenuItem::action("Step Into", debugger_ui::StepInto),
+                    MenuItem::action("Step Out", debugger_ui::StepOut),
+                    MenuItem::action("Continue", debugger_ui::Continue),
+                    MenuItem::action("Pause", debugger_ui::Pause),
+                    MenuItem::action("Rerun", debugger_ui::Rerun),
+                ])),
+                MenuItem::submenu(Menu::new("Toggle Breakpoint").items([
+                    MenuItem::action("Toggle Line Breakpoint", editor::actions::ToggleBreakpoint),
+                    MenuItem::action("Edit Breakpoint / Logpoint", editor::actions::EditLogBreakpoint),
+                ])),
+                MenuItem::action("View Breakpoints…", editor::actions::EditLogBreakpoint),
                 MenuItem::separator(),
-                MenuItem::action("Toggle Breakpoint", editor::actions::ToggleBreakpoint),
-                MenuItem::action("Edit Breakpoint", editor::actions::EditLogBreakpoint),
-                MenuItem::action("Clear All Breakpoints", debugger_ui::ClearAllBreakpoints),
+                MenuItem::action(
+                    "Run with Coverage",
+                    debugger_ui::run_configurations::RunWithCoverage,
+                ),
+                MenuItem::action("Profile", debugger_ui::run_configurations::Profile),
             ],
+        },
+        Menu {
+            name: "Tools".into(),
+            disabled: false,
+            items: vec![MenuItem::action(
+                "Run Gulp/Grunt/npm Task…",
+                debugger_ui::run_configurations::RunNpmTask,
+            )],
         },
     ]
 }

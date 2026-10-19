@@ -2801,6 +2801,7 @@ dependencies = [
  "serde_json_lenient",
  "settings",
  "settings_json",
+ "smol",
  "sysinfo 0.39.6",
  "task",
  "tasks_ui",

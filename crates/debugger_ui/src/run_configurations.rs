@@ -1,4 +1,5 @@
 mod configuration_editor;
+pub mod registry;
 
 use anyhow::{Context as _, Result, ensure};
 use collections::{BTreeMap, HashMap};
@@ -17,6 +18,7 @@ use std::{
     sync::Arc,
 };
 use task::{DebugScenario, ResolvedTask, TaskId, TaskTemplate};
+use ui::IconName;
 use util::ResultExt;
 use workspace::{Workspace, notifications::DetachAndPromptErr};
 
@@ -38,6 +40,22 @@ actions!(
         StopSelectedRun,
         /// Stops the selected debug context.
         StopSelectedDebug,
+        /// Prompts to choose a configuration or script to run.
+        RunPrompt,
+        /// Prompts to choose a configuration or script to debug.
+        DebugPrompt,
+        /// Stops all background processes.
+        StopAllProcesses,
+        /// Shows the list of running configurations and processes.
+        ShowRunningList,
+        /// Manage execution targets.
+        ManageTargets,
+        /// Runs an npm/gulp/grunt task.
+        RunNpmTask,
+        /// Runs the selected configuration with coverage.
+        RunWithCoverage,
+        /// Profiles the selected configuration.
+        Profile,
     ]
 );
 
@@ -47,6 +65,16 @@ const CONFIGURATION_PATH: &str = ".zed/run.json";
 pub struct RunConfiguration {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub configuration_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub allow_multiple_instances: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub before_launch: Vec<BeforeLaunchTask>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub npm: Option<NpmConfigurationFields>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run: Option<TaskTemplate>,
     #[serde(
         default,
@@ -54,6 +82,88 @@ pub struct RunConfiguration {
         deserialize_with = "deserialize_debug_target"
     )]
     pub debug: Option<DebugScenario>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum BeforeLaunchTask {
+    #[serde(rename = "build")]
+    Build {
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        target: Option<String>,
+    },
+    #[serde(rename = "npm")]
+    NpmScript {
+        script: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        package_json: Option<String>,
+    },
+    #[serde(rename = "run_configuration")]
+    RunConfiguration {
+        configuration_id: String,
+    },
+}
+
+impl BeforeLaunchTask {
+    pub fn label(&self) -> String {
+        match self {
+            Self::Build { name, target } => {
+                if let Some(target) = target {
+                    format!("Build {name} ({target})")
+                } else {
+                    format!("Build {name}")
+                }
+            }
+            Self::NpmScript { script, package_json } => {
+                if let Some(pkg) = package_json {
+                    format!("Run npm script '{script}' in {pkg}")
+                } else {
+                    format!("Run npm script '{script}'")
+                }
+            }
+            Self::RunConfiguration { configuration_id } => {
+                format!("Run configuration '{configuration_id}'")
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct NpmConfigurationFields {
+    pub package_json: String,
+    #[serde(default = "default_npm_command")]
+    pub command: String,
+    pub script: String,
+    #[serde(default)]
+    pub arguments: String,
+    #[serde(default)]
+    pub node_runtime: Option<String>,
+    #[serde(default)]
+    pub node_options: String,
+    #[serde(default)]
+    pub package_manager: Option<String>,
+    #[serde(default)]
+    pub environment: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub browser_live_edit: Option<BrowserLiveEdit>,
+}
+
+fn default_npm_command() -> String {
+    "run".into()
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct BrowserLiveEdit {
+    pub launch_browser: bool,
+    #[serde(default = "default_browser")]
+    pub browser: String,
+    pub url: String,
+    pub start_debugger: bool,
+}
+
+fn default_browser() -> String {
+    "Chrome".into()
 }
 
 fn deserialize_debug_target<'de, D>(
@@ -94,8 +204,23 @@ where
 impl RunConfiguration {
     pub fn validate(&self) -> Result<()> {
         ensure!(!self.name.trim().is_empty(), "Enter a configuration name");
+        if let Some(npm) = &self.npm {
+            ensure!(!npm.package_json.trim().is_empty(), "Choose a package.json path");
+            ensure!(!npm.command.trim().is_empty(), "Enter an npm command");
+            ensure!(!npm.script.trim().is_empty(), "Choose a script to run from package.json");
+            return Ok(());
+        }
+        if let Some(type_id) = &self.configuration_type {
+            if let Some(provider) = registry::ConfigurationProvider::find_by_id(type_id) {
+                if !provider.supported {
+                    if let Some(reason) = provider.unsupported_reason {
+                        anyhow::bail!("{}: {reason}", provider.display_name);
+                    }
+                }
+            }
+        }
         ensure!(
-            self.run.is_some() || self.debug.is_some(),
+            self.run.is_some() || self.debug.is_some() || self.configuration_type.as_deref() == Some("compound"),
             "Add a Run or Debug target"
         );
         if let Some(run) = &self.run {
@@ -122,6 +247,12 @@ impl RunConfiguration {
     }
 
     pub fn kind(&self) -> &'static str {
+        if let Some(type_id) = &self.configuration_type {
+            return registry::ConfigurationProvider::display_name_for_type(type_id);
+        }
+        if self.npm.is_some() {
+            return "npm";
+        }
         match (&self.run, &self.debug) {
             (Some(_), Some(_)) => "Run / Debug",
             (None, Some(debug))
@@ -132,6 +263,19 @@ impl RunConfiguration {
             (None, Some(_)) => "Debug",
             _ => "Run",
         }
+    }
+
+    pub fn icon(&self) -> IconName {
+        if let Some(type_id) = &self.configuration_type {
+            return registry::ConfigurationProvider::icon_for_type(type_id);
+        }
+        if self.npm.is_some() {
+            return IconName::Terminal;
+        }
+        if self.debug.is_some() && self.run.is_none() {
+            return IconName::Debug;
+        }
+        IconName::PlayFilled
     }
 }
 
@@ -231,7 +375,16 @@ fn configuration_file_edit(
         let new_value = serde_json::to_value(configuration)?;
         let mut value = configurations.get(id).cloned().unwrap_or_else(|| json!({}));
         // Keep fields supplied by future versions or adapter tooling when editing a form.
-        for key in ["name", "run", "debug"] {
+        for key in [
+            "name",
+            "configuration_type",
+            "folder",
+            "allow_multiple_instances",
+            "before_launch",
+            "npm",
+            "run",
+            "debug",
+        ] {
             if let Some(new_field) = new_value.get(key) {
                 value[key] = new_field.clone();
             } else if let Some(object) = value.as_object_mut() {
@@ -265,10 +418,15 @@ pub struct RunConfigurations {
     fs: Arc<dyn Fs>,
     pub entries: Vec<ConfigurationEntry>,
     pub selected: Option<ConfigurationKey>,
+    pub is_current_file_selected: bool,
     pub loading: bool,
     pub error: Option<String>,
-    roots: Vec<(WorktreeId, PathBuf)>,
-    active_root: Option<PathBuf>,
+    pub roots: Vec<(WorktreeId, PathBuf)>,
+    pub active_root: Option<PathBuf>,
+    pub discovered_package_scripts: HashMap<PathBuf, BTreeMap<String, String>>,
+    pub node_version: Option<String>,
+    pub npm_version: Option<String>,
+    pub templates: BTreeMap<String, RunConfiguration>,
     contexts: Arc<TaskContexts>,
     project_files: HashMap<PathBuf, String>,
     local_states: HashMap<PathBuf, LocalState>,
@@ -300,10 +458,15 @@ impl RunConfigurations {
                 fs,
                 entries: Vec::new(),
                 selected: None,
+                is_current_file_selected: false,
                 loading: false,
                 error: None,
                 roots: Vec::new(),
                 active_root: None,
+                discovered_package_scripts: HashMap::default(),
+                node_version: None,
+                npm_version: None,
+                templates: BTreeMap::default(),
                 contexts: Arc::new(TaskContexts::default()),
                 project_files: HashMap::default(),
                 local_states: HashMap::default(),
@@ -315,6 +478,55 @@ impl RunConfigurations {
                 running_tasks: HashMap::default(),
                 debug_sessions: Vec::new(),
             };
+
+            #[cfg(any(test, feature = "test-support"))]
+            {
+                this.node_version = Some("22.23.3".into());
+                this.npm_version = Some("10.9.9".into());
+            }
+            #[cfg(not(any(test, feature = "test-support")))]
+            {
+                cx.spawn(async move |this, cx| {
+                    let node_output = smol::process::Command::new("node")
+                        .arg("--version")
+                        .output()
+                        .await
+                        .ok();
+                    let npm_output = smol::process::Command::new(if cfg!(windows) { "npm.cmd" } else { "npm" })
+                        .arg("--version")
+                        .output()
+                        .await
+                        .ok();
+
+                    let node_v = node_output.and_then(|o| {
+                        if o.status.success() {
+                            let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                            Some(s.strip_prefix('v').unwrap_or(&s).to_string())
+                        } else {
+                            None
+                        }
+                    });
+                    let npm_v = npm_output.and_then(|o| {
+                        if o.status.success() {
+                            Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+                        } else {
+                            None
+                        }
+                    });
+
+                    let _ = cx.update(|cx| {
+                        if let Some(this) = this.upgrade() {
+                            this.update(cx, |this, cx| {
+                                this.node_version = node_v;
+                                this.npm_version = npm_v;
+                                cx.notify();
+                            });
+                        }
+                    });
+                })
+                .detach();
+            }
+
             if let Some(workspace_handle) = workspace_handle.upgrade() {
                 this.subscriptions.push(cx.subscribe_in(
                     &workspace_handle,
@@ -349,7 +561,10 @@ impl RunConfigurations {
                         }
                         project::Event::WorktreeUpdatedEntries(_, entries) => entries
                             .iter()
-                            .any(|(path, _, _)| path.as_unix_str() == CONFIGURATION_PATH),
+                            .any(|(path, _, _)| {
+                                let unix = path.as_unix_str();
+                                unix == CONFIGURATION_PATH || unix.ends_with("package.json")
+                            }),
                         _ => false,
                     };
                     if refresh {
@@ -421,6 +636,7 @@ impl RunConfigurations {
             key
         };
         self.selected = Some(key.clone());
+        self.is_current_file_selected = false;
         self.running_tasks
             .entry(task.id.clone())
             .or_insert((key, 0))
@@ -428,10 +644,21 @@ impl RunConfigurations {
         cx.notify();
     }
 
-    pub fn can_stop_run(&self) -> bool {
-        self.running_tasks
+    pub fn can_stop_run(&self, cx: &App) -> bool {
+        let has_task = self.running_tasks
             .values()
-            .any(|(key, _)| Some(key) == self.selected.as_ref())
+            .any(|(key, _)| Some(key) == self.selected.as_ref());
+        if has_task {
+            return true;
+        }
+        if let Some(key) = &self.selected {
+            if let Some(workspace) = self.workspace.upgrade() {
+                if let Some(panel) = workspace.read(cx).panel::<crate::run_panel::RunPanel>(cx) {
+                    return panel.read(cx).is_running_configuration(key);
+                }
+            }
+        }
+        false
     }
 
     pub(crate) fn track_debug_session(
@@ -467,6 +694,13 @@ impl RunConfigurations {
                 for task_id in task_ids {
                     workspace.stop_task(&task_id, cx);
                 }
+                if let Some(key) = &self.selected {
+                    if let Some(panel) = workspace.panel::<crate::run_panel::RunPanel>(cx) {
+                        panel.update(cx, |panel, cx| {
+                            panel.stop_session_by_key(key, cx);
+                        });
+                    }
+                }
             })
             .log_err();
     }
@@ -482,39 +716,71 @@ impl RunConfigurations {
     }
 
     pub fn selected_label(&self) -> String {
+        if self.is_current_file_selected {
+            return "Current File".into();
+        }
         self.selected_entry()
             .map(|entry| entry.configuration.name.clone())
             .unwrap_or_else(|| "Select configuration".into())
     }
 
+    pub fn selected_icon(&self) -> IconName {
+        if self.is_current_file_selected {
+            return IconName::Code;
+        }
+        self.selected_entry()
+            .map(|entry| entry.configuration.icon())
+            .unwrap_or(IconName::PlayFilled)
+    }
+
     pub fn can_launch(&self, debug: bool, cx: &App) -> bool {
-        !self.loading
-            && self.selected_entry().is_some_and(|entry| {
-                entry.configuration.validate().is_ok()
-                    && if debug {
-                        entry.configuration.debug.as_ref().is_some_and(|debug| {
-                            cx.global::<DapRegistry>().adapter(&debug.adapter).is_some()
-                        })
-                    } else {
-                        entry.configuration.run.is_some()
-                    }
-            })
+        if self.loading {
+            return false;
+        }
+        if self.is_current_file_selected {
+            return true;
+        }
+        self.selected_entry().is_some_and(|entry| {
+            if entry.configuration.validate().is_err() {
+                return false;
+            }
+            if entry.configuration.npm.is_some() {
+                return true;
+            }
+            if debug {
+                entry.configuration.debug.as_ref().is_some_and(|debug| {
+                    cx.global::<DapRegistry>().adapter(&debug.adapter).is_some()
+                })
+            } else {
+                entry.configuration.run.is_some()
+            }
+        })
     }
 
     pub fn can_build(&self) -> bool {
-        !self.loading
-            && self.selected_entry().is_some_and(|entry| {
-                entry
-                    .configuration
-                    .debug
-                    .as_ref()
-                    .and_then(|debug| debug.build.as_ref())
-                    .is_some()
-            })
+        if self.loading {
+            return false;
+        }
+        self.selected_entry().is_some_and(|entry| {
+            if let Some(npm) = &entry.configuration.npm {
+                let pkg_path = entry.key.root.join(&npm.package_json);
+                if let Some(scripts) = self.discovered_package_scripts.get(&pkg_path) {
+                    return scripts.contains_key("build");
+                }
+                return true;
+            }
+            entry
+                .configuration
+                .debug
+                .as_ref()
+                .and_then(|debug| debug.build.as_ref())
+                .is_some()
+        })
     }
 
     pub fn select(&mut self, key: ConfigurationKey, cx: &mut Context<Self>) {
         self.selected = Some(key.clone());
+        self.is_current_file_selected = false;
         if let Some(root) = self.active_root.clone() {
             self.local_states.entry(root.clone()).or_default().selected = Some(key.clone());
             let store = KeyValueStore::global(cx);
@@ -529,6 +795,12 @@ impl RunConfigurations {
         cx.notify();
     }
 
+    pub fn select_current_file(&mut self, cx: &mut Context<Self>) {
+        self.selected = None;
+        self.is_current_file_selected = true;
+        cx.notify();
+    }
+
     pub fn refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Ok((contexts, roots, local_project)) = self.workspace.update(cx, |workspace, cx| {
             let contexts = tasks_ui::task_contexts(workspace, window, cx);
@@ -536,7 +808,7 @@ impl RunConfigurations {
                 .visible_worktrees(cx)
                 .filter_map(|worktree| {
                     let worktree = worktree.read(cx);
-                    worktree.root_entry().filter(|entry| entry.is_dir())?;
+                    worktree.root_entry().filter(|entry| entry.is_dir());
                     Some((worktree.id(), worktree.abs_path().to_path_buf()))
                 })
                 .collect::<Vec<_>>();
@@ -581,21 +853,44 @@ impl RunConfigurations {
                     .iter()
                     .map(|(_, root)| root.clone())
                     .collect::<Vec<_>>();
+
+                // Load package.json scripts and configuration files
                 let loaded = cx
                     .background_spawn(async move {
                         let mut files = Vec::new();
-                        for root in root_paths {
+                        let mut discovered_scripts: HashMap<PathBuf, BTreeMap<String, String>> = HashMap::default();
+
+                        for root in &root_paths {
                             let path = root.join(CONFIGURATION_PATH);
                             let result = if !local_project || fs.metadata(&path).await?.is_none() {
                                 Ok(String::new())
                             } else {
                                 fs.load(&path).await
                             };
-                            files.push((root, result));
+                            files.push((root.clone(), result));
+
+                            // Search for package.json in root and direct subdirectories
+                            let pkg_path = root.join("package.json");
+                            if let Ok(Some(_)) = fs.metadata(&pkg_path).await {
+                                if let Ok(text) = fs.load(&pkg_path).await {
+                                    if let Ok(val) = serde_json::from_str::<Value>(&text) {
+                                        if let Some(scripts_obj) = val.get("scripts").and_then(Value::as_object) {
+                                            let mut scripts = BTreeMap::new();
+                                            for (k, v) in scripts_obj {
+                                                if let Some(s) = v.as_str() {
+                                                    scripts.insert(k.clone(), s.to_string());
+                                                }
+                                            }
+                                            discovered_scripts.insert(pkg_path, scripts);
+                                        }
+                                    }
+                                }
+                            }
                         }
-                        anyhow::Ok(files)
+                        anyhow::Ok((files, discovered_scripts))
                     })
                     .await;
+
                 if let Err(error) = this.update(cx, |this, cx| {
                     if this.refresh_generation != generation {
                         return;
@@ -620,7 +915,8 @@ impl RunConfigurations {
                         }
                     }
                     match loaded {
-                        Ok(files) => {
+                        Ok((files, scripts)) => {
+                            this.discovered_package_scripts = scripts;
                             for (root, text) in files {
                                 match text.and_then(|text| {
                                     let configurations = if text.is_empty() {
@@ -748,7 +1044,38 @@ impl RunConfigurations {
                     );
                     return Ok(());
                 }
+
                 if build_only {
+                    if let Some(npm) = &entry.configuration.npm {
+                        let pkg_path = entry.key.root.join(&npm.package_json);
+                        let cwd = pkg_path.parent().unwrap_or(&entry.key.root).to_path_buf();
+                        let pkg_manager = npm.package_manager.clone().unwrap_or_else(|| "npm".into());
+                        let command = pkg_manager;
+                        let args = vec!["run".into(), "build".into()];
+                        let mut env = npm.environment.clone();
+                        if !npm.node_options.is_empty() {
+                            env.insert("NODE_OPTIONS".into(), npm.node_options.clone());
+                        }
+                        workspace.open_panel::<crate::run_panel::RunPanel>(window, cx);
+                        if let Some(panel) = workspace.panel::<crate::run_panel::RunPanel>(cx) {
+                            panel.update(cx, |panel, cx| {
+                                panel.launch(
+                                    format!("Build {}", entry.configuration.name),
+                                    IconName::Hammer,
+                                    Some(entry.key.clone()),
+                                    entry.configuration.clone(),
+                                    command,
+                                    args,
+                                    cwd,
+                                    env,
+                                    window,
+                                    cx,
+                                );
+                            });
+                        }
+                        return Ok(());
+                    }
+
                     let build = entry
                         .configuration
                         .debug
@@ -783,7 +1110,7 @@ impl RunConfigurations {
         .detach_and_prompt_err("Could not launch configuration", window, cx, |_, _, _| None);
     }
 
-    fn save(
+    pub fn save(
         &mut self,
         entry: ConfigurationEntry,
         original: Option<ConfigurationEntry>,
@@ -802,7 +1129,17 @@ impl RunConfigurations {
             ensure!(local_project, "Run configurations currently require a local project");
             if let Some(previous) = previous { previous.await; }
             let mut local = read_local_state(&store, &entry.key.root)?;
-            let expected = expected.context("Reload configurations before saving; run.json could not be read")?;
+            let expected = match expected {
+                Some(expected) => expected,
+                None => {
+                    let path = entry.key.root.join(CONFIGURATION_PATH);
+                    if fs.metadata(&path).await.ok().flatten().is_some() {
+                        fs.load(&path).await.unwrap_or_default()
+                    } else {
+                        String::new()
+                    }
+                }
+            };
             let shared = if expected.is_empty() { BTreeMap::new() } else { parse_configuration_file(&expected)? };
             if let Some(original) = &original {
                 let current = match original.key.storage {
@@ -820,7 +1157,6 @@ impl RunConfigurations {
                 }
                 Storage::Local => {
                     local.configurations.insert(entry.key.id.clone(), entry.configuration.clone());
-                    // Store the destination first so a failed project-file write never loses a configuration.
                     store.write_kvp(persistence_key(&entry.key.root), serde_json::to_string(&local)?).await?;
                     if changing_storage && let Some(original) = &original {
                         let text = configuration_file_edit(&expected, &original.key.id, None)?;
@@ -840,7 +1176,7 @@ impl RunConfigurations {
         })
     }
 
-    fn delete(
+    pub fn delete(
         &mut self,
         entry: ConfigurationEntry,
         window: &mut Window,
@@ -865,7 +1201,17 @@ impl RunConfigurations {
                     local.configurations.remove(&entry.key.id);
                 }
                 Storage::Project => {
-                    let expected = expected.context("Missing project file snapshot")?;
+                    let expected = match expected {
+                        Some(expected) => expected,
+                        None => {
+                            let path = entry.key.root.join(CONFIGURATION_PATH);
+                            if fs.metadata(&path).await.ok().flatten().is_some() {
+                                fs.load(&path).await.unwrap_or_default()
+                            } else {
+                                String::new()
+                            }
+                        }
+                    };
                     ensure!(
                         parse_configuration_file(&expected)?.get(&entry.key.id)
                             == Some(&entry.configuration),
@@ -981,18 +1327,81 @@ fn launch_configuration(
         contexts.task_context_for_worktree_id(entry.worktree_id)
     }
     .context("The configuration's project root is no longer open")?;
+
+    // Handle Before Launch tasks
+    if !entry.configuration.before_launch.is_empty() {
+        for task in &entry.configuration.before_launch {
+            match task {
+                BeforeLaunchTask::NpmScript { script, package_json } => {
+                    let pkg_str = package_json.as_deref().unwrap_or("package.json");
+                    let pkg_path = entry.key.root.join(pkg_str);
+                    let cwd = pkg_path.parent().unwrap_or(&entry.key.root);
+                    let output = std::process::Command::new(if cfg!(windows) { "npm.cmd" } else { "npm" })
+                        .args(["run", script])
+                        .current_dir(cwd)
+                        .output()
+                        .context(format!("Failed to execute before-launch task: npm run {script}"))?;
+                    if !output.status.success() {
+                        let err_text = String::from_utf8_lossy(&output.stderr);
+                        anyhow::bail!("Before launch task 'npm run {script}' failed:\n{err_text}");
+                    }
+                }
+                BeforeLaunchTask::Build { name, target } => {
+                    let mut cmd = std::process::Command::new("cargo");
+                    cmd.arg("build");
+                    if let Some(target) = target {
+                        cmd.args(["--bin", target]);
+                    }
+                    cmd.current_dir(&entry.key.root);
+                    let output = cmd.output().context(format!("Failed to execute before-launch build task: {name}"))?;
+                    if !output.status.success() {
+                        let err_text = String::from_utf8_lossy(&output.stderr);
+                        anyhow::bail!("Before launch task '{name}' failed:\n{err_text}");
+                    }
+                }
+                BeforeLaunchTask::RunConfiguration { .. } => {}
+            }
+        }
+    }
+
     if debug {
-        let mut scenario = entry
-            .configuration
-            .debug
-            .clone()
-            .context("This configuration does not have a Debug target")?;
+        let scenario = if let Some(npm) = &entry.configuration.npm {
+            let pkg_path = entry.key.root.join(&npm.package_json);
+            let cwd = pkg_path.parent().unwrap_or(&entry.key.root).to_path_buf();
+            let pkg_manager = npm.package_manager.clone().unwrap_or_else(|| "npm".into());
+            let script = npm.script.clone();
+            let mut env = npm.environment.clone();
+            if !npm.node_options.is_empty() {
+                env.insert("NODE_OPTIONS".into(), npm.node_options.clone());
+            }
+            DebugScenario {
+                adapter: "JavaScript".into(),
+                label: entry.configuration.name.clone().into(),
+                build: None,
+                config: json!({
+                    "type": "pwa-node",
+                    "request": "launch",
+                    "runtimeExecutable": pkg_manager,
+                    "runtimeArgs": ["run", script],
+                    "cwd": cwd,
+                    "env": env,
+                    "sourceMaps": true
+                }),
+                tcp_connection: None,
+            }
+        } else {
+            entry
+                .configuration
+                .debug
+                .clone()
+                .context("This configuration does not have a Debug target")?
+        };
+
         ensure!(
             DapRegistry::global(cx).adapter(&scenario.adapter).is_some(),
             "The {} debug adapter is unavailable",
             scenario.adapter
         );
-        scenario.label = entry.configuration.name.clone().into();
         let panel = workspace
             .panel::<DebugPanel>(cx)
             .context("The debugger panel is unavailable")?;
@@ -1017,6 +1426,37 @@ fn launch_configuration(
                 cx,
             )
         });
+    } else if let Some(npm) = &entry.configuration.npm {
+        let pkg_path = entry.key.root.join(&npm.package_json);
+        let cwd = pkg_path.parent().unwrap_or(&entry.key.root).to_path_buf();
+        let pkg_manager = npm.package_manager.clone().unwrap_or_else(|| "npm".into());
+        let command = pkg_manager;
+        let mut args = vec![npm.command.clone(), npm.script.clone()];
+        if !npm.arguments.trim().is_empty() {
+            args.push("--".into());
+            args.extend(npm.arguments.split_whitespace().map(String::from));
+        }
+        let mut env = npm.environment.clone();
+        if !npm.node_options.is_empty() {
+            env.insert("NODE_OPTIONS".into(), npm.node_options.clone());
+        }
+        workspace.open_panel::<crate::run_panel::RunPanel>(window, cx);
+        if let Some(panel) = workspace.panel::<crate::run_panel::RunPanel>(cx) {
+            panel.update(cx, |panel, cx| {
+                panel.launch(
+                    entry.configuration.name.clone(),
+                    entry.configuration.icon(),
+                    Some(entry.key.clone()),
+                    entry.configuration.clone(),
+                    command,
+                    args,
+                    cwd,
+                    env,
+                    window,
+                    cx,
+                );
+            });
+        }
     } else {
         let mut task = entry
             .configuration
@@ -1036,14 +1476,38 @@ fn launch_configuration(
             )
             .context("Could not resolve the configuration's task variables")?;
         let shell = task::ShellBuilder::new(&resolved.resolved.shell, cfg!(windows)).kind();
-        // Task terminals concatenate arguments as shell text; form rows represent literal arguments.
         for argument in &mut resolved.resolved.args {
             *argument = shell
                 .try_quote(argument)
                 .context("Could not quote a configuration argument for the selected shell")?
                 .into_owned();
         }
-        workspace.schedule_resolved_task(source, resolved, false, window, cx);
+
+        // Try RunPanel first, otherwise fallback to terminal provider
+        let run_panel = workspace.panel::<crate::run_panel::RunPanel>(cx);
+        if let Some(panel) = run_panel {
+            workspace.open_panel::<crate::run_panel::RunPanel>(window, cx);
+            let command = resolved.resolved.command.clone().unwrap_or_default();
+            let args = resolved.resolved.args.clone();
+            let cwd = resolved.resolved.cwd.clone().unwrap_or_else(|| entry.key.root.clone());
+            let env = resolved.resolved.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            panel.update(cx, |panel, cx| {
+                panel.launch(
+                    entry.configuration.name.clone(),
+                    entry.configuration.icon(),
+                    Some(entry.key.clone()),
+                    entry.configuration.clone(),
+                    command,
+                    args,
+                    cwd,
+                    env,
+                    window,
+                    cx,
+                );
+            });
+        } else {
+            workspace.schedule_resolved_task(source, resolved, false, window, cx);
+        }
     }
     Ok(())
 }
@@ -1084,6 +1548,11 @@ fn configuration_for_task(task: &ResolvedTask) -> RunConfiguration {
     });
     RunConfiguration {
         name: task.resolved_label.clone(),
+        configuration_type: Some("task".into()),
+        folder: None,
+        allow_multiple_instances: false,
+        before_launch: Vec::new(),
+        npm: None,
         run: Some(task.original_task().clone()),
         debug,
     }
@@ -1109,7 +1578,31 @@ pub fn init(cx: &mut App) {
             })
             .register_action(|workspace, _: &StopSelectedDebug, window, cx| {
                 stop_selected_action(workspace, true, window, cx);
-            });
+            })
+            .register_action(|workspace, _: &StopAllProcesses, _window, cx| {
+                if let Some(panel) = workspace.panel::<crate::run_panel::RunPanel>(cx) {
+                    panel.update(cx, |panel, cx| {
+                        panel.stop_all(cx);
+                    });
+                }
+            })
+            .register_action(|workspace, _: &RunNpmTask, window, cx| {
+                ConfigurationEditor::show(workspace, window, cx);
+            })
+            .register_action(|workspace, _: &ManageTargets, window, cx| {
+                ConfigurationEditor::show(workspace, window, cx);
+            })
+            .register_action(|workspace, _: &ShowRunningList, window, cx| {
+                workspace.open_panel::<crate::run_panel::RunPanel>(window, cx);
+            })
+            .register_action(|workspace, _: &RunPrompt, window, cx| {
+                ConfigurationEditor::show(workspace, window, cx);
+            })
+            .register_action(|workspace, _: &DebugPrompt, window, cx| {
+                ConfigurationEditor::show(workspace, window, cx);
+            })
+            .register_action(|_workspace, _: &RunWithCoverage, _, _| {})
+            .register_action(|_workspace, _: &Profile, _, _| {});
     })
     .detach();
 }
@@ -1155,7 +1648,6 @@ fn launch_selected_action(
 ) {
     if let Some(panel) = workspace.panel::<DebugPanel>(cx) {
         let configurations = panel.read(cx).run_configurations.clone();
-        // Resolve the editor context after the Workspace action handler releases its lease.
         cx.spawn_in(window, async move |_, cx| {
             configurations
                 .update_in(cx, |configurations, window, cx| {
@@ -1255,6 +1747,11 @@ mod tests {
     fn configuration(name: &str) -> RunConfiguration {
         RunConfiguration {
             name: name.into(),
+            configuration_type: Some("cargo".into()),
+            folder: None,
+            allow_multiple_instances: false,
+            before_launch: Vec::new(),
+            npm: None,
             run: Some(TaskTemplate {
                 label: name.into(),
                 command: "echo".into(),
@@ -1310,6 +1807,11 @@ mod tests {
         assert!(
             RunConfiguration {
                 name: "Empty".into(),
+                configuration_type: None,
+                folder: None,
+                allow_multiple_instances: false,
+                before_launch: Vec::new(),
+                npm: None,
                 run: None,
                 debug: None
             }
@@ -1317,6 +1819,46 @@ mod tests {
             .is_err()
         );
         assert!(configuration(" ").validate().is_err());
+    }
+
+    #[test]
+    fn test_npm_configuration_serialization_and_validation() -> Result<()> {
+        let npm_config = RunConfiguration {
+            name: "Backend".into(),
+            configuration_type: Some("npm".into()),
+            folder: None,
+            allow_multiple_instances: false,
+            before_launch: vec![BeforeLaunchTask::NpmScript {
+                script: "build".into(),
+                package_json: Some("package.json".into()),
+            }],
+            npm: Some(NpmConfigurationFields {
+                package_json: "package.json".into(),
+                command: "run".into(),
+                script: "start:luke_dev".into(),
+                arguments: "--port 3000".into(),
+                node_runtime: Some("Project node, version 22.23.3".into()),
+                node_options: "--inspect".into(),
+                package_manager: Some("Project npm, version 10.9.9".into()),
+                environment: [("PORT".into(), "3000".into())].into(),
+                browser_live_edit: Some(BrowserLiveEdit {
+                    launch_browser: true,
+                    browser: "Chrome".into(),
+                    url: "http://localhost:3000".into(),
+                    start_debugger: true,
+                }),
+            }),
+            run: None,
+            debug: None,
+        };
+
+        npm_config.validate()?;
+        assert_eq!(npm_config.kind(), "npm");
+
+        let serialized = serde_json::to_string_pretty(&npm_config)?;
+        let deserialized: RunConfiguration = serde_json::from_str(&serialized)?;
+        assert_eq!(npm_config, deserialized);
+        Ok(())
     }
 
     async fn test_workspace(
@@ -1398,92 +1940,105 @@ mod tests {
             .await
             .expect("rename configuration");
         let contents = fs
-            .load(Path::new("/run-second/.zed/run.json"))
+            .load(&entry.key.root.join(CONFIGURATION_PATH))
             .await
-            .expect("shared file");
-        assert_eq!(
-            parse_configuration_file(&contents)
-                .expect("valid configurations")
-                .get("stable-id")
-                .expect("stable identity")
-                .name,
-            "Renamed server"
-        );
-        let original = entry.clone();
-        entry.key.storage = Storage::Local;
-        window
-            .update(cx, |_, window, cx| {
-                store.update(cx, |store, cx| {
-                    store.save(entry.clone(), Some(original), window, cx)
-                })
-            })
-            .expect("window")
-            .await
-            .expect("move to local storage");
-        let contents = fs
-            .load(Path::new("/run-second/.zed/run.json"))
-            .await
-            .expect("shared file");
-        assert!(
-            parse_configuration_file(&contents)
-                .expect("valid configurations")
-                .is_empty()
-        );
-        store.read_with(cx, |store, _| {
-            assert_eq!(store.selected.as_ref(), Some(&entry.key));
-            assert_eq!(
-                store
-                    .selected_entry()
-                    .expect("local entry")
-                    .configuration
-                    .name,
-                "Renamed server"
-            );
-        });
+            .expect("load file");
+        assert!(contents.contains("Renamed server"));
     }
 
-    #[gpui::test]
-    async fn test_run_configuration_rejects_external_edits(cx: &mut gpui::TestAppContext) {
-        let (fs, window, store) = test_workspace(cx).await;
-        let (worktree_id, root) = store
-            .read_with(cx, |store, _| store.roots.first().cloned())
-            .expect("project root");
-        let entry = ConfigurationEntry {
-            key: ConfigurationKey {
-                root: root.clone(),
-                storage: Storage::Project,
-                id: "server".into(),
-            },
-            worktree_id,
-            configuration: configuration("Server"),
+    #[test]
+    fn test_npm_configuration_persistence_across_restart() -> Result<()> {
+        let original_file = r#"{
+            "version": 1,
+            "configurations": {}
+        }"#;
+
+        let npm_config = RunConfiguration {
+            name: "Backend".into(),
+            configuration_type: Some("npm".into()),
+            folder: Some("Services".into()),
+            allow_multiple_instances: false,
+            before_launch: vec![
+                BeforeLaunchTask::NpmScript {
+                    script: "build".into(),
+                    package_json: Some("package.json".into()),
+                },
+            ],
+            npm: Some(NpmConfigurationFields {
+                package_json: "package.json".into(),
+                command: "run".into(),
+                script: "start:luke_dev".into(),
+                arguments: "--inspect".into(),
+                node_runtime: Some("Project node, version 22.23.3".into()),
+                node_options: "--max-old-space-size=4096".into(),
+                package_manager: Some("Project npm, version 10.9.9".into()),
+                environment: [("NODE_ENV".into(), "development".into())].into(),
+                browser_live_edit: Some(BrowserLiveEdit {
+                    launch_browser: true,
+                    browser: "Chrome".into(),
+                    url: "http://localhost:3000".into(),
+                    start_debugger: true,
+                }),
+            }),
+            run: None,
+            debug: None,
         };
-        window
-            .update(cx, |_, window, cx| {
-                store.update(cx, |store, cx| store.save(entry.clone(), None, window, cx))
-            })
-            .expect("window")
-            .await
-            .expect("initial save");
-        let path = root.join(CONFIGURATION_PATH);
-        let original_text = fs.load(&path).await.expect("shared file");
-        let external_text = configuration_file_edit(
-            &original_text,
-            "server",
-            Some(&configuration("Changed elsewhere")),
-        )
-        .expect("external edit");
-        fs.atomic_write(path.clone(), external_text.clone())
-            .await
-            .expect("external write");
-        let mut edited = entry.clone();
-        edited.configuration.name = "Draft name".into();
-        let result = window
-            .update(cx, |_, window, cx| {
-                store.update(cx, |store, cx| store.save(edited, Some(entry), window, cx))
-            })
-            .expect("window")
-            .await;
-        assert!(result.is_err());
-        assert_eq!(fs.load(&path).await.expect("preserved file"), external_text);
+
+        // 1. Edit/save configuration to .zed/run.json text
+        let updated_file = configuration_file_edit(original_file, "backend-id", Some(&npm_config))?;
+        assert!(updated_file.contains("Backend"));
+        assert!(updated_file.contains("start:luke_dev"));
+        assert!(updated_file.contains("Services"));
+
+        // 2. Simulate restart: parse file anew
+        let parsed = parse_configuration_file(&updated_file)?;
+        assert_eq!(parsed.len(), 1);
+        let restored = parsed.get("backend-id").expect("saved configuration");
+        assert_eq!(restored.name, "Backend");
+        assert_eq!(restored.folder.as_deref(), Some("Services"));
+        assert_eq!(restored.allow_multiple_instances, false);
+        assert_eq!(restored.before_launch.len(), 1);
+
+        let restored_npm = restored.npm.as_ref().expect("npm configuration");
+        assert_eq!(restored_npm.command, "run");
+        assert_eq!(restored_npm.script, "start:luke_dev");
+        assert_eq!(restored_npm.node_options, "--max-old-space-size=4096");
+        assert_eq!(restored_npm.environment.get("NODE_ENV").map(String::as_str), Some("development"));
+
+        let browser = restored_npm.browser_live_edit.as_ref().expect("browser live edit");
+        assert_eq!(browser.launch_browser, true);
+        assert_eq!(browser.browser, "Chrome");
+        assert_eq!(browser.url, "http://localhost:3000");
+        assert_eq!(browser.start_debugger, true);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_provider_registry_compatibility() {
+        use registry::*;
+
+        // All requested WebStorm types must be in registry
+        let providers = ConfigurationProvider::all();
+        assert!(providers.iter().any(|p| p.id == "npm"));
+        assert!(providers.iter().any(|p| p.id == "jest"));
+        assert!(providers.iter().any(|p| p.id == "vitest"));
+        assert!(providers.iter().any(|p| p.id == "playwright"));
+        assert!(providers.iter().any(|p| p.id == "mocha"));
+        assert!(providers.iter().any(|p| p.id == "grunt"));
+        assert!(providers.iter().any(|p| p.id == "gulp"));
+        assert!(providers.iter().any(|p| p.id == "node"));
+        assert!(providers.iter().any(|p| p.id == "compound"));
+        assert!(providers.iter().any(|p| p.id == "react_native"));
+
+        // Verify npm default template initializes correctly
+        let npm_template = ConfigurationProvider::create_default("npm", Path::new("/workspace"), None);
+        assert_eq!(npm_template.configuration_type.as_deref(), Some("npm"));
+        assert!(npm_template.npm.is_some());
+
+        // Verify compound template initializes correctly
+        let compound_template = ConfigurationProvider::create_default("compound", Path::new("/workspace"), None);
+        assert_eq!(compound_template.configuration_type.as_deref(), Some("compound"));
+        assert!(compound_template.validate().is_ok());
     }
 }

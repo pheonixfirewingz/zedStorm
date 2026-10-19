@@ -57,6 +57,7 @@ serde_json.workspace = true
 serde_json_lenient.workspace = true
 settings.workspace = true
 settings_json = { workspace = true, features = ["editing"] }
+smol.workspace = true
 sysinfo.workspace = true
 task.workspace = true
 tasks_ui.workspace = true

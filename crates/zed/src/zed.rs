@@ -679,6 +679,8 @@ fn initialize_panels(
         let git_panel = GitPanel::load(workspace_handle.clone(), cx.clone());
         let calculator_panel =
             calculator_panel::CalculatorPanel::load(workspace_handle.clone(), cx.clone());
+        let run_panel =
+            debugger_ui::run_panel::RunPanel::load(workspace_handle.clone(), &mut cx.clone());
         let debug_panel = DebugPanel::load(workspace_handle.clone(), cx);
 
         async fn add_panel_when_ready(
@@ -702,6 +704,7 @@ fn initialize_panels(
             add_panel_when_ready(terminal_panel, workspace_handle.clone(), cx.clone()),
             add_panel_when_ready(git_panel, workspace_handle.clone(), cx.clone()),
             add_panel_when_ready(debug_panel, workspace_handle.clone(), cx.clone()),
+            add_panel_when_ready(run_panel, workspace_handle.clone(), cx.clone()),
             add_panel_when_ready(calculator_panel, workspace_handle.clone(), cx.clone()),
         );
 

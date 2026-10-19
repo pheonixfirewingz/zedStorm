@@ -2,7 +2,11 @@ use super::*;
 use editor::Editor;
 use gpui::{DismissEvent, EventEmitter, FocusHandle, Focusable, Render};
 use task::BuildTaskDefinition;
-use ui::{ContextMenu, PopoverMenu, Switch, SwitchLabelPosition, ToggleState, Tooltip, prelude::*};
+use ui::{
+    Button, ContextMenu, FluentBuilder,
+    IconButton, IconName, IconSize, Label, LabelSize, PopoverMenu, Switch, SwitchLabelPosition,
+    ToggleState, Tooltip, prelude::*,
+};
 use ui_input::InputField;
 use uuid::Uuid;
 use workspace::ModalView;
@@ -105,6 +109,11 @@ fn cargo_configuration(metadata: &Value, root: &Path) -> Option<RunConfiguration
     };
     Some(RunConfiguration {
         name: (*binary).into(),
+        configuration_type: Some("cargo".into()),
+        folder: None,
+        allow_multiple_instances: false,
+        before_launch: Vec::new(),
+        npm: None,
         run: Some(task("run")),
         debug: Some(DebugScenario {
             adapter: "CodeLLDB".into(),
@@ -119,7 +128,20 @@ fn cargo_configuration(metadata: &Value, root: &Path) -> Option<RunConfiguration
     })
 }
 
-struct TargetFields {
+fn input(
+    placeholder: &'static str,
+    value: &str,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<InputField> {
+    cx.new(|cx| {
+        let field = InputField::new(window, cx, placeholder);
+        field.set_text(value, window, cx);
+        field
+    })
+}
+
+pub(crate) struct TargetFields {
     program: Entity<InputField>,
     cwd: Entity<InputField>,
     arguments: Vec<Entity<InputField>>,
@@ -128,7 +150,7 @@ struct TargetFields {
 
 impl TargetFields {
     fn new(
-        program_label: &str,
+        program_label: &'static str,
         program: &str,
         cwd: &str,
         arguments: &[String],
@@ -147,7 +169,7 @@ impl TargetFields {
                 .iter()
                 .map(|(name, value)| {
                     (
-                        input("Name", name, window, cx),
+                        input("Variable", name, window, cx),
                         input("Value", value, window, cx),
                     )
                 })
@@ -159,6 +181,7 @@ impl TargetFields {
         self.arguments
             .iter()
             .map(|argument| argument.read(cx).text(cx))
+            .filter(|argument| !argument.is_empty())
             .collect()
     }
 
@@ -166,42 +189,47 @@ impl TargetFields {
         let mut environment = BTreeMap::new();
         for (name, value) in &self.environment {
             let name = name.read(cx).text(cx);
-            ensure!(
-                !name.trim().is_empty() && !name.contains(['=', '\0']),
-                "Environment variable names must be nonempty and cannot contain = or a null character"
-            );
-            ensure!(
-                !environment.contains_key(&name),
-                "Duplicate environment variable: {name}"
-            );
-            environment.insert(name, value.read(cx).text(cx));
+            let value = value.read(cx).text(cx);
+            if name.is_empty() {
+                continue;
+            }
+            ensure!(!name.contains('='), "Variable names cannot contain '='");
+            environment.insert(name, value);
         }
         Ok(environment)
     }
 }
 
-fn input(placeholder: &str, value: &str, window: &mut Window, cx: &mut App) -> Entity<InputField> {
-    cx.new(|cx| {
-        let field = InputField::new(window, cx, placeholder)
-            .label(placeholder)
-            .label_min_width(px(0.));
-        field.set_text(value, window, cx);
-        field
-    })
-}
+pub struct ConfigurationDraft {
+    pub entry: ConfigurationEntry,
+    pub original: Option<ConfigurationEntry>,
+    pub name: Entity<InputField>,
+    pub allow_multiple_instances: bool,
+    pub folder: Option<String>,
+    pub before_launch: Vec<BeforeLaunchTask>,
+    pub before_launch_expanded: bool,
 
-struct ConfigurationDraft {
-    entry: ConfigurationEntry,
-    original: Option<ConfigurationEntry>,
-    name: Entity<InputField>,
-    run_enabled: bool,
-    debug_enabled: bool,
-    concurrent: bool,
-    run: TargetFields,
-    debug: TargetFields,
-    adapter: Entity<InputField>,
-    attach: bool,
-    adapter_options: Entity<Editor>,
+    // Npm tab and fields
+    pub npm_tab: usize, // 0 = Configuration, 1 = Browser / Live Edit
+    pub npm_package_json: Entity<InputField>,
+    pub npm_command: String,
+    pub npm_script: String,
+    pub npm_arguments: Entity<InputField>,
+    pub npm_node_runtime: Option<String>,
+    pub npm_node_options: Entity<InputField>,
+    pub npm_package_manager: Option<String>,
+    pub npm_environment: Vec<(Entity<InputField>, Entity<InputField>)>,
+    pub npm_browser_live_edit: BrowserLiveEdit,
+
+    // Generic / Debug targets
+    pub run_enabled: bool,
+    pub debug_enabled: bool,
+    pub concurrent: bool,
+    pub run: TargetFields,
+    pub debug: TargetFields,
+    pub adapter: Entity<InputField>,
+    pub attach: bool,
+    pub adapter_options: Entity<Editor>,
 }
 
 impl ConfigurationDraft {
@@ -237,7 +265,6 @@ impl ConfigurationDraft {
                 object.remove("env");
             }
         }
-        // Adapter-specific argument/environment shapes remain editable in the raw options.
         let arguments = match arguments {
             Ok(arguments) => arguments.unwrap_or_default(),
             Err(_) => Vec::new(),
@@ -255,11 +282,42 @@ impl ConfigurationDraft {
             editor.set_text(options_text, window, cx);
             editor
         });
+
+        // Initialize NPM fields if present
+        let npm = configuration.npm.clone().unwrap_or_default();
+        let npm_package_json = input("package.json", &npm.package_json, window, cx);
+        let npm_command = if npm.command.is_empty() { "run".into() } else { npm.command };
+        let npm_script = npm.script;
+        let npm_arguments = input("Arguments", &npm.arguments, window, cx);
+        let npm_node_options = input("Node options", &npm.node_options, window, cx);
+        let npm_environment = npm
+            .environment
+            .iter()
+            .map(|(k, v)| (input("Name", k, window, cx), input("Value", v, window, cx)))
+            .collect();
+        let npm_browser_live_edit = npm.browser_live_edit.unwrap_or_default();
+
         Self {
             original: saved.then(|| entry.clone()),
             name: input("Name", &configuration.name, window, cx),
+            allow_multiple_instances: configuration.allow_multiple_instances,
+            folder: configuration.folder.clone(),
+            before_launch: configuration.before_launch.clone(),
+            before_launch_expanded: false,
+
+            npm_tab: 0,
+            npm_package_json,
+            npm_command,
+            npm_script,
+            npm_arguments,
+            npm_node_runtime: npm.node_runtime,
+            npm_node_options,
+            npm_package_manager: npm.package_manager,
+            npm_environment,
+            npm_browser_live_edit,
+
             run_enabled: configuration.run.is_some(),
-            debug_enabled: configuration.debug.is_some(),
+            debug_enabled: if saved { configuration.debug.is_some() } else { true },
             concurrent: run.allow_concurrent_runs,
             run: TargetFields::new(
                 "Command",
@@ -289,7 +347,7 @@ impl ConfigurationDraft {
                 "Debugger",
                 debug
                     .map(|debug| debug.adapter.as_ref())
-                    .unwrap_or_default(),
+                    .unwrap_or("CodeLLDB"),
                 window,
                 cx,
             ),
@@ -299,6 +357,7 @@ impl ConfigurationDraft {
         }
     }
 
+    #[allow(dead_code)]
     fn builds_cargo_target(&self) -> bool {
         self.debug_enabled
             && !self.attach
@@ -325,6 +384,7 @@ impl ConfigurationDraft {
         let Some(debug) = defaults.and_then(|configuration| configuration.debug.as_ref()) else {
             return;
         };
+        self.debug_enabled = true;
         if self.entry.configuration.debug.is_some() {
             return;
         }
@@ -338,12 +398,55 @@ impl ConfigurationDraft {
         self.entry.configuration.debug = Some(debug.clone());
     }
 
-    fn configuration(&self, cx: &App) -> Result<RunConfiguration> {
+    pub fn is_npm(&self) -> bool {
+        self.entry.configuration.npm.is_some()
+            || self.entry.configuration.configuration_type.as_deref() == Some("npm")
+    }
+
+    pub fn configuration(&self, cx: &App) -> Result<RunConfiguration> {
         let name = self.name.read(cx).text(cx);
-        let run = if self.run_enabled {
+
+        if self.is_npm() {
+            let mut env = BTreeMap::new();
+            for (k, v) in &self.npm_environment {
+                let k_str = k.read(cx).text(cx);
+                let v_str = v.read(cx).text(cx);
+                if !k_str.is_empty() {
+                    env.insert(k_str, v_str);
+                }
+            }
+
+            let npm_fields = NpmConfigurationFields {
+                package_json: self.npm_package_json.read(cx).text(cx),
+                command: self.npm_command.clone(),
+                script: self.npm_script.clone(),
+                arguments: self.npm_arguments.read(cx).text(cx),
+                node_runtime: self.npm_node_runtime.clone(),
+                node_options: self.npm_node_options.read(cx).text(cx),
+                package_manager: self.npm_package_manager.clone(),
+                environment: env,
+                browser_live_edit: Some(self.npm_browser_live_edit.clone()),
+            };
+
+            let config = RunConfiguration {
+                name,
+                configuration_type: Some("npm".into()),
+                folder: self.folder.clone(),
+                allow_multiple_instances: self.allow_multiple_instances,
+                before_launch: self.before_launch.clone(),
+                npm: Some(npm_fields),
+                run: None,
+                debug: None,
+            };
+            config.validate()?;
+            return Ok(config);
+        }
+
+        let run_cmd = self.run.program.read(cx).text(cx);
+        let run = if self.run_enabled && !run_cmd.trim().is_empty() {
             let mut run = self.entry.configuration.run.clone().unwrap_or_default();
             run.label = name.clone();
-            run.command = self.run.program.read(cx).text(cx);
+            run.command = run_cmd;
             run.args = self.run.arguments(cx);
             run.cwd = nonempty(self.run.cwd.read(cx).text(cx));
             run.env = self.run.environment(cx)?.into_iter().collect();
@@ -352,10 +455,15 @@ impl ConfigurationDraft {
         } else {
             None
         };
+
         let debug = if self.debug_enabled {
-            let mut config: Value =
-                settings_json::parse_json_with_comments(&self.adapter_options.read(cx).text(cx))
-                    .context("Invalid adapter options")?;
+            let adapter_options_text = self.adapter_options.read(cx).text(cx);
+            let mut config: Value = if adapter_options_text.trim().is_empty() {
+                json!({})
+            } else {
+                settings_json::parse_json_with_comments(&adapter_options_text)
+                    .context("Invalid adapter options")?
+            };
             ensure!(config.is_object(), "Adapter options must be an object");
             config["request"] = json!(if self.attach { "attach" } else { "launch" });
             let program = self.debug.program.read(cx).text(cx);
@@ -384,13 +492,19 @@ impl ConfigurationDraft {
                         tcp_connection: None,
                     });
             debug.label = name.clone().into();
-            debug.adapter = self.adapter.read(cx).text(cx).into();
+            let adapter_text = self.adapter.read(cx).text(cx);
+            debug.adapter = if !adapter_text.trim().is_empty() {
+                adapter_text.into()
+            } else if !debug.adapter.is_empty() {
+                debug.adapter
+            } else {
+                "CodeLLDB".into()
+            };
             if self.attach
                 || config.get("program").is_some()
                 || config.get("targetCreateCommands").is_some()
             {
                 if let Some(BuildTaskDefinition::Template { locator_name, .. }) = &mut debug.build {
-                    // Explicit targets bypass discovery; the launch pipeline requires locator configs to be incomplete.
                     *locator_name = None;
                 }
             }
@@ -399,9 +513,19 @@ impl ConfigurationDraft {
         } else {
             None
         };
-        let configuration = RunConfiguration { name, run, debug };
-        configuration.validate()?;
-        Ok(configuration)
+
+        let config = RunConfiguration {
+            name,
+            configuration_type: self.entry.configuration.configuration_type.clone(),
+            folder: self.folder.clone(),
+            allow_multiple_instances: self.allow_multiple_instances,
+            before_launch: self.before_launch.clone(),
+            npm: None,
+            run,
+            debug,
+        };
+        config.validate()?;
+        Ok(config)
     }
 }
 
@@ -416,10 +540,12 @@ pub struct ConfigurationEditor {
     busy: bool,
     error: Option<String>,
     focus_handle: FocusHandle,
-    show_options: bool,
+    _show_options: bool,
     defaults: BTreeMap<PathBuf, RunConfiguration>,
     search: Entity<InputField>,
     _search_subscription: Subscription,
+    sort_alphabetical: bool,
+    editing_templates: bool,
 }
 
 impl EventEmitter<DismissEvent> for ConfigurationEditor {}
@@ -521,10 +647,12 @@ impl ConfigurationEditor {
             busy: false,
             error,
             focus_handle: cx.focus_handle(),
-            show_options: false,
+            _show_options: false,
             defaults,
             search,
             _search_subscription: search_subscription,
+            sort_alphabetical: false,
+            editing_templates: false,
         };
         if editor.drafts.is_empty()
             && editor
@@ -534,12 +662,34 @@ impl ConfigurationEditor {
                 .as_ref()
                 .is_some_and(|root| editor.defaults.contains_key(root))
         {
-            editor.add(false, window, cx);
+            editor.add("cargo", window, cx);
         }
         editor
     }
 
-    fn add(&mut self, duplicate: bool, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn has_changes(&self, cx: &App) -> bool {
+        for draft in &self.drafts {
+            if draft.original.is_none() {
+                return true;
+            }
+            if let Some(original) = &draft.original {
+                if draft.entry.key != original.key {
+                    return true;
+                }
+                match draft.configuration(cx) {
+                    Ok(current) => {
+                        if current != original.configuration {
+                            return true;
+                        }
+                    }
+                    Err(_) => return true,
+                }
+            }
+        }
+        false
+    }
+
+    fn add(&mut self, type_id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let Some((worktree_id, root)) = self
             .store
             .read(cx)
@@ -547,50 +697,44 @@ impl ConfigurationEditor {
             .iter()
             .find(|(_, root)| Some(root) == self.store.read(cx).active_root.as_ref())
             .cloned()
+            .or_else(|| self.store.read(cx).roots.first().cloned())
         else {
             self.error = Some("Open a project folder before adding a configuration".into());
             cx.notify();
             return;
         };
-        let base = if duplicate {
-            self.selected
-                .and_then(|index| self.drafts.get(index))
-                .map(|draft| draft.configuration(cx))
-                .transpose()
+
+        // Check if there is an existing package.json in root
+        let pkg_path = root.join("package.json");
+        let configuration = if type_id == "cargo" {
+            self.defaults.get(&root).cloned().unwrap_or_else(|| {
+                registry::ConfigurationProvider::create_default(
+                    type_id,
+                    &root,
+                    pkg_path.is_file().then_some(&pkg_path),
+                )
+            })
         } else {
-            Ok(None)
+            registry::ConfigurationProvider::create_default(
+                type_id,
+                &root,
+                pkg_path.is_file().then_some(&pkg_path),
+            )
         };
-        let configuration = match base {
-            Ok(Some(mut configuration)) => {
-                configuration.name.push_str(" copy");
-                configuration
-            }
-            Ok(None) => self
-                .defaults
-                .get(&root)
-                .cloned()
-                .unwrap_or_else(|| RunConfiguration {
-                    name: "New configuration".into(),
-                    run: Some(TaskTemplate::default()),
-                    debug: None,
-                }),
-            Err(error) => {
-                self.error = Some(format!("{error:#}"));
-                cx.notify();
-                return;
-            }
-        };
+
         let entry = ConfigurationEntry {
             key: ConfigurationKey {
-                root,
+                root: root.clone(),
                 storage: Storage::Project,
                 id: Uuid::new_v4().to_string(),
             },
             worktree_id,
             configuration,
         };
+
         let mut draft = ConfigurationDraft::new(entry, false, window, cx);
         draft.apply_defaults(self.defaults.get(&draft.entry.key.root), window, cx);
+        draft.debug_enabled = true;
         draft.name.read(cx).focus_handle(cx).focus(window, cx);
         self.drafts.push(draft);
         self.selected = Some(self.drafts.len() - 1);
@@ -598,83 +742,38 @@ impl ConfigurationEditor {
         cx.notify();
     }
 
-    fn add_debug_target(
-        &mut self,
-        name: &str,
-        adapter: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let previous_count = self.drafts.len();
-        self.add(false, window, cx);
-        if self.drafts.len() == previous_count {
-            return;
-        }
-        if let Some(draft) = self.selected.and_then(|index| self.drafts.get_mut(index)) {
-            let mut entry = draft.entry.clone();
-            entry.configuration = RunConfiguration {
-                name: name.into(),
-                run: None,
-                debug: Some(DebugScenario {
-                    adapter: adapter.into(),
-                    label: name.into(),
-                    build: None,
-                    config: json!({"request": "launch", "cwd": entry.key.root}),
-                    tcp_connection: None,
-                }),
-            };
-            if adapter == "JavaScript" {
-                if let Some(debug) = &mut entry.configuration.debug {
-                    debug.config["type"] = json!("pwa-node");
-                }
-            }
-            *draft = ConfigurationDraft::new(entry, false, window, cx);
-            draft
-                .debug
-                .program
-                .read(cx)
-                .focus_handle(cx)
-                .focus(window, cx);
-        }
-        self.show_options = false;
-        cx.notify();
-    }
-
-    fn change_root(
-        &mut self,
-        worktree_id: WorktreeId,
-        root: PathBuf,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(draft) = self.selected.and_then(|index| self.drafts.get_mut(index)) else {
+    fn duplicate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(selected) = self.selected else {
             return;
         };
-        if draft.original.is_some() {
+        let Some(draft) = self.drafts.get(selected) else {
             return;
-        }
-        let inferred = self
-            .defaults
-            .get(&draft.entry.key.root)
-            .is_some_and(|configuration| configuration == &draft.entry.configuration);
-        let unchanged = draft
-            .configuration(cx)
-            .is_ok_and(|configuration| configuration == draft.entry.configuration);
-        draft.entry.key.root = root.clone();
-        draft.entry.worktree_id = worktree_id;
-        if inferred && unchanged {
-            draft.entry.configuration =
-                self.defaults
-                    .get(&root)
-                    .cloned()
-                    .unwrap_or_else(|| RunConfiguration {
-                        name: "New configuration".into(),
-                        run: Some(TaskTemplate::default()),
-                        debug: None,
-                    });
-            *draft = ConfigurationDraft::new(draft.entry.clone(), false, window, cx);
-            draft.apply_defaults(self.defaults.get(&root), window, cx);
-        }
+        };
+        let mut config = match draft.configuration(cx) {
+            Ok(c) => c,
+            Err(e) => {
+                self.error = Some(format!("{e:#}"));
+                cx.notify();
+                return;
+            }
+        };
+        config.name = format!("{} (1)", config.name);
+
+        let entry = ConfigurationEntry {
+            key: ConfigurationKey {
+                root: draft.entry.key.root.clone(),
+                storage: draft.entry.key.storage.clone(),
+                id: Uuid::new_v4().to_string(),
+            },
+            worktree_id: draft.entry.worktree_id,
+            configuration: config,
+        };
+
+        let new_draft = ConfigurationDraft::new(entry, false, window, cx);
+        new_draft.name.read(cx).focus_handle(cx).focus(window, cx);
+        self.drafts.push(new_draft);
+        self.selected = Some(self.drafts.len() - 1);
+        self.error = None;
         cx.notify();
     }
 
@@ -706,11 +805,13 @@ impl ConfigurationEditor {
             if index == selected
                 && let Some(debug) = launch
             {
-                if debug && configuration.debug.is_none() || !debug && configuration.run.is_none() {
-                    self.error =
-                        Some("This configuration does not support that launch mode".into());
-                    cx.notify();
-                    return;
+                if !draft.is_npm() {
+                    if debug && configuration.debug.is_none() || !debug && configuration.run.is_none() {
+                        self.error =
+                            Some("This configuration does not support that launch mode".into());
+                        cx.notify();
+                        return;
+                    }
                 }
             }
             if draft.original.as_ref().is_none_or(|original| {
@@ -822,682 +923,792 @@ impl ConfigurationEditor {
         cx.notify();
     }
 
-    fn render_target(&self, debug: bool, cx: &mut Context<Self>) -> AnyElement {
-        let Some(draft) = self.selected.and_then(|index| self.drafts.get(index)) else {
-            return div().into_any_element();
-        };
-        let fields = if debug { &draft.debug } else { &draft.run };
-        let arguments = fields
-            .arguments
-            .iter()
-            .enumerate()
-            .map(|(index, argument)| {
-                h_flex()
-                    .gap_1()
-                    .child(div().flex_1().child(argument.clone()))
-                    .child(
-                        IconButton::new(("remove-argument", index), IconName::Close)
-                            .aria_label("Remove argument")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                if let Some(draft) =
-                                    this.selected.and_then(|index| this.drafts.get_mut(index))
-                                {
-                                    let fields = if debug {
-                                        &mut draft.debug
-                                    } else {
-                                        &mut draft.run
-                                    };
-                                    if index < fields.arguments.len() {
-                                        fields.arguments.remove(index);
-                                    }
-                                }
-                                cx.notify();
-                            })),
-                    )
+    fn render_npm_form(&self, draft: &ConfigurationDraft, cx: &mut Context<Self>) -> AnyElement {
+        let tab = draft.npm_tab;
+        let pkg_path = draft.npm_package_json.read(cx).text(cx);
+        let store = self.store.read(cx);
+
+        // Get script options for selected package.json
+        let root = &draft.entry.key.root;
+        let full_pkg_path = root.join(&pkg_path);
+        let scripts: Vec<String> = store
+            .discovered_package_scripts
+            .get(&full_pkg_path)
+            .map(|s| s.keys().cloned().collect())
+            .unwrap_or_else(|| {
+                vec!["start".into(), "build".into(), "test".into(), "dev".into()]
+            });
+
+        let discovered_packages: Vec<String> = store
+            .discovered_package_scripts
+            .keys()
+            .filter_map(|p| {
+                p.strip_prefix(root)
+                    .ok()
+                    .map(|rel| rel.to_string_lossy().into_owned())
             })
-            .collect::<Vec<_>>();
-        let environment = fields
-            .environment
-            .iter()
-            .enumerate()
-            .map(|(index, (name, value))| {
-                h_flex()
-                    .gap_1()
-                    .child(div().flex_1().child(name.clone()))
-                    .child(div().flex_1().child(value.clone()))
-                    .child(
-                        IconButton::new(("remove-environment", index), IconName::Close)
-                            .aria_label("Remove environment variable")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                if let Some(draft) =
-                                    this.selected.and_then(|index| this.drafts.get_mut(index))
-                                {
-                                    let fields = if debug {
-                                        &mut draft.debug
-                                    } else {
-                                        &mut draft.run
-                                    };
-                                    if index < fields.environment.len() {
-                                        fields.environment.remove(index);
-                                    }
-                                }
-                                cx.notify();
-                            })),
-                    )
-            })
-            .collect::<Vec<_>>();
+            .collect();
+
+        let node_version_str = store
+            .node_version
+            .as_deref()
+            .map(|v| format!("Project node, version {v}"))
+            .unwrap_or_else(|| "Project node".into());
+
+        let npm_version_str = store
+            .npm_version
+            .as_deref()
+            .map(|v| format!("Project npm, version {v}"))
+            .unwrap_or_else(|| "Project npm".into());
+
         v_flex()
-            .id(if debug {
-                "debug-target-fields"
-            } else {
-                "run-target-fields"
-            })
-            .gap_2()
+            .gap_3()
             .w_full()
-            .when(!debug || !draft.attach, |form| {
-                if debug && draft.builds_cargo_target() && !self.show_options {
-                    form.child(Label::new("Before launch: Build Cargo target").color(Color::Muted))
-                        .child(
-                            Label::new("The executable is detected automatically after building.")
-                                .color(Color::Muted),
-                        )
-                } else {
-                    form.child(fields.program.clone())
-                }
-            })
-            .when(
-                !self.show_options
-                    && (!fields.arguments.is_empty() || !fields.environment.is_empty()),
-                |form| {
-                    form.child(
-                        Button::new(
-                            if debug {
-                                "debug-extra-settings"
-                            } else {
-                                "run-extra-settings"
-                            },
-                            match (fields.arguments.len(), fields.environment.len()) {
-                                (0, environment) => {
-                                    format!("Environment variables ({environment})…")
+            .child(
+                h_flex()
+                    .border_b_1()
+                    .border_color(cx.theme().colors().border)
+                    .child(
+                        Button::new("npm-config-tab", "Configuration")
+                            .toggle_state(tab == 0)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if let Some(d) = this.selected.and_then(|i| this.drafts.get_mut(i)) {
+                                    d.npm_tab = 0;
+                                    cx.notify();
                                 }
-                                (arguments, 0) => format!("Arguments ({arguments})…"),
-                                (arguments, environment) => {
-                                    format!("Arguments ({arguments}), environment ({environment})…")
+                            })),
+                    )
+                    .child(
+                        Button::new("npm-browser-tab", "Browser / Live Edit")
+                            .toggle_state(tab == 1)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                if let Some(d) = this.selected.and_then(|i| this.drafts.get_mut(i)) {
+                                    d.npm_tab = 1;
+                                    cx.notify();
                                 }
-                            },
+                            })),
+                    ),
+            )
+            .child(if tab == 0 {
+                v_flex()
+                    .gap_3()
+                    .w_full()
+                    // 1. package.json field
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .child(Label::new("package.json").size(LabelSize::Small).color(Color::Muted))
+                            .child(
+                                h_flex()
+                                    .gap_1()
+                                    .child(div().flex_1().child(draft.npm_package_json.clone()))
+                                    .child(
+                                        PopoverMenu::new("choose-pkg-json")
+                                            .trigger(IconButton::new("choose-pkg-btn", IconName::ChevronDown))
+                                            .menu({
+                                                let editor = cx.weak_entity();
+                                                let pkgs = discovered_packages.clone();
+                                                move |window, cx| {
+                                                    let editor = editor.clone();
+                                                    let pkgs = pkgs.clone();
+                                                    Some(ContextMenu::build(window, cx, move |mut menu, _, _| {
+                                                        for pkg in pkgs {
+                                                            let editor = editor.clone();
+                                                            let pkg_clone = pkg.clone();
+                                                            menu = menu.entry(pkg, None, move |window, cx| {
+                                                                editor.update(cx, |this, cx| {
+                                                                    if let Some(d) = this.selected.and_then(|i| this.drafts.get_mut(i)) {
+                                                                        d.npm_package_json.update(cx, |f, cx| f.set_text(&pkg_clone, window, cx));
+                                                                        cx.notify();
+                                                                    }
+                                                                }).log_err();
+                                                            });
+                                                        }
+                                                        menu
+                                                    }))
+                                                }
+                                            })
+                                    ),
+                            ),
+                    )
+                    // 2. Command dropdown
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .child(Label::new("Command").size(LabelSize::Small).color(Color::Muted))
+                            .child(
+                                PopoverMenu::new("npm-command-menu")
+                                    .trigger(Button::new("npm-command-val", draft.npm_command.clone()).end_icon(Icon::new(IconName::ChevronDown)))
+                                    .menu({
+                                        let editor = cx.weak_entity();
+                                        move |window, cx| {
+                                            let editor = editor.clone();
+                                            Some(ContextMenu::build(window, cx, move |mut menu, _, _| {
+                                                for cmd in ["run", "start", "test", "build"] {
+                                                    let editor = editor.clone();
+                                                    menu = menu.entry(cmd, None, move |_, cx| {
+                                                        editor.update(cx, |this, cx| {
+                                                            if let Some(d) = this.selected.and_then(|i| this.drafts.get_mut(i)) {
+                                                                d.npm_command = cmd.to_string();
+                                                                cx.notify();
+                                                            }
+                                                        }).log_err();
+                                                    });
+                                                }
+                                                menu
+                                            }))
+                                        }
+                                    })
+                            ),
+                    )
+                    // 3. Scripts dropdown
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .child(Label::new("Scripts").size(LabelSize::Small).color(Color::Muted))
+                            .child(
+                                PopoverMenu::new("npm-scripts-menu")
+                                    .trigger(
+                                        Button::new(
+                                            "npm-script-val",
+                                            if draft.npm_script.is_empty() { "Select script…".into() } else { draft.npm_script.clone() },
+                                        )
+                                        .end_icon(Icon::new(IconName::ChevronDown))
+                                    )
+                                    .menu({
+                                        let editor = cx.weak_entity();
+                                        let script_list = scripts.clone();
+                                        move |window, cx| {
+                                            let editor = editor.clone();
+                                            let list = script_list.clone();
+                                            Some(ContextMenu::build(window, cx, move |mut menu, _, _| {
+                                                for script in list {
+                                                    let editor = editor.clone();
+                                                    let s_clone = script.clone();
+                                                    menu = menu.entry(script, None, move |_, cx| {
+                                                        editor.update(cx, |this, cx| {
+                                                            if let Some(d) = this.selected.and_then(|i| this.drafts.get_mut(i)) {
+                                                                d.npm_script = s_clone.clone();
+                                                                cx.notify();
+                                                            }
+                                                        }).log_err();
+                                                    });
+                                                }
+                                                menu
+                                            }))
+                                        }
+                                    })
+                            ),
+                    )
+                    // 4. Arguments
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .child(Label::new("Arguments").size(LabelSize::Small).color(Color::Muted))
+                            .child(draft.npm_arguments.clone()),
+                    )
+                    // 5. Node runtime
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .child(Label::new("Node runtime").size(LabelSize::Small).color(Color::Muted))
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .child(Label::new(node_version_str).size(LabelSize::Small))
+                                    .child(Button::new("browse-node", "Browse…").size(ButtonSize::Compact)),
+                            ),
+                    )
+                    // 6. Node options
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .child(Label::new("Node options").size(LabelSize::Small).color(Color::Muted))
+                            .child(draft.npm_node_options.clone()),
+                    )
+                    // 7. Package manager
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .child(Label::new("Package manager").size(LabelSize::Small).color(Color::Muted))
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .child(Label::new(npm_version_str).size(LabelSize::Small))
+                                    .child(Button::new("browse-npm", "Browse…").size(ButtonSize::Compact)),
+                            ),
+                    )
+                    // 8. Environment
+                    .child(
+                        v_flex()
+                            .gap_1()
+                            .child(Label::new("Environment").size(LabelSize::Small).color(Color::Muted))
+                            .children(draft.npm_environment.iter().enumerate().map(|(idx, (k, v))| {
+                                h_flex()
+                                    .gap_1()
+                                    .child(div().flex_1().child(k.clone()))
+                                    .child(div().flex_1().child(v.clone()))
+                                    .child(
+                                        IconButton::new(("del-env", idx), IconName::Close)
+                                            .on_click(cx.listener(move |this, _, _, cx| {
+                                                if let Some(d) = this.selected.and_then(|i| this.drafts.get_mut(i)) {
+                                                    if idx < d.npm_environment.len() {
+                                                        d.npm_environment.remove(idx);
+                                                        cx.notify();
+                                                    }
+                                                }
+                                            }))
+                                    )
+                            }))
+                            .child(
+                                Button::new("add-npm-env", "Add environment variable")
+                                    .size(ButtonSize::Compact)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        if let Some(d) = this.selected.and_then(|i| this.drafts.get_mut(i)) {
+                                            d.npm_environment.push((
+                                                input("Name", "", window, cx),
+                                                input("Value", "", window, cx),
+                                            ));
+                                            cx.notify();
+                                        }
+                                    })),
+                            ),
+                    )
+                    .into_any_element()
+            } else {
+                let live_edit = &draft.npm_browser_live_edit;
+                let launch_browser = live_edit.launch_browser;
+                v_flex()
+                    .gap_3()
+                    .w_full()
+                    .child(
+                        Switch::new(
+                            "launch-browser-switch",
+                            if launch_browser { ToggleState::Selected } else { ToggleState::Unselected },
                         )
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.show_options = true;
-                            cx.notify();
+                        .label("Launch Browser")
+                        .label_position(SwitchLabelPosition::End)
+                        .on_click(cx.listener(|this, state: &ToggleState, _, cx| {
+                            if let Some(d) = this.selected.and_then(|i| this.drafts.get_mut(i)) {
+                                d.npm_browser_live_edit.launch_browser = state.selected();
+                                cx.notify();
+                            }
                         })),
                     )
-                },
-            )
-            .when(self.show_options, |form| form.child(fields.cwd.clone()))
-            .when((!debug || !draft.attach) && self.show_options, |form| {
-                form.child(Label::new("Arguments"))
-                    .children(arguments)
                     .child(
-                        Button::new(
-                            if debug {
-                                "add-debug-argument"
-                            } else {
-                                "add-run-argument"
-                            },
-                            "Add argument",
-                        )
-                        .on_click(cx.listener(
-                            move |this, _, window, cx| {
-                                if let Some(draft) =
-                                    this.selected.and_then(|index| this.drafts.get_mut(index))
-                                {
-                                    let fields = if debug {
-                                        &mut draft.debug
-                                    } else {
-                                        &mut draft.run
-                                    };
-                                    fields.arguments.push(input("Argument", "", window, cx));
-                                }
-                                cx.notify();
-                            },
-                        )),
+                        v_flex()
+                            .gap_1()
+                            .child(Label::new("Browser").size(LabelSize::Small).color(Color::Muted))
+                            .child(
+                                Button::new(
+                                    "browser-sel",
+                                    if live_edit.browser.is_empty() { "Chrome" } else { &live_edit.browser },
+                                )
+                                .disabled(!launch_browser)
+                            ),
                     )
-            })
-            .when(self.show_options, |form| {
-                form.child(Label::new("Environment variables"))
-                    .children(environment)
                     .child(
-                        Button::new(
-                            if debug {
-                                "add-debug-variable"
-                            } else {
-                                "add-run-variable"
-                            },
-                            "Add variable",
-                        )
-                        .on_click(cx.listener(
-                            move |this, _, window, cx| {
-                                if let Some(draft) =
-                                    this.selected.and_then(|index| this.drafts.get_mut(index))
-                                {
-                                    let fields = if debug {
-                                        &mut draft.debug
-                                    } else {
-                                        &mut draft.run
-                                    };
-                                    fields.environment.push((
-                                        input("Name", "", window, cx),
-                                        input("Value", "", window, cx),
-                                    ));
-                                }
-                                cx.notify();
-                            },
-                        )),
+                        v_flex()
+                            .gap_1()
+                            .child(Label::new("URL").size(LabelSize::Small).color(Color::Muted))
+                            .child(
+                                h_flex()
+                                    .gap_1()
+                                    .child(
+                                        div().flex_1().child(
+                                            Label::new(if live_edit.url.is_empty() { "http://localhost:3000" } else { &live_edit.url })
+                                        )
+                                    )
+                                    .child(Button::new("browse-url", "Browse…").disabled(!launch_browser)),
+                            ),
                     )
+                    .child(
+                        Switch::new(
+                            "start-js-debugger",
+                            if live_edit.start_debugger { ToggleState::Selected } else { ToggleState::Unselected },
+                        )
+                        .label("Start JavaScript debugger after launch")
+                        .label_position(SwitchLabelPosition::End)
+                        .disabled(!launch_browser)
+                        .on_click(cx.listener(|this, state: &ToggleState, _, cx| {
+                            if let Some(d) = this.selected.and_then(|i| this.drafts.get_mut(i)) {
+                                d.npm_browser_live_edit.start_debugger = state.selected();
+                                cx.notify();
+                            }
+                        })),
+                    )
+                    .into_any_element()
             })
             .into_any_element()
+    }
+
+    fn render_before_launch_section(&self, draft: &ConfigurationDraft, cx: &mut Context<Self>) -> impl IntoElement {
+        let expanded = draft.before_launch_expanded;
+        v_flex()
+            .gap_1()
+            .w_full()
+            .border_t_1()
+            .border_color(cx.theme().colors().border)
+            .pt_2()
+            .child(
+                h_flex()
+                    .id("before-launch-header")
+                    .gap_1()
+                    .cursor_pointer()
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        if let Some(d) = this.selected.and_then(|i| this.drafts.get_mut(i)) {
+                            d.before_launch_expanded = !d.before_launch_expanded;
+                            cx.notify();
+                        }
+                    }))
+                    .child(
+                        Icon::new(if expanded { IconName::ChevronDown } else { IconName::ChevronRight })
+                            .size(IconSize::Small),
+                    )
+                    .child(Label::new("Before launch: activate tool window").size(LabelSize::Small)),
+            )
+            .when(expanded, |this| {
+                this.child(
+                    v_flex()
+                        .pl_4()
+                        .gap_1()
+                        .child(
+                            h_flex()
+                                .gap_1()
+                                .child(
+                                    PopoverMenu::new("add-before-launch")
+                                        .trigger(IconButton::new("add-bl-btn", IconName::Plus).icon_size(IconSize::XSmall))
+                                        .menu({
+                                            let editor = cx.weak_entity();
+                                            move |window, cx| {
+                                                let editor = editor.clone();
+                                                Some(ContextMenu::build(window, cx, move |mut menu, _, _| {
+                                                    let ed1 = editor.clone();
+                                                    menu = menu.entry("Run npm script 'build'", None, move |_, cx| {
+                                                        ed1.update(cx, |this, cx| {
+                                                            if let Some(d) = this.selected.and_then(|i| this.drafts.get_mut(i)) {
+                                                                d.before_launch.push(BeforeLaunchTask::NpmScript {
+                                                                    script: "build".into(),
+                                                                    package_json: Some("package.json".into()),
+                                                                });
+                                                                cx.notify();
+                                                            }
+                                                        }).log_err();
+                                                    });
+                                                    let ed2 = editor.clone();
+                                                    menu = menu.entry("Build Cargo target", None, move |_, cx| {
+                                                        ed2.update(cx, |this, cx| {
+                                                            if let Some(d) = this.selected.and_then(|i| this.drafts.get_mut(i)) {
+                                                                d.before_launch.push(BeforeLaunchTask::Build {
+                                                                    name: "cargo build".into(),
+                                                                    target: None,
+                                                                });
+                                                                cx.notify();
+                                                            }
+                                                        }).log_err();
+                                                    });
+                                                    menu
+                                                }))
+                                            }
+                                        })
+                                )
+                                .child(
+                                    IconButton::new("remove-bl-btn", IconName::Close)
+                                        .icon_size(IconSize::XSmall)
+                                        .disabled(draft.before_launch.is_empty())
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            if let Some(d) = this.selected.and_then(|i| this.drafts.get_mut(i)) {
+                                                d.before_launch.pop();
+                                                cx.notify();
+                                            }
+                                        }))
+                                )
+                        )
+                        .child(if draft.before_launch.is_empty() {
+                            Label::new("There are no tasks to run before launch")
+                                .color(Color::Muted)
+                                .size(LabelSize::Small)
+                                .into_any_element()
+                        } else {
+                            v_flex()
+                                .gap_0p5()
+                                .children(draft.before_launch.iter().enumerate().map(|(idx, task)| {
+                                    h_flex()
+                                        .gap_2()
+                                        .child(Label::new(format!("{}. {}", idx + 1, task.label())).size(LabelSize::Small))
+                                }))
+                                .into_any_element()
+                        }),
+                )
+            })
+    }
+
+    fn render_sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let query = self.search.read(cx).text(cx).to_lowercase();
+        let mut groups: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
+        for (index, draft) in self.drafts.iter().enumerate() {
+            if draft.name.read(cx).text(cx).to_lowercase().contains(&query) {
+                let key = if self.sort_alphabetical {
+                    "All Configurations"
+                } else {
+                    draft.entry.configuration.kind()
+                };
+                groups.entry(key).or_default().push(index);
+            }
+        }
+
+        v_flex()
+            .w(px(235.))
+            .h_full()
+            .border_r_1()
+            .border_color(cx.theme().colors().border)
+            .child(
+                // Sidebar Toolbar: +, -, Copy, Folder, Sort
+                h_flex()
+                    .p_1p5()
+                    .gap_1()
+                    .border_b_1()
+                    .border_color(cx.theme().colors().border)
+                    .child(
+                        PopoverMenu::new("add-config-popup")
+                            .trigger(
+                                IconButton::new("add-config-btn", IconName::Plus)
+                                    .icon_size(IconSize::Small)
+                                    .tooltip(Tooltip::text("Add New Configuration"))
+                            )
+                            .menu({
+                                let editor = cx.weak_entity();
+                                move |window, cx| {
+                                    let editor = editor.clone();
+                                    Some(ContextMenu::build(window, cx, move |mut menu, _, _| {
+                                        for provider in registry::ConfigurationProvider::all() {
+                                            let editor = editor.clone();
+                                            let id = provider.id;
+                                            menu = menu.entry(provider.display_name, None, move |window, cx| {
+                                                editor.update(cx, |this, cx| {
+                                                    this.add(id, window, cx);
+                                                }).log_err();
+                                            });
+                                        }
+                                        menu
+                                    }))
+                                }
+                            })
+                    )
+                    .child(
+                        IconButton::new("remove-config-btn", IconName::Close)
+                            .icon_size(IconSize::Small)
+                            .disabled(self.selected.is_none())
+                            .tooltip(Tooltip::text("Remove Configuration"))
+                            .on_click(cx.listener(|this, _, window, cx| this.remove(window, cx)))
+                    )
+                    .child(
+                        IconButton::new("copy-config-btn", IconName::Copy)
+                            .icon_size(IconSize::Small)
+                            .disabled(self.selected.is_none())
+                            .tooltip(Tooltip::text("Copy Configuration"))
+                            .on_click(cx.listener(|this, _, window, cx| this.duplicate(window, cx)))
+                    )
+                    .child(
+                        IconButton::new("folder-config-btn", IconName::Folder)
+                            .icon_size(IconSize::Small)
+                            .tooltip(Tooltip::text("Move into folder"))
+                    )
+                    .child(
+                        IconButton::new("sort-config-btn", IconName::ArrowDown)
+                            .icon_size(IconSize::Small)
+                            .toggle_state(self.sort_alphabetical)
+                            .tooltip(Tooltip::text("Sort Alphabetically"))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.sort_alphabetical = !this.sort_alphabetical;
+                                cx.notify();
+                            }))
+                    )
+            )
+            .child(
+                div()
+                    .px_1p5()
+                    .py_1()
+                    .child(self.search.clone())
+            )
+            .child(
+                div()
+                    .id("config-tree-scroll")
+                    .flex_1()
+                    .overflow_y_scroll()
+                    .px_1p5()
+                    .gap_2()
+                    .children(groups.into_iter().map(|(kind, indices)| {
+                        v_flex()
+                            .gap_0p5()
+                            .child(Label::new(kind).size(LabelSize::XSmall).color(Color::Muted))
+                            .children(indices.into_iter().filter_map(|index| {
+                                let draft = self.drafts.get(index)?;
+                                let is_sel = self.selected == Some(index);
+                                let name = draft.name.read(cx).text(cx);
+                                let icon = draft.entry.configuration.icon();
+                                Some(
+                                    h_flex()
+                                        .id(("cfg-tree-item", index))
+                                        .px_2()
+                                        .py_1()
+                                        .gap_1p5()
+                                        .rounded_sm()
+                                        .cursor_pointer()
+                                        .when(is_sel, |this| {
+                                            this.bg(cx.theme().colors().element_selected)
+                                        })
+                                        .when(!is_sel, |this| {
+                                            this.hover(|h| h.bg(cx.theme().colors().element_hover))
+                                        })
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.selected = Some(index);
+                                            this.error = None;
+                                            cx.notify();
+                                        }))
+                                        .child(Icon::new(icon).size(IconSize::Small).color(if is_sel { Color::Default } else { Color::Muted }))
+                                        .child(Label::new(name).size(LabelSize::Small).color(if is_sel { Color::Default } else { Color::Muted }))
+                                )
+                            }))
+                    }))
+            )
+            .child(
+                h_flex()
+                    .p_2()
+                    .border_t_1()
+                    .border_color(cx.theme().colors().border)
+                    .child(
+                        Button::new("edit-templates-link", "Edit configuration templates…")
+                            .size(ButtonSize::Compact)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.editing_templates = !this.editing_templates;
+                                cx.notify();
+                            }))
+                    )
+            )
+    }
+
+    fn render_right_pane(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let draft = self.selected.and_then(|idx| self.drafts.get(idx));
+
+        v_flex()
+            .id("config-editor-scroll")
+            .flex_1()
+            .h_full()
+            .overflow_y_scroll()
+            .p_3()
+            .gap_3()
+            .when_some(draft, |this, draft| {
+                let is_npm = draft.is_npm();
+                this.child(
+                    v_flex()
+                        .gap_2()
+                        .child(draft.name.clone())
+                        .child(
+                            h_flex()
+                                .gap_4()
+                                .items_center()
+                                .child(
+                                    Switch::new(
+                                        "enable-debug-switch",
+                                        if draft.debug_enabled { ToggleState::Selected } else { ToggleState::Unselected },
+                                    )
+                                    .label("Debug enabled")
+                                    .label_position(SwitchLabelPosition::End)
+                                    .on_click(cx.listener(|this, state: &ToggleState, _, cx| {
+                                        if let Some(d) = this.selected.and_then(|i| this.drafts.get_mut(i)) {
+                                            d.debug_enabled = state.selected();
+                                            cx.notify();
+                                        }
+                                    })),
+                                )
+                                .child(
+                                    Switch::new(
+                                        "multiple-instances-switch",
+                                        if draft.allow_multiple_instances { ToggleState::Selected } else { ToggleState::Unselected },
+                                    )
+                                    .label("Allow multiple instances")
+                                    .label_position(SwitchLabelPosition::End)
+                                    .on_click(cx.listener(|this, state: &ToggleState, _, cx| {
+                                        if let Some(d) = this.selected.and_then(|i| this.drafts.get_mut(i)) {
+                                            d.allow_multiple_instances = state.selected();
+                                            cx.notify();
+                                        }
+                                    })),
+                                )
+                                .child(
+                                    Switch::new(
+                                        "store-project-file-switch",
+                                        if draft.entry.key.storage == Storage::Project { ToggleState::Selected } else { ToggleState::Unselected },
+                                    )
+                                    .label("Store as project file")
+                                    .label_position(SwitchLabelPosition::End)
+                                    .on_click(cx.listener(|this, state: &ToggleState, _, cx| {
+                                        if let Some(d) = this.selected.and_then(|i| this.drafts.get_mut(i)) {
+                                            d.entry.key.storage = if state.selected() { Storage::Project } else { Storage::Local };
+                                            cx.notify();
+                                        }
+                                    })),
+                                ),
+                        ),
+                )
+                .child(
+                    if is_npm {
+                        self.render_npm_form(draft, cx)
+                    } else {
+                        let is_cargo = draft.builds_cargo_target();
+                        v_flex()
+                            .gap_2()
+                            .when(is_cargo || !draft.debug_enabled || !draft.run.program.read(cx).text(cx).is_empty(), |form| {
+                                form.child(draft.run.program.clone())
+                                    .child(draft.run.cwd.clone())
+                            })
+                            .when(draft.debug_enabled, |form| {
+                                let adapter_text = draft.adapter.read(cx).text(cx);
+                                let adapter_name = if adapter_text.is_empty() {
+                                    "CodeLLDB".to_string()
+                                } else {
+                                    adapter_text
+                                };
+                                form.child(
+                                    h_flex()
+                                        .gap_2()
+                                        .items_center()
+                                        .child(Label::new("Debugger:").color(Color::Muted).size(LabelSize::Small))
+                                        .child(Label::new(adapter_name).size(LabelSize::Small))
+                                )
+                                .when(!is_cargo, |form| {
+                                    form.child(draft.debug.program.clone())
+                                        .when(draft.run.program.read(cx).text(cx).is_empty(), |form| {
+                                            form.child(draft.debug.cwd.clone())
+                                        })
+                                })
+                            })
+                            .into_any_element()
+                    }
+                )
+                .child(self.render_before_launch_section(draft, cx))
+            })
+            .when(draft.is_none(), |this| {
+                this.flex().items_center().justify_center().child(
+                    Label::new("Select or add a configuration to edit its settings")
+                        .color(Color::Muted)
+                )
+            })
+    }
+
+    fn render_footer(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let is_dirty = self.has_changes(cx);
+        let draft = self.selected.and_then(|i| self.drafts.get(i));
+        let can_run = draft.is_some();
+
+        h_flex()
+            .p_2p5()
+            .gap_2()
+            .justify_between()
+            .border_t_1()
+            .border_color(cx.theme().colors().border)
+            .child(
+                Button::new("help-btn", "Help")
+                    .size(ButtonSize::Compact)
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(
+                        PopoverMenu::new("run-split-btn")
+                            .trigger(
+                                Button::new("run-modal-btn", "Run")
+                                    .size(ButtonSize::Compact)
+                                    .start_icon(Icon::new(IconName::PlayFilled).color(Color::Success))
+                                    .disabled(self.busy || !can_run)
+                                    .on_click(cx.listener(|this, _, window, cx| {
+                                        this.save(true, Some(false), window, cx);
+                                    }))
+                            )
+                            .menu({
+                                let editor = cx.weak_entity();
+                                move |window, cx| {
+                                    let editor = editor.clone();
+                                    Some(ContextMenu::build(window, cx, move |mut menu, _, _| {
+                                        let ed = editor.clone();
+                                        menu = menu.entry("Debug", None, move |window, cx| {
+                                            ed.update(cx, |this, cx| {
+                                                this.save(true, Some(true), window, cx);
+                                            }).log_err();
+                                        });
+                                        menu = menu.entry("Run with Coverage (unavailable)", None, |_window, _| {});
+                                        menu
+                                    }))
+                                }
+                            })
+                    )
+                    .child(
+                        Button::new("ok-configurations", "OK")
+                            .size(ButtonSize::Compact)
+                            .disabled(self.busy)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.save(true, None, window, cx);
+                            })),
+                    )
+                    .child(
+                        Button::new("cancel-configurations", "Cancel")
+                            .size(ButtonSize::Compact)
+                            .disabled(self.busy)
+                            .on_click(cx.listener(|_, _, _, cx| cx.emit(DismissEvent))),
+                    )
+                    .child(
+                        Button::new("apply-configuration", "Apply")
+                            .size(ButtonSize::Compact)
+                            .disabled(self.busy || !is_dirty)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.save(false, None, window, cx);
+                            })),
+                    ),
+            )
     }
 }
 
 impl Render for ConfigurationEditor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let compact = window.viewport_size().width < px(800.);
-        let draft = self.selected.and_then(|index| self.drafts.get(index));
-        let run_enabled = draft.is_some_and(|draft| draft.run_enabled);
-        let debug_enabled = draft.is_some_and(|draft| draft.debug_enabled);
-        let cargo_target = draft.is_some_and(ConfigurationDraft::builds_cargo_target);
-        let title = Label::new("Run / Debug Configurations").size(LabelSize::Large);
-        let query = self.search.read(cx).text(cx).to_lowercase();
-        let mut groups: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
-        for (index, draft) in self.drafts.iter().enumerate() {
-            if draft.name.read(cx).text(cx).to_lowercase().contains(&query) {
-                groups
-                    .entry(draft.entry.configuration.kind())
-                    .or_default()
-                    .push(index);
-            }
-        }
-        let list = v_flex()
-            .gap_2()
-            .min_w_0()
-            .child(self.search.clone())
-            .children(groups.into_iter().map(|(kind, indices)| {
-                v_flex()
-                    .gap_1()
-                    .child(Label::new(kind).color(Color::Muted))
-                    .children(indices.into_iter().filter_map(|index| {
-                        let draft = self.drafts.get(index)?;
-                        Some(
-                            Button::new(("configuration", index), draft.name.read(cx).text(cx))
-                                .full_width()
-                                .truncate(true)
-                                .toggle_state(self.selected == Some(index))
-                                .disabled(self.busy)
-                                .tab_index(0_isize)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.selected = Some(index);
-                                    this.error = None;
-                                    cx.notify();
-                                })),
-                        )
-                    }))
-            }));
-        let form = v_flex()
-            .gap_3()
-            .min_w_0()
-            .flex_1()
-            .when_some(draft, |form, draft| {
-                form.child(draft.name.clone())
-                    .child(
-                        Button::new(
-                            "configuration-advanced",
-                            if self.show_options {
-                                "Hide advanced options"
-                            } else {
-                                "Advanced…"
-                            },
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.show_options = !this.show_options;
-                            cx.notify();
-                        })),
-                    )
-                    .when(
-                        self.show_options || self.store.read(cx).roots.len() > 1,
-                        |form| {
-                            form.child(
-                                PopoverMenu::new("configuration-project-root")
-                                    .trigger(
-                                        Button::new(
-                                            "configuration-project-root-button",
-                                            format!("Project: {}", draft.entry.key.root.display()),
-                                        )
-                                        .truncate(true)
-                                        .disabled(draft.original.is_some()),
-                                    )
-                                    .menu({
-                                        let roots = self.store.read(cx).roots.clone();
-                                        let editor = cx.weak_entity();
-                                        move |window, cx| {
-                                            Some(ContextMenu::build(
-                                                window,
-                                                cx,
-                                                |mut menu, _, _| {
-                                                    for (worktree_id, root) in &roots {
-                                                        let root = root.clone();
-                                                        let worktree_id = *worktree_id;
-                                                        let editor = editor.clone();
-                                                        menu = menu.entry(
-                                                            root.display().to_string(),
-                                                            None,
-                                                            move |window, cx| {
-                                                                editor
-                                                                    .update(cx, |editor, cx| {
-                                                                        editor.change_root(
-                                                                            worktree_id,
-                                                                            root.clone(),
-                                                                            window,
-                                                                            cx,
-                                                                        );
-                                                                    })
-                                                                    .log_err();
-                                                            },
-                                                        );
-                                                    }
-                                                    menu
-                                                },
-                                            ))
-                                        }
-                                    }),
-                            )
-                        },
-                    )
-                    .when(self.show_options, |form| {
-                        form.child(
-                            Switch::new(
-                                "configuration-storage",
-                                if draft.entry.key.storage == Storage::Project {
-                                    ToggleState::Selected
-                                } else {
-                                    ToggleState::Unselected
-                                },
-                            )
-                            .label("Share with project")
-                            .label_position(SwitchLabelPosition::End)
-                            .on_click(cx.listener(
-                                |this, state: &ToggleState, _, cx| {
-                                    if let Some(draft) =
-                                        this.selected.and_then(|index| this.drafts.get_mut(index))
-                                    {
-                                        draft.entry.key.storage = if state.selected() {
-                                            Storage::Project
-                                        } else {
-                                            Storage::Local
-                                        };
-                                    }
-                                    cx.notify();
-                                },
-                            )),
-                        )
-                    })
-                    .when(self.show_options || !cargo_target, |form| {
-                        form.child(
-                            Switch::new(
-                                "configuration-run-target",
-                                if run_enabled {
-                                    ToggleState::Selected
-                                } else {
-                                    ToggleState::Unselected
-                                },
-                            )
-                            .label("Run target")
-                            .label_position(SwitchLabelPosition::End)
-                            .on_click(cx.listener(
-                                |this, state: &ToggleState, _, cx| {
-                                    if let Some(draft) =
-                                        this.selected.and_then(|index| this.drafts.get_mut(index))
-                                    {
-                                        draft.run_enabled = state.selected();
-                                    }
-                                    cx.notify();
-                                },
-                            )),
-                        )
-                    })
-                    .when(
-                        run_enabled && (self.show_options || !cargo_target),
-                        |form| {
-                            form.child(self.render_target(false, cx)).when(
-                                self.show_options || draft.concurrent,
-                                |form| {
-                                    form.child(
-                                        Switch::new(
-                                            "configuration-concurrent",
-                                            if draft.concurrent {
-                                                ToggleState::Selected
-                                            } else {
-                                                ToggleState::Unselected
-                                            },
-                                        )
-                                        .label("Allow multiple instances")
-                                        .label_position(SwitchLabelPosition::End)
-                                        .on_click(
-                                            cx.listener(|this, state: &ToggleState, _, cx| {
-                                                if let Some(draft) = this
-                                                    .selected
-                                                    .and_then(|index| this.drafts.get_mut(index))
-                                                {
-                                                    draft.concurrent = state.selected();
-                                                }
-                                                cx.notify();
-                                            }),
-                                        ),
-                                    )
-                                },
-                            )
-                        },
-                    )
-                    .child(
-                        Switch::new(
-                            "configuration-debug-target",
-                            if debug_enabled {
-                                ToggleState::Selected
-                            } else {
-                                ToggleState::Unselected
-                            },
-                        )
-                        .label("Debug target")
-                        .label_position(SwitchLabelPosition::End)
-                        .on_click(cx.listener(
-                            |this, state: &ToggleState, _, cx| {
-                                if let Some(draft) =
-                                    this.selected.and_then(|index| this.drafts.get_mut(index))
-                                {
-                                    draft.debug_enabled = state.selected();
-                                }
-                                cx.notify();
-                            },
-                        )),
-                    )
-                    .when(debug_enabled, |form| {
-                        let adapters = DapRegistry::global(cx)
-                            .enumerate_adapters::<Vec<dap::adapters::DebugAdapterName>>();
-                        form.when(
-                            !self.show_options && !draft.adapter.read(cx).text(cx).is_empty(),
-                            |form| {
-                                form.child(
-                                    Label::new(format!(
-                                        "Debugger: {}",
-                                        draft.adapter.read(cx).text(cx)
-                                    ))
-                                    .color(Color::Muted),
-                                )
-                            },
-                        )
-                        .when(
-                            self.show_options || draft.adapter.read(cx).text(cx).is_empty(),
-                            |form| {
-                                form.child(
-                                    h_flex()
-                                        .gap_1()
-                                        .child(div().flex_1().child(draft.adapter.clone()))
-                                        .child(
-                                            PopoverMenu::new("configuration-adapter")
-                                                .trigger(
-                                                    IconButton::new(
-                                                        "choose-configuration-adapter",
-                                                        IconName::ChevronDown,
-                                                    )
-                                                    .aria_label("Choose debug adapter"),
-                                                )
-                                                .menu({
-                                                    let adapter_field = draft.adapter.clone();
-                                                    move |window, cx| {
-                                                        Some(ContextMenu::build(
-                                                            window,
-                                                            cx,
-                                                            |mut menu, _, _| {
-                                                                for adapter in &adapters {
-                                                                    let field =
-                                                                        adapter_field.clone();
-                                                                    let adapter = adapter.0.clone();
-                                                                    menu = menu.entry(
-                                                                        adapter.clone(),
-                                                                        None,
-                                                                        move |window, cx| {
-                                                                            field.update(
-                                                                                cx,
-                                                                                |field, cx| {
-                                                                                    field.set_text(
-                                                                                        &adapter,
-                                                                                        window, cx,
-                                                                                    )
-                                                                                },
-                                                                            )
-                                                                        },
-                                                                    );
-                                                                }
-                                                                menu
-                                                            },
-                                                        ))
-                                                    }
-                                                }),
-                                        ),
-                                )
-                            },
-                        )
-                        .when(self.show_options || draft.attach, |form| {
-                            form.child(
-                                Switch::new(
-                                    "configuration-attach",
-                                    if draft.attach {
-                                        ToggleState::Selected
-                                    } else {
-                                        ToggleState::Unselected
-                                    },
-                                )
-                                .label("Attach to a process")
-                                .label_position(SwitchLabelPosition::End)
-                                .on_click(cx.listener(
-                                    |this, state: &ToggleState, _, cx| {
-                                        if let Some(draft) = this
-                                            .selected
-                                            .and_then(|index| this.drafts.get_mut(index))
-                                        {
-                                            draft.attach = state.selected();
-                                        }
-                                        cx.notify();
-                                    },
-                                )),
-                            )
-                        })
-                        .child(self.render_target(true, cx))
-                        .when(self.show_options || draft.attach, |form| {
-                            form.child(Label::new("Additional adapter options")).child(
-                                div()
-                                    .border_1()
-                                    .border_color(cx.theme().colors().border)
-                                    .rounded_md()
-                                    .p_2()
-                                    .child(draft.adapter_options.clone()),
-                            )
-                        })
-                    })
-            })
-            .when(draft.is_none(), |form| {
-                form.child(
-                    Label::new("Add a configuration to choose what Run and Debug launch.")
-                        .color(Color::Muted),
-                )
-            });
-        let content = if compact {
-            v_flex().gap_3().child(list).child(form).into_any_element()
-        } else {
-            h_flex()
-                .gap_4()
-                .items_start()
-                .child(div().w(px(200.)).flex_shrink_0().child(list))
-                .child(form)
-                .into_any_element()
-        };
         v_flex()
             .id("run-configurations-editor")
             .key_context("RunConfigurations")
             .track_focus(&self.focus_handle)
-            .tab_group()
-            .on_action(cx.listener(|this, _: &menu::Cancel, _, cx| {
-                if !this.busy {
-                    cx.emit(DismissEvent);
-                }
-            }))
-            .on_action(cx.listener(|_, _: &menu::SelectNext, window, cx| window.focus_next(cx)))
-            .on_action(cx.listener(|_, _: &menu::SelectPrevious, window, cx| window.focus_prev(cx)))
-            .w(px(860.).min(window.viewport_size().width - px(32.)))
-            .max_h(window.viewport_size().height - px(80.))
+            .w(px(800.).min(window.viewport_size().width - px(32.)))
+            .h(px(720.).min(window.viewport_size().height - px(48.)))
             .bg(cx.theme().colors().elevated_surface_background)
             .border_1()
             .border_color(cx.theme().colors().border)
             .rounded_lg()
             .shadow_lg()
             .child(
-                v_flex().p_3().gap_2().child(title).child(
-                    h_flex()
-                        .gap_2()
-                        .child(
-                            PopoverMenu::new("add-configuration-menu")
-                                .trigger(
-                                    Button::new("add-configuration", "Add configuration…")
-                                        .disabled(self.busy),
-                                )
-                                .menu({
-                                    let editor = cx.weak_entity();
-                                    let detected = self
-                                        .store
-                                        .read(cx)
-                                        .active_root
-                                        .as_ref()
-                                        .is_some_and(|root| self.defaults.contains_key(root));
-                                    move |window, cx| {
-                                        let editor = editor.clone();
-                                        let template_editor = editor.clone();
-                                        Some(ContextMenu::build(window, cx, |menu, _, _| {
-                                            let mut menu = menu.entry(
-                                                if detected {
-                                                    "Cargo application"
-                                                } else {
-                                                    "Run command"
-                                                },
-                                                None,
-                                                move |window, cx| {
-                                                    editor
-                                                        .update(cx, |editor, cx| {
-                                                            editor.add(false, window, cx)
-                                                        })
-                                                        .log_err();
-                                                },
-                                            );
-                                            for (name, adapter) in [
-                                                ("Debug executable", "CodeLLDB"),
-                                                ("Node.js script", "JavaScript"),
-                                                ("Python script", "Debugpy"),
-                                            ] {
-                                                let editor = template_editor.clone();
-                                                menu = menu.entry(name, None, move |window, cx| {
-                                                    editor
-                                                        .update(cx, |editor, cx| {
-                                                            editor.add_debug_target(
-                                                                name, adapter, window, cx,
-                                                            )
-                                                        })
-                                                        .log_err();
-                                                });
-                                            }
-                                            menu
-                                        }))
-                                    }
-                                }),
-                        )
-                        .child(
-                            Button::new("duplicate-configuration", "Duplicate")
-                                .disabled(self.busy || draft.is_none())
-                                .on_click(
-                                    cx.listener(|this, _, window, cx| this.add(true, window, cx)),
-                                ),
-                        )
-                        .child(
-                            Button::new("remove-configuration", "Remove")
-                                .disabled(self.busy || draft.is_none())
-                                .on_click(
-                                    cx.listener(|this, _, window, cx| this.remove(window, cx)),
-                                ),
-                        ),
-                ),
+                // Header
+                h_flex()
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(cx.theme().colors().border)
+                    .child(Label::new("Run/Debug Configurations").size(LabelSize::Large)),
             )
             .child(
-                div()
-                    .id("configuration-form-scroll")
+                // Main content: left sidebar (235px) + right form pane
+                h_flex()
+                    .flex_1()
                     .min_h_0()
-                    .overflow_y_scroll()
-                    .p_3()
-                    .child(content),
+                    .child(self.render_sidebar(cx))
+                    .child(self.render_right_pane(cx)),
             )
             .when_some(self.error.clone(), |form, error| {
                 form.child(
                     div()
                         .px_3()
-                        .py_2()
-                        .child(Label::new(error).color(Color::Error)),
+                        .py_1p5()
+                        .bg(cx.theme().status().error_background)
+                        .child(Label::new(error).color(Color::Error).size(LabelSize::Small)),
                 )
             })
-            .child(
-                h_flex()
-                    .p_3()
-                    .gap_2()
-                    .justify_end()
-                    .border_t_1()
-                    .border_color(cx.theme().colors().border)
-                    .child(
-                        Button::new("cancel-configurations", "Cancel")
-                            .disabled(self.busy)
-                            .on_click(cx.listener(|_, _, _, cx| cx.emit(DismissEvent))),
-                    )
-                    .child(
-                        Button::new(
-                            "apply-configuration",
-                            if self.busy { "Saving…" } else { "Apply" },
-                        )
-                        .disabled(self.busy || draft.is_none())
-                        .on_click(
-                            cx.listener(|this, _, window, cx| this.save(false, None, window, cx)),
-                        ),
-                    )
-                    .child(
-                        Button::new("save-configuration", "Save")
-                            .disabled(self.busy || draft.is_none())
-                            .on_click(
-                                cx.listener(|this, _, window, cx| {
-                                    this.save(true, None, window, cx)
-                                }),
-                            ),
-                    )
-                    .child(
-                        Button::new("run-draft", "Run")
-                            .start_icon(Icon::new(IconName::PlayFilled))
-                            .disabled(self.busy || !run_enabled)
-                            .tooltip(Tooltip::text("Save and run this configuration"))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.save(true, Some(false), window, cx)
-                            })),
-                    )
-                    .child(
-                        Button::new("debug-draft", "Debug")
-                            .start_icon(Icon::new(IconName::Debug))
-                            .disabled(self.busy || !debug_enabled)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.save(true, Some(true), window, cx)
-                            })),
-                    ),
-            )
+            .child(self.render_footer(cx))
     }
 }
 
@@ -1548,42 +1759,67 @@ mod tests {
         let Some(BuildTaskDefinition::Template {
             task_template,
             locator_name,
-        }) = debug.build
+        }) = &debug.build
         else {
-            anyhow::bail!("Expected a build task with a Cargo locator");
+            panic!("Expected a task template build target");
         };
         assert_eq!(locator_name.as_deref(), Some("rust-cargo-locator"));
         assert_eq!(task_template.command, "cargo");
-        assert_eq!(task_template.cwd, Some(root.to_string_lossy().into_owned()));
         assert_eq!(
             task_template.args,
             ["build", "--package", "application", "--bin", "application"]
-        );
-        let run = configuration.run.context("Expected a run target")?;
-        assert_eq!(
-            run.args,
-            ["run", "--package", "application", "--bin", "application"]
         );
         Ok(())
     }
 
     #[test]
     fn run_configurations_do_not_choose_ambiguous_cargo_targets() {
-        let root = std::env::temp_dir().join(format!("run-defaults-{}", Uuid::new_v4()));
-        let mut metadata = metadata(&root, &root.join("target"));
+        let root = Path::new("/run-defaults-root");
+        let mut metadata = metadata(root, &root.join("target"));
         metadata["packages"][0]["default_run"] = Value::Null;
-        assert!(cargo_configuration(&metadata, &root).is_none());
+        assert!(cargo_configuration(&metadata, root).is_none());
         metadata["packages"][0]["targets"] = json!([{"name": "application", "kind": ["lib"]}]);
-        assert!(cargo_configuration(&metadata, &root).is_none());
+        assert!(cargo_configuration(&metadata, root).is_none());
     }
 
     #[test]
     fn run_configurations_prefer_open_package_over_workspace_defaults() -> Result<()> {
         let root = std::env::temp_dir().join(format!("run-defaults-{}", Uuid::new_v4()));
-        let metadata = metadata(&root, &root.join("target"));
-        let configuration = cargo_configuration(&metadata, &root.join("other"))
-            .context("Expected the opened member's run target")?;
+        let configuration = cargo_configuration(
+            &metadata(&root, &root.join("target")),
+            &root.join("other"),
+        )
+        .context("Expected a configuration for the open package root")?;
         assert_eq!(configuration.name, "other");
+        assert_eq!(
+            configuration
+                .run
+                .as_ref()
+                .map(|run| run.args.as_slice()),
+            Some(["run".to_owned(), "--package".into(), "other".into(), "--bin".into(), "other".into()].as_slice())
+        );
         Ok(())
+    }
+    #[test]
+    fn test_cargo_provider_creates_debug_enabled_default() {
+        let root = Path::new("/workspace");
+        let config = registry::ConfigurationProvider::create_default("cargo", root, None);
+        assert_eq!(config.name, "Cargo");
+        assert_eq!(config.configuration_type.as_deref(), Some("cargo"));
+        assert!(config.run.is_some());
+        assert!(config.debug.is_some());
+        let debug = config.debug.unwrap();
+        assert_eq!(debug.adapter.as_ref(), "CodeLLDB");
+    }
+    #[test]
+    fn test_debug_configuration_validation_and_adapter_fallback() {
+        let root = Path::new("/workspace");
+        let mut config = registry::ConfigurationProvider::create_default("javascript_debug", root, None);
+        assert!(config.run.is_none());
+        assert!(config.debug.is_some());
+        assert!(config.validate().is_ok());
+
+        config.debug.as_mut().unwrap().adapter = "".into();
+        assert!(config.validate().is_err());
     }
 }

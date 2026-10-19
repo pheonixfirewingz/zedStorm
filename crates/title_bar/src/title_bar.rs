@@ -258,7 +258,11 @@ impl Render for TitleBar {
             .is_some_and(|configurations| configurations.read(cx).can_launch(true, cx));
         let can_stop_run = configurations
             .as_ref()
-            .is_some_and(|configurations| configurations.read(cx).can_stop_run());
+            .is_some_and(|configurations| configurations.read(cx).can_stop_run(cx));
+        let configuration_icon = configurations
+            .as_ref()
+            .map(|c| c.read(cx).selected_icon())
+            .unwrap_or(IconName::PlayFilled);
         let can_stop_debug = configurations.as_ref().is_some_and(|configurations| {
             let configurations = configurations.read(cx);
             if configurations.selected.is_some() {
@@ -297,6 +301,7 @@ impl Render for TitleBar {
                     PopoverMenu::new("run-debug-configurations")
                         .trigger(
                             Button::new("run-debug-configuration-selector", configuration_label)
+                                .start_icon(Icon::new(configuration_icon).size(IconSize::Small))
                                 .truncate(true)
                                 .width(px(if window.viewport_size().width < px(900.) {
                                     120.
@@ -372,18 +377,35 @@ impl Render for TitleBar {
                                                 for entry in entries {
                                                     let key = entry.key.clone();
                                                     let label = entry.label();
+                                                    let icon = entry.configuration.icon();
                                                     let configurations = configurations.clone();
-                                                    menu = menu.entry(label, None, move |_, cx| {
-                                                        configurations.update(
-                                                            cx,
-                                                            |configurations, cx| {
-                                                                configurations
-                                                                    .select(key.clone(), cx)
-                                                            },
-                                                        )
-                                                    });
+                                                    menu = menu.item(
+                                                        ui::ContextMenuEntry::new(label)
+                                                            .icon(icon)
+                                                            .handler(move |_, cx| {
+                                                                configurations.update(
+                                                                    cx,
+                                                                    |configurations, cx| {
+                                                                        configurations
+                                                                            .select(key.clone(), cx)
+                                                                    },
+                                                                )
+                                                            }),
+                                                    );
                                                 }
                                             }
+
+                                            menu = menu.separator();
+                                            let current_file_confs = configurations.clone();
+                                            menu = menu.item(
+                                                ui::ContextMenuEntry::new("Current File")
+                                                    .icon(IconName::FileCode)
+                                                    .handler(move |_, cx| {
+                                                        current_file_confs.update(cx, |c, cx| {
+                                                            c.select_current_file(cx);
+                                                        });
+                                                    }),
+                                            );
                                         }
 
                                         menu = menu.separator();
@@ -477,6 +499,48 @@ impl Render for TitleBar {
                         window.dispatch_action(action.boxed_clone(), cx);
                     })
                 })
+                .child(
+                    PopoverMenu::new("run-overflow-menu")
+                        .trigger(
+                            IconButton::new("run-overflow", IconName::Ellipsis)
+                                .aria_label("More Run/Debug Options")
+                                .tooltip(Tooltip::text("More Run/Debug Options")),
+                        )
+                        .menu(move |window, cx| {
+                            Some(ui::ContextMenu::build(window, cx, move |menu, _, _| {
+                                menu.action(
+                                    "Run… (Alt+Shift+F10)",
+                                    debugger_ui::run_configurations::RunPrompt.boxed_clone(),
+                                )
+                                .action(
+                                    "Debug… (Alt+Shift+F9)",
+                                    debugger_ui::run_configurations::DebugPrompt.boxed_clone(),
+                                )
+                                .separator()
+                                .action(
+                                    "Edit Configurations…",
+                                    debugger_ui::run_configurations::EditConfigurations.boxed_clone(),
+                                )
+                                .action(
+                                    "Manage Targets…",
+                                    debugger_ui::run_configurations::ManageTargets.boxed_clone(),
+                                )
+                                .separator()
+                                .action(
+                                    "Stop (Ctrl+F2)",
+                                    debugger_ui::run_configurations::StopSelectedRun.boxed_clone(),
+                                )
+                                .action(
+                                    "Stop Background Processes (Ctrl+Shift+F2)",
+                                    debugger_ui::run_configurations::StopAllProcesses.boxed_clone(),
+                                )
+                                .action(
+                                    "Show Running List",
+                                    debugger_ui::run_configurations::ShowRunningList.boxed_clone(),
+                                )
+                            }))
+                        }),
+                )
                 .child(
                     IconButton::new("toggle-ai-chat", IconName::ZedAssistant)
                         .tab_index(0_isize)

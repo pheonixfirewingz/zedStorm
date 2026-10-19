@@ -13,7 +13,12 @@
       "shift-f8": "debugger::StepOut",
       "f9": "debugger::Continue",
       "shift-f9": "debugger::Start",
-      "alt-shift-f9": "debugger::Start",
+      "alt-shift-f9": "run::DebugPrompt",
+      "shift-f9": "run::DebugSelected",
+      "shift-f10": "run::RunSelected",
+      "alt-shift-f10": "run::RunPrompt",
+      "ctrl-shift-f2": "run::StopAllProcesses",
+      "alt-f11": "run::RunNpmTask",
     },
   },
   {
