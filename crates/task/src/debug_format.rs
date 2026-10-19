@@ -221,13 +221,19 @@ impl<'de> Deserialize<'de> for BuildTaskDefinition {
         let helper: TemplateHelper =
             serde_json::from_value(value).map_err(serde::de::Error::custom)?;
 
-        let mut template_value = helper.rest;
+        let mut template_value = if let Some(task_template) = helper.rest.get("task_template") {
+            task_template.clone()
+        } else {
+            helper.rest
+        };
         if let serde_json::Value::Object(ref mut map) = template_value {
-            map.insert(
-                "label".to_string(),
-                serde_json::to_value(helper.label.unwrap_or_else(|| "debug-build".to_owned()))
-                    .map_err(serde::de::Error::custom)?,
-            );
+            if !map.contains_key("label") || map.get("label").and_then(serde_json::Value::as_str).is_none_or(str::is_empty) {
+                map.insert(
+                    "label".to_string(),
+                    serde_json::to_value(helper.label.unwrap_or_else(|| "debug-build".to_owned()))
+                        .map_err(serde::de::Error::custom)?,
+                );
+            }
         }
 
         let task_template: TaskTemplate =
@@ -554,6 +560,29 @@ mod tests {
                 assert_eq!(vec!["build", "--release"], task_template.args);
             }
             _ => panic!("Expected Template variant"),
+        }
+    }
+
+    #[test]
+    fn test_nested_task_template_deserialization() {
+        use crate::BuildTaskDefinition;
+        let json = r#"{
+            "type": "template",
+            "task_template": {
+                "label": "Cargo",
+                "command": "cargo",
+                "args": ["build", "--package", "zed"]
+            },
+            "locator_name": "rust-cargo-locator"
+        }"#;
+
+        let def: BuildTaskDefinition = serde_json::from_str(json).unwrap();
+        if let BuildTaskDefinition::Template { task_template, locator_name } = def {
+            assert_eq!(task_template.command, "cargo");
+            assert_eq!(task_template.args, vec!["build", "--package", "zed"]);
+            assert_eq!(locator_name.as_deref(), Some("rust-cargo-locator"));
+        } else {
+            panic!("Expected BuildTaskDefinition::Template");
         }
     }
 }
