@@ -1,8 +1,9 @@
 {
   "version": 1,
   "configurations": {
-    "2cc1e6cd-4997-4d81-86e0-baab77cee048": {
+    "89eb60b1-4584-4f0c-ab47-4f9171e24a7c": {
       "name": "zed",
+      "configuration_type": "cargo",
       "run": {
         "label": "zed",
         "command": "cargo",
@@ -52,13 +53,13 @@
           "show_summary": false,
           "show_command": false,
           "save": "none",
-          "hooks": []
+          "hooks": [],
+          "locator_name": "rust-cargo-locator"
         },
         "sourceLanguages": [
           "rust"
         ],
         "request": "launch",
-        "program": "$ZED_WORKTREE_ROOT/target/debug/zed",
         "cwd": "/home/digitech/Desktop/Projects/zedStorm"
       }
     }
