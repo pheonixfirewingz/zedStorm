@@ -606,6 +606,7 @@ fn main() {
 
         watcher_debug::init(app_state.clone(), cx);
         dap_adapters::init(cx);
+        project::debugger::dap_store::DapStore::init_locators(cx);
         reliability::init(cx);
         extension_host::init(
             extension_host_proxy.clone(),

@@ -49,7 +49,7 @@ use std::{
     ffi::OsStr,
     net::{IpAddr, Ipv4Addr},
     path::{Path, PathBuf},
-    sync::{Arc, Once},
+    sync::Arc,
 };
 use task::{DebugScenario, SharedTaskContext, SpawnInTerminal, TaskTemplate};
 use util::{ResultExt as _, rel_path::RelPath};
@@ -116,15 +116,16 @@ pub struct PersistedAdapterOptions {
 }
 
 impl DapStore {
+    pub fn init_locators(cx: &mut App) {
+        let registry = DapRegistry::global(cx);
+        registry.add_locator(Arc::new(locators::cargo::CargoLocator {}));
+        registry.add_locator(Arc::new(locators::go::GoLocator {}));
+        registry.add_locator(Arc::new(locators::node::NodeLocator));
+        registry.add_locator(Arc::new(locators::python::PythonLocator));
+    }
+
     pub fn init(client: &AnyProtoClient, cx: &mut App) {
-        static ADD_LOCATORS: Once = Once::new();
-        ADD_LOCATORS.call_once(|| {
-            let registry = DapRegistry::global(cx);
-            registry.add_locator(Arc::new(locators::cargo::CargoLocator {}));
-            registry.add_locator(Arc::new(locators::go::GoLocator {}));
-            registry.add_locator(Arc::new(locators::node::NodeLocator));
-            registry.add_locator(Arc::new(locators::python::PythonLocator));
-        });
+        Self::init_locators(cx);
         client.add_entity_request_handler(Self::handle_run_debug_locator);
         client.add_entity_request_handler(Self::handle_get_debug_adapter_binary);
         client.add_entity_message_handler(Self::handle_log_to_debug_console);
@@ -142,6 +143,7 @@ impl DapStore {
         is_headless: bool,
         cx: &mut Context<Self>,
     ) -> Self {
+        Self::init_locators(cx);
         let mode = DapStoreMode::Local(LocalDapStore {
             fs: fs.clone(),
             environment,
@@ -376,6 +378,7 @@ impl DapStore {
         label: SharedString,
         cx: &mut App,
     ) -> Task<Option<DebugScenario>> {
+        Self::init_locators(cx);
         let locators = DapRegistry::global(cx).locators();
 
         cx.background_spawn(async move {
@@ -394,14 +397,27 @@ impl DapStore {
         build_command: SpawnInTerminal,
         cx: &mut Context<Self>,
     ) -> Task<Result<DebugRequest>> {
+        Self::init_locators(cx);
         match &self.mode {
             DapStoreMode::Local(_) => {
                 // Pre-resolve args with existing environment.
                 let locators = DapRegistry::global(cx).locators();
-                let locator = locators.get(locator_name);
+                let locator = locators
+                    .get(locator_name)
+                    .or_else(|| locators.values().find(|l| l.name().as_ref() == locator_name))
+                    .cloned()
+                    .or_else(|| {
+                        if build_command.command.as_deref() == Some("cargo")
+                            || build_command.args.iter().any(|arg| arg == "cargo")
+                        {
+                            locators.get("rust-cargo-locator").cloned()
+                        } else {
+                            None
+                        }
+                    });
                 let executor = cx.background_executor().clone();
 
-                if let Some(locator) = locator.cloned() {
+                if let Some(locator) = locator {
                     cx.background_spawn(async move {
                         let result = locator
                             .run(build_command.clone(), executor)
