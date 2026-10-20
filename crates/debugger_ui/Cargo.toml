@@ -43,6 +43,7 @@ fuzzy.workspace = true
 gpui.workspace = true
 itertools.workspace = true
 language.workspace = true
+linkify.workspace = true
 log.workspace = true
 menu.workspace = true
 notifications.workspace = true

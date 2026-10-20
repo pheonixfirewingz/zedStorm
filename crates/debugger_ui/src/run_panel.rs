@@ -6,13 +6,12 @@ use std::{
 
 use anyhow::{Context as _, Result};
 use collections::BTreeMap;
-use editor::{Editor, EditorMode, SizingBehavior};
+use editor::{Editor, EditorMode, HighlightKey, MultiBufferOffset, SizingBehavior};
 use futures::io::AsyncBufReadExt;
 use gpui::{
-    App, AsyncWindowContext, Context, Entity, EventEmitter,
-    FocusHandle, Focusable, IntoElement,
-    ParentElement, Pixels, Render, Styled, Subscription, Task, WeakEntity, Window,
-    actions, div, px,
+    App, AsyncWindowContext, Context, Entity, EventEmitter, FocusHandle, Focusable, HighlightStyle,
+    IntoElement, ParentElement, Pixels, Render, Styled, Subscription, Task, UnderlineStyle,
+    WeakEntity, Window, actions, div, px,
 };
 use project::{Fs, Project};
 use ui::{
@@ -28,6 +27,57 @@ use workspace::{
 use crate::run_configurations::{ConfigurationKey, RunConfiguration};
 
 const RUN_PANEL_KEY: &str = "RunPanel";
+
+fn captured_command(command: std::process::Command) -> smol::process::Command {
+    let mut command = smol::process::Command::from(command);
+    command.stdout(std::process::Stdio::piped());
+    command.stderr(std::process::Stdio::piped());
+    command
+}
+
+fn run_command(
+    configuration: &RunConfiguration,
+    command: &str,
+    arguments: &[String],
+) -> Result<std::process::Command> {
+    let shell = configuration
+        .run
+        .as_ref()
+        .map(|run| run.shell.clone())
+        .unwrap_or_default();
+    let builder = task::ShellBuilder::new(&shell, cfg!(windows)).non_interactive();
+    let kind = builder.kind();
+    let mut command_line = if configuration.npm.is_some() || std::path::Path::new(command).is_file()
+    {
+        kind.try_quote_prefix_aware(command)
+            .context("Could not quote the executable")?
+            .into_owned()
+    } else {
+        command.to_owned()
+    };
+    for argument in arguments {
+        command_line.push(' ');
+        command_line.push_str(
+            &kind
+                .try_quote(argument)
+                .context("Could not quote a run argument")?,
+        );
+    }
+    let mut process = builder.build_std_command(None, &[]);
+    let arguments = kind.args_for_shell(false, command_line);
+    #[cfg(windows)]
+    if kind == util::shell::ShellKind::Cmd {
+        use std::os::windows::process::CommandExt as _;
+        for argument in arguments {
+            process.raw_arg(argument);
+        }
+    } else {
+        process.args(arguments);
+    }
+    #[cfg(not(windows))]
+    process.args(arguments);
+    Ok(process)
+}
 
 actions!(
     run_panel,
@@ -220,24 +270,25 @@ impl RunPanel {
 
     fn terminate_session_process(session: &mut RunSession) {
         if let Some(task) = session.execution_task.take() {
-            task.detach();
+            if session.child_pid.is_some() {
+                task.detach();
+            }
         }
         if let Some(pid) = session.child_pid.take() {
             #[cfg(unix)]
             {
-                let _ = std::process::Command::new("kill")
+                std::process::Command::new("kill")
                     .args(["-TERM", "--", &format!("-{pid}")])
-                    .output();
+                    .output()
+                    .log_err();
             }
             #[cfg(windows)]
             {
-                let _ = std::process::Command::new("taskkill")
+                util::command::new_std_command("taskkill")
                     .args(["/PID", &pid.to_string(), "/T", "/F"])
-                    .output();
+                    .output()
+                    .log_err();
             }
-        }
-        if let Some(task) = session.execution_task.take() {
-            task.detach();
         }
     }
 
@@ -350,14 +401,22 @@ impl RunPanel {
         let banner = format!("> {} {}\n\n", command_str, args.join(" "));
         Self::append_raw_to_editor(&session.editor, &banner, Some(Color::Muted), cx);
 
-        let _editor = session.editor.clone();
+        // A detached process from a previous run must not update the replacement session.
+        session.id = uuid::Uuid::new_v4().to_string();
+        let configuration = session.configuration_snapshot.clone();
         let weak_self = cx.weak_entity();
         let session_id = session.id.clone();
 
         let task = cx.spawn_in(window, async move |run_panel, cx| {
             let spawn_result = async {
-                let mut std_cmd = std::process::Command::new(&command_str);
-                std_cmd.args(&args);
+                let mut std_cmd = run_command(&configuration, &command_str, &args)?;
+                if !env.contains_key("NO_COLOR")
+                    && !env.contains_key("FORCE_COLOR")
+                    && std::env::var_os("NO_COLOR").is_none()
+                    && std::env::var_os("FORCE_COLOR").is_none()
+                {
+                    std_cmd.env("FORCE_COLOR", "1");
+                }
                 std_cmd.current_dir(&cwd);
                 for (k, v) in &env {
                     std_cmd.env(k, v);
@@ -372,10 +431,7 @@ impl RunPanel {
                     use std::os::windows::process::CommandExt as _;
                     std_cmd.creation_flags(0x08000000 | 0x00000200);
                 }
-                std_cmd.stdout(std::process::Stdio::piped());
-                std_cmd.stderr(std::process::Stdio::piped());
-
-                let mut cmd = smol::process::Command::from(std_cmd);
+                let mut cmd = captured_command(std_cmd);
                 let mut child = cmd.spawn().context("Failed to spawn command")?;
                 let pid = child.id();
 
@@ -398,26 +454,30 @@ impl RunPanel {
                 let read_out = cx.background_spawn(async move {
                     let mut reader = smol::io::BufReader::new(stdout).lines();
                     while let Some(line) = reader.next().await {
-                        if let Ok(line) = line {
-                            let _ = tx_out.unbounded_send((format!("{line}\n"), false));
+                        let line = line.context("Could not read process stdout")?;
+                        if tx_out.unbounded_send((format!("{line}\n"), false)).is_err() {
+                            break;
                         }
                     }
+                    anyhow::Ok(())
                 });
 
                 let read_err = cx.background_spawn(async move {
                     let mut reader = smol::io::BufReader::new(stderr).lines();
                     while let Some(line) = reader.next().await {
-                        if let Ok(line) = line {
-                            let _ = tx_err.unbounded_send((format!("{line}\n"), true));
+                        let line = line.context("Could not read process stderr")?;
+                        if tx_err.unbounded_send((format!("{line}\n"), true)).is_err() {
+                            break;
                         }
                     }
+                    anyhow::Ok(())
                 });
 
                 let weak_panel = weak_self.clone();
                 let id = session_id.clone();
                 let pump = async {
                     while let Some((line, is_err)) = rx.next().await {
-                        let _ = cx.update(|_, cx| {
+                        cx.update(|_, cx| {
                             if let Some(panel) = weak_panel.upgrade() {
                                 panel.update(cx, |this, cx| {
                                     if let Some(s) = this.sessions.iter_mut().find(|s| s.id == id) {
@@ -425,13 +485,16 @@ impl RunPanel {
                                     }
                                 });
                             }
-                        });
+                        })
+                        .log_err();
                     }
                 };
 
                 let wait_status = async {
-                    let _ = futures::join!(read_out, read_err);
-                    child.status().await
+                    let (stdout, stderr) = futures::join!(read_out, read_err);
+                    stdout?;
+                    stderr?;
+                    anyhow::Ok(child.status().await?)
                 };
 
                 let (_, status) = futures::join!(pump, wait_status);
@@ -444,6 +507,9 @@ impl RunPanel {
                 .update(cx, |this, cx| {
                     if let Some(session) = this.sessions.iter_mut().find(|s| s.id == session_id) {
                         session.child_pid = None;
+                        if session.state == SessionState::Stopped {
+                            return;
+                        }
                         match spawn_result {
                             Ok(status) => {
                                 let code = status.code().unwrap_or(0);
@@ -494,13 +560,8 @@ impl RunPanel {
         cx: &mut App,
     ) {
         let parsed = terminal::parse_ansi_text(line.as_bytes());
-        let text = parsed.text;
-        let color = if is_error {
-            Some(Color::Error)
-        } else {
-            None
-        };
-        Self::append_raw_to_editor(&session.editor, &text, color, cx);
+        let color = if is_error { Some(Color::Error) } else { None };
+        Self::append_styled_to_editor(&session.editor, parsed, color, cx);
 
         // Auto-scroll to end if enabled
         if session.scroll_to_end {
@@ -513,21 +574,116 @@ impl RunPanel {
     fn append_raw_to_editor(
         editor: &Entity<Editor>,
         text: &str,
-        _color: Option<Color>,
+        color: Option<Color>,
+        cx: &mut App,
+    ) {
+        Self::append_styled_to_editor(
+            editor,
+            terminal::parse_ansi_text(text.as_bytes()),
+            color,
+            cx,
+        );
+    }
+
+    fn append_styled_to_editor(
+        editor: &Entity<Editor>,
+        parsed: terminal::ParsedAnsiText,
+        fallback_color: Option<Color>,
         cx: &mut App,
     ) {
         editor.update(cx, |editor, cx| {
-            let buffer = editor.buffer().read(cx).as_singleton().unwrap();
-            let len = buffer.read(cx).len();
+            let Some(buffer) = editor.buffer().read(cx).as_singleton() else {
+                return;
+            };
+            let offset = buffer.read(cx).len();
             buffer.update(cx, |buffer, cx| {
-                buffer.edit([(len..len, text)], None, cx);
+                buffer.edit([(offset..offset, parsed.text.as_str())], None, cx);
             });
+            let snapshot = editor.buffer().read(cx).snapshot(cx);
+            for (range, color) in parsed.foreground_spans {
+                let color = color
+                    .map(|color| terminal_view::terminal_element::convert_color(&color, cx.theme()))
+                    .or_else(|| fallback_color.map(|color| color.color(cx)));
+                let Some(color) = color else { continue };
+                let start = offset + range.start;
+                let range = snapshot.anchor_after(MultiBufferOffset(start))
+                    ..snapshot.anchor_before(MultiBufferOffset(offset + range.end));
+                editor.highlight_text_key(
+                    HighlightKey::ConsoleAnsiHighlight(start),
+                    vec![range],
+                    HighlightStyle {
+                        color: Some(color),
+                        ..Default::default()
+                    },
+                    false,
+                    cx,
+                );
+            }
+            for (range, color) in parsed.background_spans {
+                let Some(color) = color else { continue };
+                let start = offset + range.start;
+                let range = snapshot.anchor_after(MultiBufferOffset(start))
+                    ..snapshot.anchor_before(MultiBufferOffset(offset + range.end));
+                editor.highlight_background(
+                    HighlightKey::ConsoleAnsiHighlight(start),
+                    &[range],
+                    move |_, theme| {
+                        if terminal::is_default_background_color(color) {
+                            theme.colors().terminal_background
+                        } else {
+                            terminal_view::terminal_element::convert_color(&color, theme)
+                        }
+                    },
+                    cx,
+                );
+            }
+            let mut finder = linkify::LinkFinder::new();
+            finder.kinds(&[linkify::LinkKind::Url]);
+            let links = finder
+                .links(&parsed.text)
+                .map(|link| {
+                    snapshot.anchor_after(MultiBufferOffset(offset + link.start()))
+                        ..snapshot.anchor_before(MultiBufferOffset(offset + link.end()))
+                })
+                .collect::<Vec<_>>();
+            if !links.is_empty() {
+                editor.highlight_text_key(
+                    HighlightKey::Editor,
+                    links,
+                    HighlightStyle {
+                        color: Some(Color::Accent.color(cx)),
+                        underline: Some(UnderlineStyle {
+                            thickness: px(1.),
+                            color: None,
+                            wavy: false,
+                        }),
+                        ..Default::default()
+                    },
+                    true,
+                    cx,
+                );
+            }
         });
     }
 
     fn clear_editor(editor: &Entity<Editor>, cx: &mut App) {
         editor.update(cx, |editor, cx| {
-            let buffer = editor.buffer().read(cx).as_singleton().unwrap();
+            editor.clear_highlights_with(
+                &mut |key| {
+                    matches!(
+                        key,
+                        HighlightKey::ConsoleAnsiHighlight(_) | HighlightKey::Editor
+                    )
+                },
+                cx,
+            );
+            editor.clear_background_highlights_with(
+                |key| matches!(key, HighlightKey::ConsoleAnsiHighlight(_)),
+                cx,
+            );
+            let Some(buffer) = editor.buffer().read(cx).as_singleton() else {
+                return;
+            };
             let len = buffer.read(cx).len();
             buffer.update(cx, |buffer, cx| {
                 buffer.edit([(0..len, "")], None, cx);
@@ -807,6 +963,131 @@ impl Render for RunPanel {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[gpui::test]
+    async fn runner_preserves_colours_and_opens_links(cx: &mut gpui::TestAppContext) {
+        crate::tests::init_test(cx);
+        let window = cx.add_window(|window, cx| {
+            let editor = Editor::multi_line(window, cx);
+            window.focus(&editor.focus_handle(cx), cx);
+            editor
+        });
+        let mut context =
+            editor::test::editor_test_context::EditorTestContext::for_editor(window, cx).await;
+        let editor = context.editor.clone();
+        context.update(|_, cx| {
+            editor.update(cx, |editor, _| {
+                editor.set_read_only(true);
+                editor.set_input_enabled(false);
+            });
+            RunPanel::append_raw_to_editor(&editor, "Starting\n", Some(Color::Muted), cx);
+            RunPanel::append_raw_to_editor(
+                &editor,
+                "\x1b[32mready\x1b[0m \x1b[44mbanner\x1b[0m http://localhost:3000/path?q=1\n",
+                None,
+                cx,
+            );
+        });
+        context.update_editor(|editor, window, cx| {
+            let (style, ranges) = editor
+                .text_highlights(HighlightKey::ConsoleAnsiHighlight(9), cx)
+                .expect("green output highlight");
+            assert_eq!(
+                style.color,
+                Some(terminal_view::terminal_element::convert_color(
+                    &terminal::Color::Named(terminal::NamedColor::Green),
+                    cx.theme(),
+                ))
+            );
+            assert_eq!(ranges.len(), 1);
+            let (style, ranges) = editor
+                .text_highlights(HighlightKey::Editor, cx)
+                .expect("URL highlight");
+            assert!(style.underline.is_some());
+            assert_eq!(ranges.len(), 1);
+            assert_eq!(editor.all_text_background_highlights(window, cx).len(), 1);
+        });
+        let position =
+            context.pixel_position("Starting\nready banner http://localˇhost:3000/path?q=1\n");
+        context.simulate_mouse_move(position, None, gpui::Modifiers::secondary_key());
+        context.run_until_parked();
+        context.simulate_click(position, gpui::Modifiers::secondary_key());
+        context.run_until_parked();
+        assert_eq!(
+            context.opened_url().as_deref(),
+            Some("http://localhost:3000/path?q=1")
+        );
+        context.update(|_, cx| RunPanel::clear_editor(&editor, cx));
+        context.update_editor(|editor, window, cx| {
+            assert!(editor.all_text_highlights(window, cx).is_empty());
+            assert!(editor.all_text_background_highlights(window, cx).is_empty());
+        });
+    }
+
+    #[test]
+    fn run_process_exposes_both_output_streams() -> Result<()> {
+        smol::block_on(async {
+            let mut configuration =
+                crate::run_configurations::registry::ConfigurationProvider::create_default(
+                    "node",
+                    std::path::Path::new("."),
+                    None,
+                );
+            let run = configuration.run.as_mut().context("Missing Run target")?;
+            run.shell =
+                task::Shell::Program(if cfg!(windows) { "cmd.exe" } else { "/bin/sh" }.into());
+            let command = run_command(
+                &configuration,
+                "echo runner-output && echo runner-error >&2",
+                &[],
+            )?;
+            let mut child = captured_command(command).spawn()?;
+            let mut stdout = child.stdout.take().context("Missing stdout")?;
+            let mut stderr = child.stderr.take().context("Missing stderr")?;
+            let mut output = String::new();
+            let mut error = String::new();
+            use futures::io::AsyncReadExt as _;
+            stdout.read_to_string(&mut output).await?;
+            stderr.read_to_string(&mut error).await?;
+            assert!(child.status().await?.success());
+            assert!(output.contains("runner-output"));
+            assert!(error.contains("runner-error"));
+            anyhow::Ok(())
+        })
+    }
+
+    #[test]
+    fn run_shell_commands_and_preserve_arguments() -> Result<()> {
+        let mut configuration =
+            crate::run_configurations::registry::ConfigurationProvider::create_default(
+                "node",
+                std::path::Path::new("."),
+                None,
+            );
+        let run = configuration.run.as_mut().context("Missing Run target")?;
+        run.shell = task::Shell::Program(if cfg!(windows) { "cmd.exe" } else { "/bin/sh" }.into());
+        let output = run_command(&configuration, "echo first && echo second", &[])?.output()?;
+        ensure_success(&output)?;
+        let text = String::from_utf8(output.stdout)?;
+        assert!(text.contains("first"));
+        assert!(text.contains("second"));
+
+        let output = run_command(&configuration, "echo", &["two words".into()])?.output()?;
+        ensure_success(&output)?;
+        let text = String::from_utf8(output.stdout)?;
+        assert!(text.contains("two words"));
+        assert!(!text.contains("'two words'"));
+        Ok(())
+    }
+
+    fn ensure_success(output: &std::process::Output) -> Result<()> {
+        anyhow::ensure!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        Ok(())
+    }
 
     #[test]
     fn test_session_state_transitions() {

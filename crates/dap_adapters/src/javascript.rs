@@ -115,6 +115,14 @@ impl JsDebugAdapter {
                 .or_insert("externalTerminal".into());
 
             configuration.entry("sourceMaps").or_insert(true.into());
+            if configuration.get("type").and_then(Value::as_str) == Some("pwa-node") {
+                configuration
+                    .entry("resolveSourceMapLocations")
+                    .or_insert_with(|| json!(["**", "!**/node_modules/**", "!**/.yarn/**"]));
+                configuration
+                    .entry("skipFiles")
+                    .or_insert_with(|| json!(["<node_internals>/**", "**/node_modules/**"]));
+            }
             configuration
                 .entry("pauseForSourceMap")
                 .or_insert(true.into());

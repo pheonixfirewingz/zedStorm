@@ -58,6 +58,16 @@ register_feature_flag!(DebuggerHistoryFeatureFlag);
 
 const DEBUG_PANEL_KEY: &str = "DebugPanel";
 
+fn session_root(mut session: Entity<Session>, cx: &App) -> Entity<Session> {
+    loop {
+        let parent = session.read(cx).parent_session().cloned();
+        match parent {
+            Some(parent) => session = parent,
+            None => return session,
+        }
+    }
+}
+
 pub struct DebugPanel {
     pub run_configurations: Entity<crate::run_configurations::RunConfigurations>,
     active_session: Option<Entity<DebugSession>>,
@@ -715,8 +725,15 @@ impl DebugPanel {
         let task_context = curr_session.read(cx).task_context().clone();
 
         let curr_session_id = curr_session.read(cx).session_id();
-        self.sessions_with_children
-            .retain(|session, _| session.read(cx).session_id(cx) != curr_session_id);
+        let compact = curr_session.read(cx).quirks().compact;
+        self.retain_sessions(&|session| {
+            if compact {
+                session_root(session.read(cx).session(cx), cx) != curr_session
+            } else {
+                session.read(cx).session_id(cx) != curr_session_id
+            }
+        });
+        self.sync_session_panes(window, cx);
         let task = dap_store_handle.update(cx, |dap_store, cx| {
             dap_store.shutdown_session(curr_session_id, cx)
         });
@@ -822,6 +839,11 @@ impl DebugPanel {
                 this.serialize_layout(window, cx);
             });
         });
+        let compact_root = session
+            .read(cx)
+            .quirks
+            .compact
+            .then(|| session_root(session.read(cx).session(cx), cx));
         let session_id = session.update(cx, |this, cx| this.session_id(cx));
         let should_prompt = self
             .project
@@ -843,17 +865,28 @@ impl DebugPanel {
                     return;
                 }
             }
-            session.update(cx, |session, cx| session.shutdown(cx));
+            if let Some(root) = compact_root.as_ref() {
+                root.update(cx, |session, cx| session.shutdown(cx).detach());
+            } else {
+                session.update(cx, |session, cx| session.shutdown(cx));
+            }
             this.update_in(cx, |this, window, cx| {
                 this.retain_sessions(&|other: &Entity<DebugSession>| {
-                    entity_id != other.entity_id()
+                    if let Some(root) = compact_root.as_ref() {
+                        session_root(other.read(cx).session(cx), cx) != *root
+                    } else {
+                        entity_id != other.entity_id()
+                    }
                 });
                 this.sync_session_panes(window, cx);
                 if let Some(active_session_id) = this
                     .active_session
                     .as_ref()
                     .map(|session| session.entity_id())
-                    && active_session_id == entity_id
+                    && !this
+                        .sessions_with_children
+                        .keys()
+                        .any(|session| session.entity_id() == active_session_id)
                 {
                     this.active_session = this.sessions_with_children.keys().next().cloned();
                 }
@@ -1333,6 +1366,7 @@ impl DebugPanel {
         cx: &mut Context<Self>,
     ) {
         debug_assert!(self.sessions_with_children.contains_key(&session_item));
+        self.show_compact_session_tab(&session_item, window, cx);
         if let Some(pane) = session_item
             .read(cx)
             .host_pane
@@ -1357,6 +1391,62 @@ impl DebugPanel {
         });
         self.active_session = Some(session_item);
         cx.notify();
+    }
+
+    fn show_compact_session_tab(
+        &mut self,
+        session_item: &Entity<DebugSession>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !session_item.read(cx).quirks.compact {
+            return;
+        }
+        let root = session_root(session_item.read(cx).session(cx), cx);
+        let Some(pane) = session_item
+            .read(cx)
+            .host_pane
+            .as_ref()
+            .and_then(WeakEntity::upgrade)
+        else {
+            return;
+        };
+        let already_visible = pane
+            .read(cx)
+            .items()
+            .any(|item| item.item_id() == session_item.entity_id());
+        if !already_visible {
+            pane.update(cx, |pane, cx| {
+                pane.add_item_inner(
+                    Box::new(session_item.clone()),
+                    false,
+                    false,
+                    false,
+                    None,
+                    window,
+                    cx,
+                );
+            });
+        }
+        let Some(panes) = self.session_panes.as_ref() else {
+            return;
+        };
+        for pane in panes.panes().into_iter().cloned().collect::<Vec<_>>() {
+            let replaced = pane
+                .read(cx)
+                .items()
+                .filter_map(|item| {
+                    let other = item.downcast::<DebugSession>()?;
+                    (other != *session_item && session_root(other.read(cx).session(cx), cx) == root)
+                        .then_some(item.item_id())
+                })
+                .collect::<Vec<_>>();
+            for item_id in replaced {
+                pane.update(cx, |pane, cx| {
+                    pane.remove_item(item_id, false, true, window, cx)
+                });
+            }
+        }
     }
 
     pub(crate) fn go_to_scenario_definition(
@@ -1765,7 +1855,17 @@ async fn register_session_inner(
             Default::default(),
         );
         debug_assert!(old.is_none());
-        let pane = if let Some(pane) = this.active_session_pane.clone() {
+        let parent_pane = parent_session
+            .as_ref()
+            .filter(|_| debug_session.read(cx).quirks.compact)
+            .and_then(|parent| {
+                parent
+                    .read(cx)
+                    .host_pane
+                    .as_ref()
+                    .and_then(WeakEntity::upgrade)
+            });
+        let pane = if let Some(pane) = parent_pane.or_else(|| this.active_session_pane.clone()) {
             pane
         } else {
             let pane = this.new_session_pane(window, cx);
@@ -1789,6 +1889,7 @@ async fn register_session_inner(
                 cx,
             );
         });
+        this.show_compact_session_tab(&debug_session, window, cx);
         if let Some(parent_session) = parent_session {
             this.sessions_with_children
                 .entry(parent_session)

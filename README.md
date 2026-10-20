@@ -1,6 +1,9 @@
 > [!IMPORTANT]
 > Remove this line to confirm you've reviewed this PR before submitting.
 
+> [!IMPORTANT]
+> Remove this line to confirm you've reviewed this PR before submitting.
+
 # ZedStorm
 
 ZedStorm is a stripped-down, opinionated version of Zed, focused on a fast editor with integrated Codex CLI and Mistral API chat.

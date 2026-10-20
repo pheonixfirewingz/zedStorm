@@ -376,7 +376,7 @@ impl Render for TitleBar {
                                                 }
                                                 for entry in entries {
                                                     let key = entry.key.clone();
-                                                    let label = entry.label();
+                                                    let label = entry.configuration.name.clone();
                                                     let icon = entry.configuration.icon();
                                                     let configurations = configurations.clone();
                                                     menu = menu.item(
@@ -499,48 +499,6 @@ impl Render for TitleBar {
                         window.dispatch_action(action.boxed_clone(), cx);
                     })
                 })
-                .child(
-                    PopoverMenu::new("run-overflow-menu")
-                        .trigger(
-                            IconButton::new("run-overflow", IconName::Ellipsis)
-                                .aria_label("More Run/Debug Options")
-                                .tooltip(Tooltip::text("More Run/Debug Options")),
-                        )
-                        .menu(move |window, cx| {
-                            Some(ui::ContextMenu::build(window, cx, move |menu, _, _| {
-                                menu.action(
-                                    "Run… (Alt+Shift+F10)",
-                                    debugger_ui::run_configurations::RunPrompt.boxed_clone(),
-                                )
-                                .action(
-                                    "Debug… (Alt+Shift+F9)",
-                                    debugger_ui::run_configurations::DebugPrompt.boxed_clone(),
-                                )
-                                .separator()
-                                .action(
-                                    "Edit Configurations…",
-                                    debugger_ui::run_configurations::EditConfigurations.boxed_clone(),
-                                )
-                                .action(
-                                    "Manage Targets…",
-                                    debugger_ui::run_configurations::ManageTargets.boxed_clone(),
-                                )
-                                .separator()
-                                .action(
-                                    "Stop (Ctrl+F2)",
-                                    debugger_ui::run_configurations::StopSelectedRun.boxed_clone(),
-                                )
-                                .action(
-                                    "Stop Background Processes (Ctrl+Shift+F2)",
-                                    debugger_ui::run_configurations::StopAllProcesses.boxed_clone(),
-                                )
-                                .action(
-                                    "Show Running List",
-                                    debugger_ui::run_configurations::ShowRunningList.boxed_clone(),
-                                )
-                            }))
-                        }),
-                )
                 .child(
                     IconButton::new("toggle-ai-chat", IconName::ZedAssistant)
                         .tab_index(0_isize)

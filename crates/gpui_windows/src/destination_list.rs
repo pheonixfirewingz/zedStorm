@@ -4,7 +4,7 @@ use itertools::Itertools;
 use smallvec::SmallVec;
 use windows::{
     Win32::{
-        Foundation::PROPERTYKEY,
+        Foundation::{E_ACCESSDENIED, PROPERTYKEY},
         Globalization::u_strlen,
         System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance, StructuredStorage::PROPVARIANT},
         UI::{
@@ -175,8 +175,16 @@ fn add_recent_folders(
             )?)?;
         }
 
-        if tasks.GetCount().unwrap_or(0) > 0 {
-            list.AppendCategory(&HSTRING::from("Recent Folders"), &tasks)?;
+        if tasks.GetCount()? > 0 {
+            if let Err(error) = list.AppendCategory(&HSTRING::from("Recent Folders"), &tasks) {
+                if error.code() == E_ACCESSDENIED {
+                    log::debug!(
+                        "Windows privacy settings prevent adding recent folders to the jump list"
+                    );
+                } else {
+                    return Err(error.into());
+                }
+            }
         }
         Ok(())
     }

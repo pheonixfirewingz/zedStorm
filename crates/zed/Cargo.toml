@@ -207,6 +207,7 @@ pkg-config = "0.3.22"
 
 [dev-dependencies]
 activity_indicator = { workspace = true, features = ["test-support"] }
+debugger_ui = { workspace = true, features = ["test-support"] }
 editor = { workspace = true, features = ["test-support"] }
 env_logger.workspace = true
 fs = { workspace = true, features = ["test-support"] }

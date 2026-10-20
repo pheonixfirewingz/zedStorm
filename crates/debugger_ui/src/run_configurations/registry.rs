@@ -206,6 +206,7 @@ impl ConfigurationProvider {
                     })
                     .unwrap_or_else(|| "package.json".into());
                 RunConfiguration {
+                    debug_enabled: false,
                     name: "npm".into(),
                     configuration_type: Some("npm".into()),
                     folder: None,
@@ -227,6 +228,7 @@ impl ConfigurationProvider {
                 }
             }
             "node" => RunConfiguration {
+                debug_enabled: false,
                 name: "Node.js".into(),
                 configuration_type: Some("node".into()),
                 folder: None,
@@ -254,6 +256,7 @@ impl ConfigurationProvider {
                 }),
             },
             "javascript_debug" => RunConfiguration {
+                debug_enabled: false,
                 name: "JavaScript Debug".into(),
                 configuration_type: Some("javascript_debug".into()),
                 folder: None,
@@ -275,6 +278,7 @@ impl ConfigurationProvider {
                 }),
             },
             "attach_node" => RunConfiguration {
+                debug_enabled: false,
                 name: "Attach to Node.js/Chrome".into(),
                 configuration_type: Some("attach_node".into()),
                 folder: None,
@@ -297,6 +301,7 @@ impl ConfigurationProvider {
                 }),
             },
             "compound" => RunConfiguration {
+                debug_enabled: false,
                 name: "Compound".into(),
                 configuration_type: Some("compound".into()),
                 folder: None,
@@ -307,6 +312,7 @@ impl ConfigurationProvider {
                 debug: None,
             },
             "cargo" => RunConfiguration {
+                debug_enabled: false,
                 name: "Cargo".into(),
                 configuration_type: Some("cargo".into()),
                 folder: None,
@@ -346,6 +352,7 @@ impl ConfigurationProvider {
             },
 
             _ => RunConfiguration {
+                debug_enabled: false,
                 name: Self::display_name_for_type(type_id).to_string(),
                 configuration_type: Some(type_id.into()),
                 folder: None,
@@ -369,7 +376,12 @@ impl ConfigurationProvider {
         if let Some(npm) = &config.npm {
             ensure!(!npm.package_json.trim().is_empty(), "Choose a package.json path");
             ensure!(!npm.command.trim().is_empty(), "Enter an npm command");
-            ensure!(!npm.script.trim().is_empty(), "Choose a script to run from package.json");
+            if matches!(npm.command.as_str(), "run" | "run-script") {
+                ensure!(
+                    !npm.script.trim().is_empty(),
+                    "Choose a script to run from package.json"
+                );
+            }
             return Ok(());
         }
         if let Some(type_id) = &config.configuration_type {

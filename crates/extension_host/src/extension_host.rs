@@ -909,17 +909,21 @@ impl ExtensionStore {
                     .await
                     .context("downloading extension")?;
 
+                if !response.status().is_success() {
+                    bail!("downloading extension from {url}: HTTP {}", response.status());
+                }
+
                 let content_length = response
                     .headers()
                     .get(http_client::http::header::CONTENT_LENGTH)
                     .and_then(|value| value.to_str().ok()?.parse::<usize>().ok());
 
                 let mut body = BufReader::new(response.body_mut());
-                let mut tar_gz_bytes = Vec::new();
-                body.read_to_end(&mut tar_gz_bytes).await?;
+                let mut archive_bytes = Vec::new();
+                body.read_to_end(&mut archive_bytes).await?;
 
                 if let Some(content_length) = content_length {
-                    let actual_len = tar_gz_bytes.len();
+                    let actual_len = archive_bytes.len();
                     if content_length != actual_len {
                         bail!(
                             "downloaded extension size {actual_len} \
@@ -928,8 +932,21 @@ impl ExtensionStore {
                     }
                 }
 
-                let decompressed_bytes = GzipDecoder::new(BufReader::new(tar_gz_bytes.as_slice()));
-                let archive = Archive::new(decompressed_bytes);
+                let is_zip = url.path().ends_with(".zip");
+                let unpack = |destination: PathBuf| {
+                    let archive_bytes = &archive_bytes;
+                    async move {
+                        let reader = BufReader::new(archive_bytes.as_slice());
+                        if is_zip {
+                            util::archive::extract_zip(&destination, reader).await
+                        } else {
+                            Archive::new(GzipDecoder::new(reader))
+                                .unpack(destination)
+                                .await
+                                .map_err(Into::into)
+                        }
+                    }
+                };
 
                 let remove_dir = || {
                     fs.remove_dir(
@@ -948,7 +965,7 @@ impl ExtensionStore {
 
                 match temp_dir {
                     Ok(temp_dir) => {
-                        archive.unpack(temp_dir.path()).await?;
+                        unpack(temp_dir.path().to_path_buf()).await?;
                         remove_dir().await?;
                         fs.rename(
                             temp_dir.path(),
@@ -963,7 +980,7 @@ impl ExtensionStore {
                     }
                     Err(_) => {
                         remove_dir().await?;
-                        archive.unpack(extension_dir).await.map_err(Into::into)
+                        unpack(extension_dir).await
                     }
                 }
             })
@@ -990,6 +1007,18 @@ impl ExtensionStore {
         })
     }
 
+    fn drawio_download_url() -> Result<Url> {
+        let archive = if cfg!(target_os = "windows") {
+            "drawio-windows-x86_64.zip"
+        } else {
+            "drawio.tar.gz"
+        };
+        Url::parse(&format!(
+            "https://github.com/pheonixfirewingz/zedStorm/releases/download/latest-extensions-build/{archive}"
+        ))
+        .map_err(Into::into)
+    }
+
     pub fn install_latest_extension(&mut self, extension_id: Arc<str>, cx: &mut Context<Self>) {
         log::info!("installing extension {extension_id} latest version");
 
@@ -997,7 +1026,7 @@ impl ExtensionStore {
         let wasm_api_versions = wasm_api_version_range(ReleaseChannel::global(cx));
 
         let url = if extension_id.as_ref() == "drawio" {
-            http_client::Url::parse(&format!("https://github.com/pheonixfirewingz/zedStorm/releases/download/latest/{extension_id}.tar.gz")).log_err()
+            Self::drawio_download_url().log_err()
         } else {
             self.http_client
                 .build_zed_api_url(
@@ -1048,7 +1077,7 @@ impl ExtensionStore {
     ) -> Task<Result<()>> {
         log::info!("installing extension {extension_id} {version}");
         let url = if extension_id.as_ref() == "drawio" {
-            http_client::Url::parse(&format!("https://github.com/pheonixfirewingz/zedStorm/releases/download/latest/{extension_id}.tar.gz")).log_err()
+            Self::drawio_download_url().log_err()
         } else {
             self.http_client
                 .build_zed_api_url(

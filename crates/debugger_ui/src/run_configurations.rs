@@ -64,6 +64,8 @@ const CONFIGURATION_PATH: &str = ".zed/run.json";
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RunConfiguration {
     pub name: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub debug_enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub configuration_type: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -153,6 +155,124 @@ fn default_npm_command() -> String {
     "run".into()
 }
 
+impl NpmConfigurationFields {
+    fn launch_command(&self, root: &Path, build: bool) -> Result<NpmLaunchCommand> {
+        let package_path = root.join(&self.package_json);
+        let directory = package_path
+            .parent()
+            .context("The package.json path has no parent directory")?
+            .to_path_buf();
+        let manager = self
+            .package_manager
+            .as_deref()
+            .filter(|manager| !manager.trim().is_empty() && !manager.starts_with("Project"))
+            .unwrap_or("npm");
+        let manager = if cfg!(windows) && matches!(manager, "npm" | "pnpm" | "yarn" | "npx") {
+            format!("{manager}.cmd")
+        } else {
+            manager.to_owned()
+        };
+        let arguments = if build {
+            vec!["run".to_owned(), "build".to_owned()]
+        } else {
+            let mut arguments = vec![self.command.clone()];
+            if matches!(self.command.as_str(), "run" | "run-script") {
+                arguments.push(self.script.clone());
+            }
+            let script_arguments = util::shell::ShellKind::Posix
+                .split(&self.arguments)
+                .context("Invalid npm arguments: check for unmatched quotes")?;
+            if !script_arguments.is_empty() {
+                arguments.push("--".into());
+                arguments.extend(script_arguments);
+            }
+            arguments
+        };
+        let mut environment = self.environment.clone();
+        if !self.node_options.trim().is_empty() {
+            let options = environment.entry("NODE_OPTIONS".into()).or_default();
+            if !options.is_empty() {
+                options.push(' ');
+            }
+            options.push_str(&self.node_options);
+        }
+        if let Some(runtime) = self
+            .node_runtime
+            .as_deref()
+            .filter(|runtime| !runtime.trim().is_empty() && !runtime.starts_with("Project"))
+        {
+            let runtime = Path::new(runtime);
+            ensure!(
+                runtime.is_absolute(),
+                "Choose an absolute path to the Node.js executable"
+            );
+            let runtime_directory = runtime
+                .parent()
+                .context("The Node.js executable has no parent directory")?;
+            let path_key = environment
+                .keys()
+                .find(|key| {
+                    if cfg!(windows) {
+                        key.eq_ignore_ascii_case("PATH")
+                    } else {
+                        key.as_str() == "PATH"
+                    }
+                })
+                .cloned()
+                .unwrap_or_else(|| "PATH".into());
+            let inherited_path = environment
+                .get(&path_key)
+                .map(std::ffi::OsString::from)
+                .or_else(|| std::env::var_os("PATH"))
+                .unwrap_or_default();
+            let paths = std::iter::once(runtime_directory.to_path_buf())
+                .chain(std::env::split_paths(&inherited_path));
+            environment.insert(
+                path_key,
+                std::env::join_paths(paths)?.to_string_lossy().into_owned(),
+            );
+        }
+        Ok(NpmLaunchCommand {
+            command: manager,
+            arguments,
+            directory,
+            environment,
+        })
+    }
+
+    fn debug_scenario(&self, root: &Path, name: &str) -> Result<DebugScenario> {
+        let NpmLaunchCommand {
+            command,
+            arguments,
+            directory,
+            environment,
+        } = self.launch_command(root, false)?;
+        Ok(DebugScenario {
+            adapter: "JavaScript".into(),
+            label: name.to_owned().into(),
+            build: None,
+            config: json!({
+                "type": "pwa-node",
+                "request": "launch",
+                "runtimeExecutable": command,
+                "runtimeArgs": arguments,
+                "cwd": directory,
+                "env": environment,
+                "autoAttachChildProcesses": true,
+                "sourceMaps": true
+            }),
+            tcp_connection: None,
+        })
+    }
+}
+
+struct NpmLaunchCommand {
+    command: String,
+    arguments: Vec<String>,
+    directory: PathBuf,
+    environment: BTreeMap<String, String>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct BrowserLiveEdit {
     pub launch_browser: bool,
@@ -207,7 +327,12 @@ impl RunConfiguration {
         if let Some(npm) = &self.npm {
             ensure!(!npm.package_json.trim().is_empty(), "Choose a package.json path");
             ensure!(!npm.command.trim().is_empty(), "Enter an npm command");
-            ensure!(!npm.script.trim().is_empty(), "Choose a script to run from package.json");
+            if matches!(npm.command.as_str(), "run" | "run-script") {
+                ensure!(
+                    !npm.script.trim().is_empty(),
+                    "Choose a script to run from package.json"
+                );
+            }
             return Ok(());
         }
         if let Some(type_id) = &self.configuration_type {
@@ -229,7 +354,9 @@ impl RunConfiguration {
                 "Enter a command for the Run target"
             );
         }
-        if let Some(debug) = &self.debug {
+        if self.debug_enabled
+            && let Some(debug) = &self.debug
+        {
             ensure!(!debug.adapter.is_empty(), "Choose a debug adapter");
             ensure!(
                 debug.config.is_object(),
@@ -253,7 +380,10 @@ impl RunConfiguration {
         if self.npm.is_some() {
             return "npm";
         }
-        match (&self.run, &self.debug) {
+        match (
+            &self.run,
+            self.debug.as_ref().filter(|_| self.debug_enabled),
+        ) {
             (Some(_), Some(_)) => "Run / Debug",
             (None, Some(debug))
                 if debug.config.get("request").and_then(Value::as_str) == Some("attach") =>
@@ -272,7 +402,7 @@ impl RunConfiguration {
         if self.npm.is_some() {
             return IconName::Terminal;
         }
-        if self.debug.is_some() && self.run.is_none() {
+        if self.debug_enabled && self.debug.is_some() && self.run.is_none() {
             return IconName::Debug;
         }
         IconName::PlayFilled
@@ -378,6 +508,7 @@ fn configuration_file_edit(
         for key in [
             "name",
             "configuration_type",
+            "debug_enabled",
             "folder",
             "allow_multiple_instances",
             "before_launch",
@@ -738,14 +869,17 @@ impl RunConfigurations {
             return false;
         }
         if self.is_current_file_selected {
-            return true;
+            return !debug;
         }
         self.selected_entry().is_some_and(|entry| {
             if entry.configuration.validate().is_err() {
                 return false;
             }
+            if debug && !entry.configuration.debug_enabled {
+                return false;
+            }
             if entry.configuration.npm.is_some() {
-                return true;
+                return !debug || cx.global::<DapRegistry>().adapter("JavaScript").is_some();
             }
             if debug {
                 entry.configuration.debug.as_ref().is_some_and(|debug| {
@@ -802,18 +936,40 @@ impl RunConfigurations {
     }
 
     pub fn refresh(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Ok((contexts, roots, local_project)) = self.workspace.update(cx, |workspace, cx| {
-            let contexts = tasks_ui::task_contexts(workspace, window, cx);
-            let roots = workspace
-                .visible_worktrees(cx)
-                .filter_map(|worktree| {
+        let Ok((contexts, roots, local_project, package_paths)) =
+            self.workspace.update(cx, |workspace, cx| {
+                let contexts = tasks_ui::task_contexts(workspace, window, cx);
+                let roots = workspace
+                    .visible_worktrees(cx)
+                    .filter_map(|worktree| {
+                        let worktree = worktree.read(cx);
+                        worktree.root_entry().filter(|entry| entry.is_dir());
+                        Some((worktree.id(), worktree.abs_path().to_path_buf()))
+                    })
+                    .collect::<Vec<_>>();
+                let mut package_paths = Vec::new();
+                for worktree in workspace.visible_worktrees(cx) {
                     let worktree = worktree.read(cx);
-                    worktree.root_entry().filter(|entry| entry.is_dir());
-                    Some((worktree.id(), worktree.abs_path().to_path_buf()))
-                })
-                .collect::<Vec<_>>();
-            (contexts, roots, workspace.project().read(cx).is_local())
-        }) else {
+                    for entry in worktree.snapshot().files(false, 0) {
+                        if entry.path.file_name() == Some("package.json")
+                            && !entry
+                                .path
+                                .as_std_path()
+                                .components()
+                                .any(|component| component.as_os_str() == "node_modules")
+                        {
+                            package_paths.push(worktree.abs_path().join(entry.path.as_std_path()));
+                        }
+                    }
+                }
+                (
+                    contexts,
+                    roots,
+                    workspace.project().read(cx).is_local(),
+                    package_paths,
+                )
+            })
+        else {
             return;
         };
         self.loading = true;
@@ -868,23 +1024,29 @@ impl RunConfigurations {
                                 fs.load(&path).await
                             };
                             files.push((root.clone(), result));
-
-                            // Search for package.json in root and direct subdirectories
-                            let pkg_path = root.join("package.json");
-                            if let Ok(Some(_)) = fs.metadata(&pkg_path).await {
-                                if let Ok(text) = fs.load(&pkg_path).await {
-                                    if let Ok(val) = serde_json::from_str::<Value>(&text) {
-                                        if let Some(scripts_obj) = val.get("scripts").and_then(Value::as_object) {
-                                            let mut scripts = BTreeMap::new();
-                                            for (k, v) in scripts_obj {
-                                                if let Some(s) = v.as_str() {
-                                                    scripts.insert(k.clone(), s.to_string());
-                                                }
-                                            }
-                                            discovered_scripts.insert(pkg_path, scripts);
-                                        }
-                                    }
+                        }
+                        for package_path in package_paths {
+                            let loaded = fs.load(&package_path).await.and_then(|text| {
+                                let package: Value = serde_json::from_str(&text)?;
+                                let scripts = package
+                                    .get("scripts")
+                                    .and_then(Value::as_object)
+                                    .into_iter()
+                                    .flatten()
+                                    .filter_map(|(name, command)| {
+                                        Some((name.clone(), command.as_str()?.to_owned()))
+                                    })
+                                    .collect();
+                                Ok(scripts)
+                            });
+                            match loaded {
+                                Ok(scripts) => {
+                                    discovered_scripts.insert(package_path, scripts);
                                 }
+                                Err(error) => log::warn!(
+                                    "Could not load npm scripts from {}: {error:#}",
+                                    package_path.display()
+                                ),
                             }
                         }
                         anyhow::Ok((files, discovered_scripts))
@@ -1030,6 +1192,16 @@ impl RunConfigurations {
             })?;
             let entry =
                 entry.context("The selected configuration was removed or could not be loaded")?;
+            entry.configuration.validate()?;
+            ensure!(
+                !debug || entry.configuration.debug_enabled,
+                "Enable debugging in this configuration before starting a debug session"
+            );
+            if !build_only && !entry.configuration.before_launch.is_empty() {
+                let entry = entry.clone();
+                cx.background_spawn(async move { run_before_launch(&entry) })
+                    .await?;
+            }
             workspace.update_in(cx, |workspace, window, cx| {
                 if !debug
                     && !build_only
@@ -1047,15 +1219,12 @@ impl RunConfigurations {
 
                 if build_only {
                     if let Some(npm) = &entry.configuration.npm {
-                        let pkg_path = entry.key.root.join(&npm.package_json);
-                        let cwd = pkg_path.parent().unwrap_or(&entry.key.root).to_path_buf();
-                        let pkg_manager = npm.package_manager.clone().unwrap_or_else(|| "npm".into());
-                        let command = pkg_manager;
-                        let args = vec!["run".into(), "build".into()];
-                        let mut env = npm.environment.clone();
-                        if !npm.node_options.is_empty() {
-                            env.insert("NODE_OPTIONS".into(), npm.node_options.clone());
-                        }
+                        let NpmLaunchCommand {
+                            command,
+                            arguments: args,
+                            directory: cwd,
+                            environment: env,
+                        } = npm.launch_command(&entry.key.root, true)?;
                         workspace.open_panel::<crate::run_panel::RunPanel>(window, cx);
                         if let Some(panel) = workspace.panel::<crate::run_panel::RunPanel>(cx) {
                             panel.update(cx, |panel, cx| {
@@ -1312,6 +1481,78 @@ async fn write_configuration_file(
     fs.atomic_write(path, text).await
 }
 
+fn run_before_launch(entry: &ConfigurationEntry) -> Result<()> {
+    if !entry.configuration.before_launch.is_empty() {
+        for task in &entry.configuration.before_launch {
+            match task {
+                BeforeLaunchTask::NpmScript {
+                    script,
+                    package_json,
+                } => {
+                    let pkg_str = package_json
+                        .as_deref()
+                        .or_else(|| {
+                            entry
+                                .configuration
+                                .npm
+                                .as_ref()
+                                .map(|npm| npm.package_json.as_str())
+                        })
+                        .unwrap_or("package.json");
+                    let pkg_path = entry.key.root.join(pkg_str);
+                    let cwd = pkg_path.parent().unwrap_or(&entry.key.root);
+                    let mut npm = entry.configuration.npm.clone().unwrap_or_default();
+                    npm.package_json = pkg_str.to_owned();
+                    npm.command = "run".into();
+                    npm.script = script.clone();
+                    npm.arguments.clear();
+                    let NpmLaunchCommand {
+                        command,
+                        arguments,
+                        environment,
+                        ..
+                    } = npm.launch_command(&entry.key.root, false)?;
+                    let output = task::ShellBuilder::new(&task::Shell::System, cfg!(windows))
+                        .non_interactive()
+                        .build_std_command(Some(command), &arguments)
+                        .envs(environment)
+                        .current_dir(cwd)
+                        .output()
+                        .context(format!(
+                            "Failed to execute before-launch task: npm run {script}"
+                        ))?;
+                    if !output.status.success() {
+                        anyhow::bail!(
+                            "Before launch task 'npm run {script}' failed:\n{}\n{}",
+                            String::from_utf8_lossy(&output.stdout),
+                            String::from_utf8_lossy(&output.stderr)
+                        );
+                    }
+                }
+                BeforeLaunchTask::Build { name, target } => {
+                    let mut cmd = util::command::new_std_command("cargo");
+                    cmd.arg("build");
+                    if let Some(target) = target {
+                        cmd.args(["--bin", target]);
+                    }
+                    cmd.current_dir(&entry.key.root);
+                    let output = cmd.output().context(format!(
+                        "Failed to execute before-launch build task: {name}"
+                    ))?;
+                    if !output.status.success() {
+                        let err_text = String::from_utf8_lossy(&output.stderr);
+                        anyhow::bail!("Before launch task '{name}' failed:\n{err_text}");
+                    }
+                }
+                BeforeLaunchTask::RunConfiguration { configuration_id } => anyhow::bail!(
+                    "Before-launch configuration '{configuration_id}' is not supported yet"
+                ),
+            }
+        }
+    }
+    Ok(())
+}
+
 fn launch_configuration(
     workspace: &mut Workspace,
     entry: &ConfigurationEntry,
@@ -1321,6 +1562,10 @@ fn launch_configuration(
     cx: &mut Context<Workspace>,
 ) -> Result<()> {
     entry.configuration.validate()?;
+    ensure!(
+        !debug || entry.configuration.debug_enabled,
+        "Enable debugging in this configuration before starting a debug session"
+    );
     let context = if contexts.worktree() == Some(entry.worktree_id) {
         contexts.active_context()
     } else {
@@ -1328,67 +1573,9 @@ fn launch_configuration(
     }
     .context("The configuration's project root is no longer open")?;
 
-    // Handle Before Launch tasks
-    if !entry.configuration.before_launch.is_empty() {
-        for task in &entry.configuration.before_launch {
-            match task {
-                BeforeLaunchTask::NpmScript { script, package_json } => {
-                    let pkg_str = package_json.as_deref().unwrap_or("package.json");
-                    let pkg_path = entry.key.root.join(pkg_str);
-                    let cwd = pkg_path.parent().unwrap_or(&entry.key.root);
-                    let output = std::process::Command::new(if cfg!(windows) { "npm.cmd" } else { "npm" })
-                        .args(["run", script])
-                        .current_dir(cwd)
-                        .output()
-                        .context(format!("Failed to execute before-launch task: npm run {script}"))?;
-                    if !output.status.success() {
-                        let err_text = String::from_utf8_lossy(&output.stderr);
-                        anyhow::bail!("Before launch task 'npm run {script}' failed:\n{err_text}");
-                    }
-                }
-                BeforeLaunchTask::Build { name, target } => {
-                    let mut cmd = std::process::Command::new("cargo");
-                    cmd.arg("build");
-                    if let Some(target) = target {
-                        cmd.args(["--bin", target]);
-                    }
-                    cmd.current_dir(&entry.key.root);
-                    let output = cmd.output().context(format!("Failed to execute before-launch build task: {name}"))?;
-                    if !output.status.success() {
-                        let err_text = String::from_utf8_lossy(&output.stderr);
-                        anyhow::bail!("Before launch task '{name}' failed:\n{err_text}");
-                    }
-                }
-                BeforeLaunchTask::RunConfiguration { .. } => {}
-            }
-        }
-    }
-
     if debug {
         let scenario = if let Some(npm) = &entry.configuration.npm {
-            let pkg_path = entry.key.root.join(&npm.package_json);
-            let cwd = pkg_path.parent().unwrap_or(&entry.key.root).to_path_buf();
-            let pkg_manager = npm.package_manager.clone().unwrap_or_else(|| "npm".into());
-            let script = npm.script.clone();
-            let mut env = npm.environment.clone();
-            if !npm.node_options.is_empty() {
-                env.insert("NODE_OPTIONS".into(), npm.node_options.clone());
-            }
-            DebugScenario {
-                adapter: "JavaScript".into(),
-                label: entry.configuration.name.clone().into(),
-                build: None,
-                config: json!({
-                    "type": "pwa-node",
-                    "request": "launch",
-                    "runtimeExecutable": pkg_manager,
-                    "runtimeArgs": ["run", script],
-                    "cwd": cwd,
-                    "env": env,
-                    "sourceMaps": true
-                }),
-                tcp_connection: None,
-            }
+            npm.debug_scenario(&entry.key.root, &entry.configuration.name)?
         } else {
             entry
                 .configuration
@@ -1427,19 +1614,12 @@ fn launch_configuration(
             )
         });
     } else if let Some(npm) = &entry.configuration.npm {
-        let pkg_path = entry.key.root.join(&npm.package_json);
-        let cwd = pkg_path.parent().unwrap_or(&entry.key.root).to_path_buf();
-        let pkg_manager = npm.package_manager.clone().unwrap_or_else(|| "npm".into());
-        let command = pkg_manager;
-        let mut args = vec![npm.command.clone(), npm.script.clone()];
-        if !npm.arguments.trim().is_empty() {
-            args.push("--".into());
-            args.extend(npm.arguments.split_whitespace().map(String::from));
-        }
-        let mut env = npm.environment.clone();
-        if !npm.node_options.is_empty() {
-            env.insert("NODE_OPTIONS".into(), npm.node_options.clone());
-        }
+        let NpmLaunchCommand {
+            command,
+            arguments: args,
+            directory: cwd,
+            environment: env,
+        } = npm.launch_command(&entry.key.root, false)?;
         workspace.open_panel::<crate::run_panel::RunPanel>(window, cx);
         if let Some(panel) = workspace.panel::<crate::run_panel::RunPanel>(cx) {
             panel.update(cx, |panel, cx| {
@@ -1475,13 +1655,6 @@ fn launch_configuration(
                 context,
             )
             .context("Could not resolve the configuration's task variables")?;
-        let shell = task::ShellBuilder::new(&resolved.resolved.shell, cfg!(windows)).kind();
-        for argument in &mut resolved.resolved.args {
-            *argument = shell
-                .try_quote(argument)
-                .context("Could not quote a configuration argument for the selected shell")?
-                .into_owned();
-        }
 
         // Try RunPanel first, otherwise fallback to terminal provider
         let run_panel = workspace.panel::<crate::run_panel::RunPanel>(cx);
@@ -1506,6 +1679,13 @@ fn launch_configuration(
                 );
             });
         } else {
+            let shell = task::ShellBuilder::new(&resolved.resolved.shell, cfg!(windows)).kind();
+            for argument in &mut resolved.resolved.args {
+                *argument = shell
+                    .try_quote(argument)
+                    .context("Could not quote a configuration argument for the selected shell")?
+                    .into_owned();
+            }
             workspace.schedule_resolved_task(source, resolved, false, window, cx);
         }
     }
@@ -1519,6 +1699,7 @@ fn build_only_configuration(
     configuration.name = format!("Build {}", configuration.name);
     configuration.run = Some(task);
     configuration.debug = None;
+    configuration.debug_enabled = false;
     configuration
 }
 
@@ -1547,6 +1728,7 @@ fn configuration_for_task(task: &ResolvedTask) -> RunConfiguration {
         tcp_connection: None,
     });
     RunConfiguration {
+        debug_enabled: false,
         name: task.resolved_label.clone(),
         configuration_type: Some("task".into()),
         folder: None,
@@ -1664,6 +1846,144 @@ mod tests {
     use super::*;
 
     #[test]
+    fn debugger_enablement_defaults_off_and_persists_both_states() -> Result<()> {
+        for kind in ["npm", "node", "javascript_debug", "attach_node", "cargo"] {
+            let mut configuration =
+                registry::ConfigurationProvider::create_default(kind, Path::new("/project"), None);
+            assert!(
+                !configuration.debug_enabled,
+                "{kind} must default to disabled"
+            );
+            let original_debug = configuration.debug.clone();
+            let disabled = serde_json::to_string(&configuration)?;
+            assert!(!serde_json::from_str::<RunConfiguration>(&disabled)?.debug_enabled);
+            configuration.debug_enabled = true;
+            let enabled = configuration_file_edit("", "configuration", Some(&configuration))?;
+            assert!(
+                parse_configuration_file(&enabled)?
+                    .get("configuration")
+                    .context("Missing enabled configuration")?
+                    .debug_enabled
+            );
+            configuration.debug_enabled = false;
+            let disabled =
+                configuration_file_edit(&enabled, "configuration", Some(&configuration))?;
+            let restored = parse_configuration_file(&disabled)?;
+            let restored = restored
+                .get("configuration")
+                .context("Missing disabled configuration")?;
+            assert!(!restored.debug_enabled);
+            assert_eq!(restored.debug, original_debug);
+        }
+        Ok(())
+    }
+
+    #[gpui::test]
+    async fn debugger_toggle_controls_launch_availability(cx: &mut gpui::TestAppContext) {
+        let (_, _, store) = test_workspace(cx).await;
+        store.update(cx, |store, cx| {
+            let (worktree_id, root) = store.roots.first().expect("Project root").clone();
+            let mut entry = ConfigurationEntry {
+                key: ConfigurationKey {
+                    root: root.clone(),
+                    storage: Storage::Project,
+                    id: "toggle".into(),
+                },
+                worktree_id,
+                configuration: registry::ConfigurationProvider::create_default("npm", &root, None),
+            };
+            store.selected = Some(entry.key.clone());
+            store.is_current_file_selected = false;
+            store.loading = false;
+            store.entries = vec![entry.clone()];
+            assert!(store.can_launch(false, cx));
+            assert!(!store.can_launch(true, cx));
+            entry.configuration.debug_enabled = true;
+            store.entries = vec![entry.clone()];
+            assert!(store.can_launch(true, cx));
+            entry.configuration.debug_enabled = false;
+            store.entries = vec![entry];
+            assert!(!store.can_launch(true, cx));
+            assert!(store.can_launch(false, cx));
+        });
+    }
+
+    #[test]
+    fn npm_debug_uses_the_same_command_and_environment_as_run() -> Result<()> {
+        let root = std::env::current_dir()?;
+        let runtime =
+            root.join("node runtime")
+                .join(if cfg!(windows) { "node.exe" } else { "node" });
+        let npm = NpmConfigurationFields {
+            package_json: "backend/package.json".into(),
+            command: "run-script".into(),
+            script: "start:dev".into(),
+            arguments: "--label \"two words\" --port 3000".into(),
+            node_runtime: Some(runtime.to_string_lossy().into_owned()),
+            node_options: "--enable-source-maps".into(),
+            environment: [("NODE_OPTIONS".into(), "--max-old-space-size=4096".into())].into(),
+            ..Default::default()
+        };
+        let NpmLaunchCommand {
+            command: manager,
+            arguments,
+            directory,
+            environment,
+        } = npm.launch_command(&root, false)?;
+        assert_eq!(
+            arguments,
+            [
+                "run-script",
+                "start:dev",
+                "--",
+                "--label",
+                "two words",
+                "--port",
+                "3000"
+            ]
+        );
+        assert_eq!(directory, root.join("backend"));
+        assert_eq!(
+            environment.get("NODE_OPTIONS").map(String::as_str),
+            Some("--max-old-space-size=4096 --enable-source-maps")
+        );
+        let path = environment.get("PATH").context("Missing runtime PATH")?;
+        assert_eq!(
+            std::env::split_paths(path).next().as_deref(),
+            runtime.parent()
+        );
+        let debug = npm.debug_scenario(&root, "Backend")?;
+        assert_eq!(debug.config["runtimeExecutable"], json!(manager));
+        assert_eq!(debug.config["runtimeArgs"], json!(arguments));
+        assert_eq!(debug.config["env"], json!(environment));
+        assert_eq!(debug.config["autoAttachChildProcesses"], true);
+        Ok(())
+    }
+
+    #[test]
+    fn npm_commands_do_not_duplicate_lifecycle_script_names() -> Result<()> {
+        let mut npm = NpmConfigurationFields {
+            package_json: "package.json".into(),
+            command: "start".into(),
+            script: "start".into(),
+            package_manager: Some("Project npm, version 10.9.9".into()),
+            ..Default::default()
+        };
+        let NpmLaunchCommand {
+            command: manager,
+            arguments,
+            ..
+        } = npm.launch_command(Path::new("."), false)?;
+        assert_eq!(manager, if cfg!(windows) { "npm.cmd" } else { "npm" });
+        assert_eq!(arguments, ["start"]);
+        npm.arguments = "\"unclosed".into();
+        assert!(npm.launch_command(Path::new("."), false).is_err());
+        let NpmLaunchCommand { arguments, .. } = npm.launch_command(Path::new("."), true)?;
+        assert_eq!(arguments, ["run", "build"]);
+        Ok(())
+    }
+
+    #[test]
     fn saved_cargo_debug_configuration_restores_executable_discovery() -> Result<()> {
         let mut configuration = configuration("Cargo application");
         configuration.debug = Some(DebugScenario {
@@ -1746,6 +2066,7 @@ mod tests {
 
     fn configuration(name: &str) -> RunConfiguration {
         RunConfiguration {
+            debug_enabled: false,
             name: name.into(),
             configuration_type: Some("cargo".into()),
             folder: None,
@@ -1806,6 +2127,7 @@ mod tests {
         assert!(parse_configuration_file(r#"{"version":2,"configurations":{}}"#).is_err());
         assert!(
             RunConfiguration {
+                debug_enabled: false,
                 name: "Empty".into(),
                 configuration_type: None,
                 folder: None,
@@ -1824,6 +2146,7 @@ mod tests {
     #[test]
     fn test_npm_configuration_serialization_and_validation() -> Result<()> {
         let npm_config = RunConfiguration {
+            debug_enabled: false,
             name: "Backend".into(),
             configuration_type: Some("npm".into()),
             folder: None,
@@ -1898,6 +2221,42 @@ mod tests {
     }
 
     #[gpui::test]
+    async fn npm_scripts_are_discovered_in_nested_project_packages(cx: &mut gpui::TestAppContext) {
+        let (fs, window, store) = test_workspace(cx).await;
+        fs.insert_tree(Path::new("/run-second"), json!({
+            "backend": { "package.json": r#"{"scripts":{"start:luke_dev":"node server.js","start:luke_dev_fake_data":"node fake.js"}}"# },
+            "apps": { "frontend": { "package.json": r#"{"scripts":{"start:dev":"vite"}}"# } },
+            "node_modules": { "dependency": { "package.json": r#"{"scripts":{"unrelated":"echo dependency"}}"# } }
+        })).await;
+        cx.run_until_parked();
+        window
+            .update(cx, |_, window, cx| {
+                store.update(cx, |store, cx| store.refresh(window, cx));
+            })
+            .expect("Refresh npm package scripts");
+        cx.run_until_parked();
+        store
+            .read_with(cx, |store, _| {
+                let backend = store
+                    .discovered_package_scripts
+                    .get(Path::new("/run-second/backend/package.json"))
+                    .context("Backend package scripts were not discovered")?;
+                assert!(backend.contains_key("start:luke_dev"));
+                assert!(backend.contains_key("start:luke_dev_fake_data"));
+                let frontend = store
+                    .discovered_package_scripts
+                    .get(Path::new("/run-second/apps/frontend/package.json"))
+                    .context("Nested frontend package scripts were not discovered")?;
+                assert!(frontend.contains_key("start:dev"));
+                assert!(!store.discovered_package_scripts.contains_key(Path::new(
+                    "/run-second/node_modules/dependency/package.json"
+                )));
+                anyhow::Ok(())
+            })
+            .expect("Discover scripts in nested packages");
+    }
+
+    #[gpui::test]
     async fn test_run_configuration_save_rename_and_storage_move(cx: &mut gpui::TestAppContext) {
         let (fs, window, store) = test_workspace(cx).await;
         let worktree_id = store
@@ -1954,6 +2313,7 @@ mod tests {
         }"#;
 
         let npm_config = RunConfiguration {
+            debug_enabled: false,
             name: "Backend".into(),
             configuration_type: Some("npm".into()),
             folder: Some("Services".into()),

@@ -18,6 +18,42 @@ use super::QuickActionBar;
 
 const ZED_REPL_DOCUMENTATION: &str = "https://zed.dev/docs/repl";
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use workspace::MultiWorkspace;
+
+    #[gpui::test]
+    async fn repl_menu_during_workspace_update(cx: &mut gpui::TestAppContext) {
+        let app_state = crate::zed::tests::init_test(cx);
+        let project = project::Project::test(app_state.fs.clone(), [], cx).await;
+        let window = cx.add_window(|window, cx| MultiWorkspace::test_new(project, window, cx));
+        let editor = window
+            .update(cx, |multi, window, cx| {
+                multi.workspace().update(cx, |workspace, cx| {
+                    editor::Editor::new_in_workspace(workspace, window, cx)
+                })
+            })
+            .expect("create editor task")
+            .await
+            .expect("create editor");
+        window
+            .update(cx, |multi, window, cx| {
+                multi.workspace().update(cx, |workspace, cx| {
+                    assert!(JupyterSettings::enabled(cx));
+                    assert!(editor.read(cx).workspace().is_some());
+                    let search_bar = cx.new(|cx| search::BufferSearchBar::new(None, window, cx));
+                    let action_bar = cx.new(|cx| QuickActionBar::new(search_bar, workspace, cx));
+                    action_bar.update(cx, |action_bar, cx| {
+                        action_bar.active_item = Some(Box::new(editor.clone()));
+                        assert!(action_bar.render_repl_menu(cx).is_none());
+                    });
+                });
+            })
+            .expect("render REPL menu while workspace is being updated");
+    }
+}
+
 struct ReplMenuState {
     tooltip: SharedString,
     icon: IconName,
@@ -39,14 +75,11 @@ impl QuickActionBar {
 
         let editor = self.active_editor()?;
 
+        // Toolbar placement can be queried while the workspace is being updated.
         let is_valid_project = editor
             .read(cx)
-            .workspace()
-            .map(|workspace| {
-                let project = workspace.read(cx).project().read(cx);
-                !project.is_via_collab()
-            })
-            .unwrap_or(false);
+            .project()
+            .is_some_and(|project| !project.read(cx).is_via_collab());
 
         if !is_valid_project {
             return None;
@@ -289,11 +322,7 @@ impl QuickActionBar {
 
         let store = repl::ReplStore::global(cx);
         if !store.read(cx).has_python_kernelspecs(worktree_id) {
-            if let Some(project) = editor
-                .read(cx)
-                .workspace()
-                .map(|workspace| workspace.read(cx).project().clone())
-            {
+            if let Some(project) = editor.read(cx).project().cloned() {
                 store
                     .update(cx, |store, cx| {
                         store.refresh_python_kernelspecs(worktree_id, &project, cx)

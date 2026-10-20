@@ -97,6 +97,25 @@ impl DebugPanel {
         let mut sessions_with_children = self.sessions_with_children.iter().peekable();
 
         while let Some((root, children)) = sessions_with_children.next() {
+            if root.read(cx).quirks.compact {
+                let visible = root
+                    .read(cx)
+                    .host_pane
+                    .as_ref()
+                    .and_then(WeakEntity::upgrade)
+                    .is_some_and(|pane| {
+                        pane.read(cx)
+                            .items()
+                            .any(|item| item.item_id() == root.entity_id())
+                    });
+                if visible {
+                    session_entries.push(SessionListEntry {
+                        leaf: root.clone(),
+                        ancestors: Vec::new(),
+                    });
+                }
+                continue;
+            }
             let root_entry = if let Ok([single_child]) = <&[_; 1]>::try_from(children.as_slice())
                 && let Some(single_child) = single_child.upgrade()
                 && single_child.read(cx).quirks.compact

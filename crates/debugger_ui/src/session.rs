@@ -126,7 +126,17 @@ impl Item for DebugSession {
         emit(item::ItemEvent::UpdateTab);
     }
     fn tab_content_text(&self, _detail: usize, cx: &App) -> SharedString {
-        self.session(cx)
+        let mut session = self.session(cx);
+        if self.quirks.compact {
+            loop {
+                let parent = session.read(cx).parent_session().cloned();
+                match parent {
+                    Some(parent) => session = parent,
+                    None => break,
+                }
+            }
+        }
+        session
             .read(cx)
             .label()
             .unwrap_or_else(|| "Debug Session".into())

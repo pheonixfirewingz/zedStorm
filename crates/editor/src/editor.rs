@@ -9419,6 +9419,16 @@ impl Editor {
         Some(text_highlights)
     }
 
+    pub fn clear_background_highlights_with(
+        &mut self,
+        mut predicate: impl FnMut(&HighlightKey) -> bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.background_highlights.retain(|key, _| !predicate(key));
+        self.scrollbar_marker_state.dirty = true;
+        cx.notify();
+    }
+
     pub fn highlight_gutter<T: 'static>(
         &mut self,
         ranges: impl Into<Vec<Range<Anchor>>>,

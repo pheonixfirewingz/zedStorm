@@ -62,6 +62,34 @@ use workspace::{
     Workspace, item::TabContentParams, move_item, pane::Event,
 };
 
+fn scope_javascript_auto_attach(environment: &mut HashMap<String, String>) -> Result<()> {
+    let Some(encoded) = environment.get_mut("VSCODE_INSPECTOR_OPTIONS") else {
+        return Ok(());
+    };
+    let options = encoded
+        .rsplit(":::")
+        .find(|part| !part.is_empty())
+        .context("The JavaScript debugger supplied empty inspector options")?;
+    let mut options: Value =
+        serde_json::from_str(options).context("Could not read JavaScript inspector options")?;
+    let options = options
+        .as_object_mut()
+        .context("JavaScript inspector options must be an object")?;
+    // Leave the bootloader inherited by tools so their application children can still attach.
+    options.insert("autoAttachMode".into(), "smart".into());
+    options.insert(
+        "aaPatterns".into(),
+        serde_json::json!([
+            "**",
+            "!**/node_modules/**",
+            "!**/.yarn/**",
+            "!**/npm/bin/**"
+        ]),
+    );
+    *encoded = serde_json::to_string(options)?;
+    Ok(())
+}
+
 static PROCESS_ID_PLACEHOLDER: LazyLock<String> =
     LazyLock::new(|| task::VariableName::PickProcessId.template_value());
 
@@ -1323,6 +1351,23 @@ impl RunningState {
             }
         }
 
+        if session.adapter().as_ref() == "JavaScript"
+            && session.binary().is_some_and(|binary| {
+                let configuration = &binary.request_args.configuration;
+                configuration.get("request").and_then(Value::as_str) == Some("launch")
+                    && matches!(
+                        configuration.get("type").and_then(Value::as_str),
+                        Some("pwa-node" | "node")
+                    )
+            })
+            && let Err(error) = scope_javascript_auto_attach(&mut envs)
+        {
+            return cx.spawn(async move |_, _| {
+                sender.send(Err(anyhow!("{error:#}"))).await?;
+                Err(error)
+            });
+        }
+
         let mut args = request.args.clone();
         let command = if envs.contains_key("VSCODE_INSPECTOR_OPTIONS") {
             // Handle special case for NodeJS debug adapter
@@ -2053,6 +2098,40 @@ impl Focusable for RunningState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn javascript_auto_attach_excludes_tools_without_losing_child_inheritance() -> Result<()> {
+        let mut environment = HashMap::from_iter([
+            ("VSCODE_INSPECTOR_OPTIONS".into(), ":::{\"inspectorIpc\":\"pipe\",\"autoAttachMode\":\"always\",\"onlyEntrypoint\":false,\"fileCallback\":\"callback\"}".into()),
+            ("NODE_OPTIONS".into(), "--require bootloader.js".into()),
+        ]);
+        scope_javascript_auto_attach(&mut environment)?;
+        let options: Value = serde_json::from_str(
+            environment
+                .get("VSCODE_INSPECTOR_OPTIONS")
+                .context("Missing inspector options")?,
+        )?;
+        assert_eq!(options["autoAttachMode"], "smart");
+        assert_eq!(
+            options["aaPatterns"],
+            json!([
+                "**",
+                "!**/node_modules/**",
+                "!**/.yarn/**",
+                "!**/npm/bin/**"
+            ])
+        );
+        assert_eq!(options["onlyEntrypoint"], false);
+        assert_eq!(options["inspectorIpc"], "pipe");
+        assert_eq!(options["fileCallback"], "callback");
+        assert_eq!(
+            environment.get("NODE_OPTIONS").map(String::as_str),
+            Some("--require bootloader.js")
+        );
+        environment.insert("VSCODE_INSPECTOR_OPTIONS".into(), "invalid".into());
+        assert!(scope_javascript_auto_attach(&mut environment).is_err());
+        Ok(())
+    }
     use crate::{
         debugger_panel::DebugPanel,
         tests::{init_test, init_test_workspace, start_debug_session},

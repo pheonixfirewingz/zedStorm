@@ -835,7 +835,10 @@ impl DirectXRenderer {
         };
         let driver_version = match desc.VendorId {
             0x10DE => nvidia::get_driver_version(),
-            0x1002 => amd::get_driver_version(),
+            0x1002 => amd::get_driver_version().or_else(|error| {
+                log::debug!("Failed to get AMD driver info via AGS: {error:#}. Trying DXGI.");
+                dxgi::get_driver_version(&devices.adapter)
+            }),
             // For Intel and other vendors, we use the DXGI API to get the driver version.
             _ => dxgi::get_driver_version(&devices.adapter),
         }

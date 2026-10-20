@@ -39,6 +39,93 @@ use workspace::pane_group::SplitDirection;
 use workspace::{Item, dock::Panel, move_active_item};
 
 #[gpui::test]
+async fn compact_application_children_reuse_one_configuration_tab(
+    executor: BackgroundExecutor,
+    cx: &mut TestAppContext,
+) {
+    init_test(cx);
+    let fs = FakeFs::new(executor);
+    fs.insert_tree(path!("/project"), json!({ "main.rs": "fn main() {}" }))
+        .await;
+    let project = Project::test(fs, [path!("/project").as_ref()], cx).await;
+    let workspace = init_test_workspace(&project, cx).await;
+    let cx = &mut VisualTestContext::from_window(*workspace, cx);
+    let parent = start_debug_session(&workspace, cx, |_| {}).expect("Start launch session");
+    let panel = workspace
+        .update(cx, |workspace, _, cx| {
+            workspace.panel::<DebugPanel>(cx).expect("Debug panel")
+        })
+        .expect("Workspace window");
+    let store = project.read_with(cx, |project, _| project.dap_store());
+    let mut application_views = Vec::new();
+    for name in ["application", "restarted application"] {
+        let child = store.update(cx, |store, cx| {
+            store.new_session(
+                Some(name.into()),
+                parent.read(cx).adapter(),
+                parent.read(cx).task_context().clone(),
+                Some(parent.clone()),
+                project::debugger::session::SessionQuirks {
+                    compact: true,
+                    prefer_thread_name: false,
+                },
+                cx,
+            )
+        });
+        let view = panel
+            .update_in(cx, |_, window, cx| {
+                cx.spawn_in(window, async move |panel, cx| {
+                    DebugPanel::register_session(panel, child, true, cx).await
+                })
+            })
+            .await
+            .expect("Register application child");
+        cx.run_until_parked();
+        panel.read_with(cx, |panel, cx| {
+            let panes = panel.session_panes.as_ref().expect("Session panes").panes();
+            assert_eq!(panes.len(), 1);
+            assert_eq!(panes.first().expect("Session pane").read(cx).items_len(), 1);
+            assert_eq!(panel.active_session(), Some(view.clone()));
+            assert_eq!(view.read(cx).tab_content_text(0, cx).as_ref(), "test");
+        });
+        application_views.push(view);
+    }
+    start_debug_session(&workspace, cx, |_| {}).expect("Start unrelated session");
+    let first = application_views
+        .first()
+        .expect("First application view")
+        .clone();
+    panel.update_in(cx, |panel, window, cx| {
+        panel.activate_session(first.clone(), window, cx)
+    });
+    cx.run_until_parked();
+    panel.read_with(cx, |panel, cx| {
+        let panes = panel.session_panes.as_ref().expect("Session panes").panes();
+        assert_eq!(
+            panes
+                .iter()
+                .map(|pane| pane.read(cx).items_len())
+                .sum::<usize>(),
+            2
+        );
+        assert_eq!(panel.active_session(), Some(first.clone()));
+    });
+    parent.update(cx, |parent, _| parent.adapter_client().expect("Parent client"))
+        .on_request::<Disconnect, _>(|_, _| Ok(()));
+    panel.update_in(cx, |panel, window, cx| {
+        panel.close_session(first.entity_id(), window, cx);
+    });
+    cx.run_until_parked();
+    cx.simulate_prompt_answer("Yes");
+    cx.run_until_parked();
+    panel.read_with(cx, |panel, cx| {
+        assert_eq!(panel.sessions().count(), 1);
+        let panes = panel.session_panes.as_ref().expect("Session panes").panes();
+        assert_eq!(panes.iter().map(|pane| pane.read(cx).items_len()).sum::<usize>(), 1);
+    });
+}
+
+#[gpui::test]
 async fn test_concurrent_sessions_split_and_rejoin(
     executor: BackgroundExecutor,
     cx: &mut TestAppContext,
