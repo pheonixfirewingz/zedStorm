@@ -5,11 +5,15 @@ on:
     branches: [custom]
     paths:
       - 'extensions/drawio/**'
+      - 'crates/extension_host/src/wasm_host.rs'
+      - 'crates/image_viewer/src/tab_renderer.rs'
       - '.github/workflows/drawio.yml'
   pull_request:
     branches: [custom]
     paths:
       - 'extensions/drawio/**'
+      - 'crates/extension_host/src/wasm_host.rs'
+      - 'crates/image_viewer/src/tab_renderer.rs'
       - '.github/workflows/drawio.yml'
   workflow_dispatch:
 
