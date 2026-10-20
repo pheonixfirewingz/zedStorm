@@ -811,6 +811,7 @@ impl WasmHost {
         ctx.inherit_stdio()
             .env("PWD", &path)
             .env("RUST_BACKTRACE", "full")
+            // WASM extensions do not inherit the host environment needed to locate native tools.
             .env(
                 "ZEDSTORM_TOOLS_DIR",
                 paths::zedstorm_tools_dir().to_string_lossy().replace('\\', "/"),
