@@ -168,6 +168,7 @@ impl TabRendererView {
                                 cx.emit(ItemEvent::UpdateTab);
                             }
                             BackendEvent::SaveError(error) | BackendEvent::Error(error) => {
+                                log::error!("Tab renderer backend: {error}");
                                 view.finish_save(Err(error.clone()));
                                 view.error = Some(error.into());
                             }
@@ -216,9 +217,12 @@ impl TabRendererView {
                 self.last_motion = None;
             }
             Err(error) => {
-                self.error =
-                    Some(format!("Could not communicate with tab renderer backend: {error}").into());
-                cx.notify();
+                if self.error.is_none() {
+                    self.error = Some(
+                        format!("Could not communicate with tab renderer backend: {error}").into(),
+                    );
+                    cx.notify();
+                }
             }
         }
     }
@@ -532,6 +536,7 @@ async fn run_command_backend(
 ) -> Result<()> {
     let mut cmd = smol::process::Command::new(&binary);
     cmd.args(&args)
+        .env("ZEDSTORM_TOOLS_DIR", paths::zedstorm_tools_dir())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())

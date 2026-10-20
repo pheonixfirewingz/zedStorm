@@ -810,7 +810,11 @@ impl WasmHost {
         let mut ctx = WasiCtxBuilder::new();
         ctx.inherit_stdio()
             .env("PWD", &path)
-            .env("RUST_BACKTRACE", "full");
+            .env("RUST_BACKTRACE", "full")
+            .env(
+                "ZEDSTORM_TOOLS_DIR",
+                paths::zedstorm_tools_dir().to_string_lossy().replace('\\', "/"),
+            );
 
         ctx.preopened_dir(&path, ".", permissions)?;
         ctx.preopened_dir(&path, &path, permissions)?;
