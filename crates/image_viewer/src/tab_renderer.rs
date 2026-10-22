@@ -70,6 +70,9 @@ impl project::ProjectItem for TabRendererFile {
     }
 }
 
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
 enum BackendEvent {
     Frame(Arc<RenderImage>),
     Modified(bool),
@@ -535,6 +538,14 @@ async fn run_command_backend(
     output: Sender<BackendEvent>,
 ) -> Result<()> {
     let mut cmd = smol::process::Command::new(&binary);
+    #[cfg(target_os = "windows")]
+    {
+        use smol::process::windows::CommandExt as _;
+        // The renderer is a console-subsystem executable, so Windows gives it a
+        // console window of its own when a GUI process starts it. Redirected
+        // stdio does not suppress that window.
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
     cmd.args(&args)
         .env("ZEDSTORM_TOOLS_DIR", paths::zedstorm_tools_dir())
         .stdin(Stdio::piped())

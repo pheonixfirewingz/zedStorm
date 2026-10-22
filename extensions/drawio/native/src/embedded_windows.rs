@@ -7,26 +7,32 @@ use std::{
     ffi::c_void,
     io::{BufRead, Write},
     path::PathBuf,
-    sync::mpsc,
+    sync::{
+        Arc, atomic::{AtomicBool, AtomicU32, Ordering}, mpsc,
+    },
     time::Duration,
 };
 use tao::{
-    dpi::LogicalSize,
+    dpi::{LogicalSize, PhysicalPosition},
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder},
     platform::windows::WindowExtWindows,
     window::WindowBuilder,
 };
+use windows_sys::Win32::Foundation::POINT;
 use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::Storage::Xps::PrintWindow;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use wry::WebViewBuilder;
 use zed_diagrams::Document;
 
+// Windows keeps an off-screen window composited, unlike a hidden one, which is
+// what lets `PrintWindow` see the WebView2 surface.
+const OFFSCREEN_POSITION: i32 = -32_000;
+
 enum CustomEvent {
     Input,
     Ipc(Value),
-    Tick,
 }
 
 pub fn run(path: PathBuf) -> Result<()> {
@@ -72,22 +78,13 @@ pub fn run(path: PathBuf) -> Result<()> {
         }
     });
 
-    // Background timer to trigger frames
-    let timer_proxy = proxy.clone();
-    std::thread::spawn(move || {
-        loop {
-            std::thread::sleep(Duration::from_millis(60));
-            if timer_proxy.send_event(CustomEvent::Tick).is_err() {
-                break;
-            }
-        }
-    });
-
     let window = WindowBuilder::new()
         .with_title("diagrams.net")
         .with_visible(false)
         .with_decorations(false)
         .with_inner_size(LogicalSize::new(1000.0, 700.0))
+        .with_position(PhysicalPosition::new(OFFSCREEN_POSITION, OFFSCREEN_POSITION))
+        .with_focused(false)
         .build(&event_loop)?;
 
     let ipc_proxy = proxy.clone();
@@ -105,11 +102,69 @@ pub fn run(path: PathBuf) -> Result<()> {
         .with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny)
         .build(&window)?;
 
-    let active = Cell::new(true);
-    let mut current_width = 1000u32;
-    let mut current_height = 700u32;
-    let mut last_frame = None::<Vec<u8>>;
+    // WebView2 only composites while its host window is visible; a hidden
+    // window captures as one flat colour through `PrintWindow`. Keep the window
+    // parked outside the desktop, out of the taskbar, and unactivated instead
+    // of hiding it, so capture sees real pixels without a usable window opening
+    // on top of the app.
+    if let Err(error) = window.set_skip_taskbar(true) {
+        eprintln!("Could not hide the embedded webview window from the taskbar: {error}");
+    }
+    if !reveal_for_capture(window.hwnd() as *mut c_void) {
+        eprintln!("Embedded webview window could not be shown for capture");
+    }
+
+    let active = Arc::new(AtomicBool::new(true));
+    let frame_width = Arc::new(AtomicU32::new(1000));
+    let frame_height = Arc::new(AtomicU32::new(700));
     let hwnd = window.hwnd() as *mut c_void;
+    // Keyboard messages go to whichever webview child last took a click.
+    let input_target = Cell::new(hwnd);
+
+    // `PrintWindow` renders the webview synchronously and can take seconds. On
+    // the event loop thread that starved the page, which then never finished
+    // the diagrams.net embed handshake, so capture runs on its own thread.
+    std::thread::spawn({
+        let output = output.clone();
+        let active = active.clone();
+        let frame_width = frame_width.clone();
+        let frame_height = frame_height.clone();
+        let capture_hwnd = hwnd as usize;
+        move || {
+            let mut last_frame = None::<Vec<u8>>;
+            let mut reported_failure = false;
+            loop {
+                std::thread::sleep(Duration::from_millis(60));
+                if !active.load(Ordering::Relaxed) {
+                    continue;
+                }
+                let width = frame_width.load(Ordering::Relaxed);
+                let height = frame_height.load(Ordering::Relaxed);
+                let bytes = match capture_window(capture_hwnd as *mut c_void, width, height) {
+                    Ok(bytes) => {
+                        reported_failure = false;
+                        bytes
+                    }
+                    Err(error) => {
+                        if !reported_failure {
+                            reported_failure = true;
+                            eprintln!("Could not capture the embedded webview: {error}");
+                        }
+                        continue;
+                    }
+                };
+                if last_frame.as_ref() == Some(&bytes) {
+                    continue;
+                }
+                if output
+                    .try_send(json!({"event": "frame", "png": STANDARD.encode(&bytes)}))
+                    .is_ok()
+                {
+                    last_frame = Some(bytes);
+                }
+            }
+        }
+    });
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -121,13 +176,13 @@ pub fn run(path: PathBuf) -> Result<()> {
                         Some("resize") => {
                             let width = message["width"].as_u64().unwrap_or(1000).clamp(320, 4096) as u32;
                             let height = message["height"].as_u64().unwrap_or(700).clamp(200, 4096) as u32;
-                            current_width = width;
-                            current_height = height;
+                            frame_width.store(width, Ordering::Relaxed);
+                            frame_height.store(height, Ordering::Relaxed);
                             window.set_inner_size(LogicalSize::new(width as f64, height as f64));
                             Ok(())
                         }
                         Some("active") => {
-                            active.set(message["active"].as_bool().unwrap_or(false));
+                            active.store(message["active"].as_bool().unwrap_or(false), Ordering::Relaxed);
                             Ok(())
                         }
                         Some("save") => evaluate(&webview, json!({"action": "requestSave"})),
@@ -156,7 +211,7 @@ pub fn run(path: PathBuf) -> Result<()> {
                             Ok(())
                         }
                         Some("pointer") | Some("key") | Some("scroll") => {
-                            dispatch_windows_input(hwnd, &message)
+                            dispatch_windows_input(hwnd, &input_target, &message)
                         }
                         _ => Ok(()),
                     };
@@ -211,20 +266,6 @@ pub fn run(path: PathBuf) -> Result<()> {
                     emit(&output, json!({"event": "error", "message": error.to_string()}));
                 }
             }
-            Event::UserEvent(CustomEvent::Tick) => {
-                if active.get() {
-                    if let Ok(bytes) = capture_window(hwnd, current_width, current_height) {
-                        if last_frame.as_ref() != Some(&bytes) {
-                            if output
-                                .try_send(json!({"event": "frame", "png": STANDARD.encode(&bytes)}))
-                                .is_ok()
-                            {
-                                last_frame = Some(bytes);
-                            }
-                        }
-                    }
-                }
-            }
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
@@ -241,11 +282,32 @@ fn evaluate(webview: &wry::WebView, message: Value) -> Result<()> {
     Ok(())
 }
 
+fn reveal_for_capture(hwnd: *mut c_void) -> bool {
+    unsafe {
+        // The creation position is not always preserved through the hidden
+        // build, so park the window offscreen again explicitly while showing
+        // it. Offscreen windows stay composited, hiding them does not.
+        SetWindowPos(
+            hwnd,
+            std::ptr::null_mut(),
+            OFFSCREEN_POSITION,
+            OFFSCREEN_POSITION,
+            0,
+            0,
+            SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOZORDER | SWP_SHOWWINDOW,
+        ) != 0
+    }
+}
+
 fn emit(output: &mpsc::SyncSender<Value>, message: Value) {
     let _ = output.send(message);
 }
 
-fn dispatch_windows_input(hwnd: *mut c_void, message: &Value) -> Result<()> {
+fn dispatch_windows_input(
+    hwnd: *mut c_void,
+    input_target: &Cell<*mut c_void>,
+    message: &Value,
+) -> Result<()> {
     let action = message["action"].as_str().unwrap_or("");
     match action {
         "pointer" => {
@@ -272,23 +334,103 @@ fn dispatch_windows_input(hwnd: *mut c_void, message: &Value) -> Result<()> {
                     _ => WM_LBUTTONUP,
                 }
             };
+            // The webview renders into child windows, so posting to the outer
+            // window would leave the click with a window procedure that never
+            // forwards it. Aim at the child under the pointer instead.
+            let target = webview_window(hwnd, x, y);
+            input_target.set(target);
             unsafe {
-                PostMessageW(hwnd, msg, 0, lparam as _);
+                PostMessageW(target, msg, 0, lparam as _);
             }
         }
         "scroll" => {
             let x = message["x"].as_f64().unwrap_or(0.0).round() as i32;
             let y = message["y"].as_f64().unwrap_or(0.0).round() as i32;
-            let lparam = ((y as u16 as u32) << 16) | (x as u16 as u32);
+            // Wheel messages carry screen coordinates. The window never moves
+            // from `OFFSCREEN_POSITION`, so the client offset is enough.
+            let screen_x = OFFSCREEN_POSITION + x;
+            let screen_y = OFFSCREEN_POSITION + y;
+            let lparam = ((screen_y as u16 as u32) << 16) | (screen_x as u16 as u32);
             let delta_y = (message["delta_y"].as_f64().unwrap_or(0.0) * 120.0).round() as i16;
             let wparam = (delta_y as u16 as u32) << 16;
             unsafe {
-                PostMessageW(hwnd, WM_MOUSEWHEEL, wparam as _, lparam as _);
+                PostMessageW(
+                    webview_window(hwnd, x, y),
+                    WM_MOUSEWHEEL,
+                    wparam as _,
+                    lparam as _,
+                );
             }
         }
+        "key" => dispatch_key(input_target.get(), message),
         _ => {}
     }
     Ok(())
+}
+
+fn webview_window(hwnd: *mut c_void, x: i32, y: i32) -> *mut c_void {
+    let mut target = hwnd;
+    loop {
+        let child = unsafe { RealChildWindowFromPoint(target, POINT { x, y }) };
+        if child.is_null() || child == target {
+            return target;
+        }
+        target = child;
+    }
+}
+
+fn dispatch_key(target: *mut c_void, message: &Value) {
+    let pressed = message["pressed"].as_bool().unwrap_or(false);
+    let key = message["key"].as_str().unwrap_or("");
+    if key.is_empty() || target.is_null() {
+        return;
+    }
+    if let Some(virtual_key) = virtual_key(key) {
+        let key_up: usize = if pressed { 0 } else { (1 << 30) | (1 << 31) };
+        let lparam: usize = 1 | key_up;
+        let msg = if pressed { WM_KEYDOWN } else { WM_KEYUP };
+        unsafe {
+            PostMessageW(target, msg, usize::from(virtual_key), lparam as _);
+        }
+        return;
+    }
+    // The host resolves layout and modifiers before sending the key, so a
+    // single character can go straight in as text.
+    let mut characters = key.chars();
+    if pressed
+        && let (Some(character), None) = (characters.next(), characters.next())
+    {
+        unsafe {
+            PostMessageW(target, WM_CHAR, character as usize, 0);
+        }
+    }
+}
+
+fn virtual_key(key: &str) -> Option<u16> {
+    Some(match key {
+        "enter" => 0x0D,
+        "tab" => 0x09,
+        "backspace" => 0x08,
+        "escape" => 0x1B,
+        "space" => 0x20,
+        "delete" => 0x2E,
+        "insert" => 0x2D,
+        "home" => 0x24,
+        "end" => 0x23,
+        "pageup" => 0x21,
+        "pagedown" => 0x22,
+        "left" => 0x25,
+        "up" => 0x26,
+        "right" => 0x27,
+        "down" => 0x28,
+        _ => {
+            let number = key.strip_prefix('f')?.parse::<u16>().ok()?;
+            if !(1..=12).contains(&number) {
+                return None;
+            }
+            0x70 + number - 1
+        }
+    })
 }
 
 fn capture_window(hwnd: *mut c_void, width: u32, height: u32) -> Result<Vec<u8>> {
@@ -315,7 +457,13 @@ fn capture_window(hwnd: *mut c_void, width: u32, height: u32) -> Result<Vec<u8>>
         let old_bm = SelectObject(hdc_mem, hbm);
 
         // PW_RENDERFULLCONTENT = 2
-        PrintWindow(hwnd, hdc_mem, PW_RENDERFULLCONTENT);
+        if PrintWindow(hwnd, hdc_mem, PW_RENDERFULLCONTENT) == 0 {
+            SelectObject(hdc_mem, old_bm);
+            DeleteObject(hbm);
+            DeleteDC(hdc_mem);
+            ReleaseDC(hwnd, hdc_screen);
+            bail!("Could not capture the embedded webview window");
+        }
 
         let mut bmi: BITMAPINFO = std::mem::zeroed();
         bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;

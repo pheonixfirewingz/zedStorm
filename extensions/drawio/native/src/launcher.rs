@@ -18,6 +18,22 @@ mod tools_path;
 #[cfg(target_os = "linux")]
 const GNOME_RUNTIME: &str = "org.gnome.Platform//50";
 
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+/// Windows allocates a console window for a console-subsystem child started
+/// from a GUI process, and redirected stdio does not suppress it. Every helper
+/// this launcher starts only exists to run a command or host the webview, so
+/// none of them should ever bring a console with it.
+fn hide_console(command: &mut Command) -> &mut Command {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt as _;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
 fn main() {
     match launch() {
         Ok(status) => std::process::exit(status.code().unwrap_or(1)),
@@ -62,7 +78,9 @@ fn launch() -> Result<ExitStatus> {
             binary.display()
         );
     }
-    let probe = Command::new(&binary).arg("--probe-webview").output()?;
+    let probe = hide_console(&mut Command::new(&binary))
+        .arg("--probe-webview")
+        .output()?;
     if probe.status.success() {
         let mut command = Command::new(&binary);
         if arguments
@@ -71,7 +89,7 @@ fn launch() -> Result<ExitStatus> {
         {
             command.env("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
         }
-        return Ok(command.args(arguments).status()?);
+        return Ok(hide_console(&mut command).args(arguments).status()?);
     }
 
     #[cfg(target_os = "linux")]
@@ -190,7 +208,7 @@ fn windows_fallback(binary: &Path, arguments: &[std::ffi::OsString]) -> Result<E
     std::fs::create_dir_all(&cache)?;
     let script = cache.join("install-webview2.ps1");
     std::fs::write(&script, include_str!("install-webview2.ps1"))?;
-    let output = Command::new("powershell.exe")
+    let output = hide_console(&mut Command::new("powershell.exe"))
         .args([
             "-NoProfile",
             "-NonInteractive",
@@ -217,7 +235,7 @@ fn windows_fallback(binary: &Path, arguments: &[std::ffi::OsString]) -> Result<E
         );
     }
     let runtime = String::from_utf8(output.stdout)?;
-    Ok(Command::new(binary)
+    Ok(hide_console(&mut Command::new(binary))
         .env("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER", runtime.trim())
         .args(arguments)
         .status()?)

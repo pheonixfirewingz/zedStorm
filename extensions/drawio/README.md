@@ -56,14 +56,15 @@ select Save. Use the editor's Save button or Zed's save command. External file e
 block saving to prevent replacement of those edits. Reopen the diagram to reload it.
 
 The online editor needs internet access. Embedded PNG/SVG diagrams and remote
-projects are not supported. The embedded tab currently supports Linux; Windows and
-macOS still open `.drawio` files as text. The helper retains a standalone mode for
+projects are not supported. The embedded tab supports Linux and Windows; macOS
+still opens `.drawio` files as text. The helper retains a standalone mode for
 development, using WKWebView on macOS and WebView2 on Windows. The Windows launcher
 can download a fixed WebView2 runtime into the same managed extension directory.
 
-Frames are currently captured at up to ten frames per second. This integration
-forwards pointer and keyboard events; native webview accessibility and IME
-composition are not bridged into GPUI yet.
+Frames are captured on a dedicated thread, because `PrintWindow` renders the
+webview synchronously and running it on the event loop starves the page. This
+integration forwards pointer and keyboard events; native webview accessibility and
+IME composition are not bridged into GPUI yet.
 
 ## Architecture decision
 
