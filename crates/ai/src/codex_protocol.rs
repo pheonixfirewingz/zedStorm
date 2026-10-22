@@ -76,6 +76,8 @@ pub async fn serve_commit_message(
         "model=\"gpt-6-luna\"",
         "model_reasoning_effort=\"low\"",
         "mcp_servers={}",
+        "plugins={}",
+        "features.plugins=false",
         "project_doc_max_bytes=0",
         "features.shell_tool=false",
         "developer_instructions=\"Write only the requested commit message. Do not use tools.\"",

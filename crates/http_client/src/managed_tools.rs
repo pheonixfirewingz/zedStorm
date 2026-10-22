@@ -65,6 +65,9 @@ pub fn system_or_bundled(tool: Tool) -> Result<Option<PathBuf>> {
     if binary.is_file() {
         return Ok(Some(binary));
     }
+    if tool == Tool::Codex {
+        return Ok(None);
+    }
     match which::which(tool.name()) {
         Ok(binary) => return Ok(Some(binary)),
         Err(which::Error::CannotFindBinaryPath) => {}
@@ -80,12 +83,7 @@ pub fn system_or_bundled(tool: Tool) -> Result<Option<PathBuf>> {
 
 pub fn path_with_tools(existing: Option<&OsStr>) -> Result<OsString> {
     let directory = tools_directory()?;
-    let mut paths = existing
-        .map(std::env::split_paths)
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
-    paths.extend([
+    let mut paths = vec![
         directory.join("git/bin"),
         directory.join("git/cmd"),
         directory.join("git/usr/bin"),
@@ -93,7 +91,10 @@ pub fn path_with_tools(existing: Option<&OsStr>) -> Result<OsString> {
         directory.join("github-cli/bin"),
         directory.join("gpg/bin"),
         directory.join("gpg"),
-    ]);
+    ];
+    if let Some(existing) = existing {
+        paths.extend(std::env::split_paths(existing));
+    }
     std::env::join_paths(paths).context("Could not add bundled tools to the command search path")
 }
 
@@ -126,17 +127,18 @@ pub async fn ensure_tool(tool: Tool, http: Arc<dyn HttpClient>) -> Result<PathBu
     match install_tool(tool, tools_directory()?, http).await {
         Ok(binary) => Ok(binary),
         Err(install_error) => {
-            if let Some(system) = system_or_bundled(tool)? {
-                log::warn!(
-                    "Could not install bundled {}: {:#}. Falling back to system binary at {}",
-                    tool.name(),
-                    install_error,
-                    system.display()
-                );
-                Ok(system)
-            } else {
-                Err(install_error)
+            if tool != Tool::Codex {
+                if let Some(system) = system_or_bundled(tool)? {
+                    log::warn!(
+                        "Could not install bundled {}: {:#}. Falling back to system binary at {}",
+                        tool.name(),
+                        install_error,
+                        system.display()
+                    );
+                    return Ok(system);
+                }
             }
+            Err(install_error)
         }
     }
 }
@@ -457,6 +459,18 @@ mod tests {
         assert!(asset_suffix(Tool::Codex, "linux", "x86").is_err());
         assert!(asset_suffix(Tool::Git, "unknown", "x86_64").is_err());
         assert!(asset_suffix(Tool::Gpg, "unknown", "x86_64").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn codex_tool_never_resolves_system_binary() -> Result<()> {
+        let resolved = system_or_bundled(Tool::Codex)?;
+        let bundled = bundled_path(Tool::Codex)?;
+        if bundled.is_file() {
+            assert_eq!(resolved, Some(bundled));
+        } else {
+            assert_eq!(resolved, None);
+        }
         Ok(())
     }
 }
