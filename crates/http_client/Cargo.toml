@@ -17,6 +17,8 @@ github-download = [
     "dep:async-tar",
     "dep:paths",
     "dep:sha2",
+    "dep:sevenz-rust2",
+    "dep:smol",
     "dep:tempfile",
     "dep:util",
     "dep:which",
@@ -45,5 +47,7 @@ util = { workspace = true, optional = true }
 async-fs = { workspace = true, optional = true }
 async-tar = { workspace = true, optional = true }
 sha2 = { workspace = true, optional = true }
+sevenz-rust2 = { workspace = true, optional = true }
+smol = { workspace = true, optional = true }
 tempfile = { workspace = true, optional = true }
 which = { workspace = true, optional = true }

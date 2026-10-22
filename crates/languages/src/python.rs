@@ -520,6 +520,7 @@ impl LspInstaller for TyLspAdapter {
                     .join(Self::build_asset_name()?.0)
                     .join("ty"),
                 AssetKind::Zip => destination_path.clone().join("ty.exe"),
+                AssetKind::SevenZip => destination_path.clone(), // 7z archives extract like tar
             };
 
             let binary = LanguageServerBinary {
@@ -613,6 +614,7 @@ impl LspInstaller for TyLspAdapter {
                     path.join(Self::build_asset_name()?.0).join("ty")
                 }
                 AssetKind::Zip => path.join("ty.exe"),
+                AssetKind::SevenZip => path, // 7z archives extract in place
             };
 
             anyhow::Ok(LanguageServerBinary {
@@ -2604,6 +2606,7 @@ impl LspInstaller for RuffLspAdapter {
                     .join(Self::build_asset_name()?.0)
                     .join("ruff"),
                 AssetKind::Zip => destination_path.clone().join("ruff.exe"),
+                AssetKind::SevenZip => destination_path.clone(), // 7z archives extract like tar
             };
 
             let binary = LanguageServerBinary {
@@ -2697,6 +2700,7 @@ impl LspInstaller for RuffLspAdapter {
                     path.join(Self::build_asset_name()?.0).join("ruff")
                 }
                 AssetKind::Zip => path.join("ruff.exe"),
+                AssetKind::SevenZip => path, // 7z archives extract in place
             };
 
             anyhow::Ok(LanguageServerBinary {

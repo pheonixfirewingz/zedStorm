@@ -4,7 +4,7 @@ use std::{
     task::Poll,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use async_compression::futures::bufread::{BzDecoder, GzipDecoder};
 use futures::{AsyncRead, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt, io::BufReader};
 use sha2::{Digest, Sha256};
@@ -137,6 +137,9 @@ async fn extract_to_staging(
     staging_path: &Path,
     asset_kind: AssetKind,
 ) -> Result<()> {
+    if asset_kind == AssetKind::SevenZip {
+        return extract_seven_zip_to_staging(body, digest, url, staging_path).await;
+    }
     match digest {
         Some(expected_sha_256) => {
             let temp_asset_file = tempfile::NamedTempFile::new()
@@ -189,7 +192,9 @@ fn staging_dir_path(parent: &Path) -> Result<PathBuf> {
 
 fn staging_path(parent: &Path, asset_kind: AssetKind) -> Result<PathBuf> {
     match asset_kind {
-        AssetKind::TarGz | AssetKind::TarBz2 | AssetKind::Zip => staging_dir_path(parent),
+        AssetKind::TarGz | AssetKind::TarBz2 | AssetKind::Zip | AssetKind::SevenZip => {
+            staging_dir_path(parent)
+        }
         AssetKind::Gz => {
             let path = tempfile::Builder::new()
                 .prefix(".tmp-github-download-")
@@ -205,7 +210,7 @@ fn staging_path(parent: &Path, asset_kind: AssetKind) -> Result<PathBuf> {
 
 async fn cleanup_staging_path(staging_path: &Path, asset_kind: AssetKind) {
     match asset_kind {
-        AssetKind::TarGz | AssetKind::TarBz2 | AssetKind::Zip => {
+        AssetKind::TarGz | AssetKind::TarBz2 | AssetKind::Zip | AssetKind::SevenZip => {
             if let Err(err) = async_fs::remove_dir_all(staging_path).await {
                 log::warn!("failed to remove staging directory {staging_path:?}: {err:?}");
             }
@@ -239,6 +244,7 @@ async fn stream_response_archive(
         AssetKind::Zip => {
             util::archive::extract_zip(destination_path, response).await?;
         }
+        AssetKind::SevenZip => anyhow::bail!("7z archives stream from their spooled file"),
     };
     Ok(())
 }
@@ -261,6 +267,7 @@ async fn stream_file_archive(
         AssetKind::Zip => {
             util::archive::extract_zip(destination_path, file_archive).await?;
         }
+        AssetKind::SevenZip => anyhow::bail!("7z archives stream from their spooled file"),
     };
     Ok(())
 }
@@ -317,6 +324,51 @@ async fn extract_gz(
     futures::io::copy(&mut decompressed_bytes, &mut file)
         .await
         .with_context(|| format!("extracting {url} to {destination_path:?}"))?;
+    Ok(())
+}
+
+/// 7z entries can only be read with random access over the whole archive, so
+/// the body is spooled into a temporary file first (hashed when `digest` is set
+/// for releases whose assets, unlike portapps uploads, lack GitHub digests).
+/// Extraction is synchronous and therefore runs on a worker thread.
+async fn extract_seven_zip_to_staging(
+    body: impl AsyncRead + Unpin,
+    digest: Option<&str>,
+    url: &str,
+    destination_path: &Path,
+) -> Result<()> {
+    let url = url.to_string();
+    let destination_path = destination_path.to_path_buf();
+    let staging_file = tempfile::NamedTempFile::new()
+        .with_context(|| format!("creating a temporary file for {url}"))?;
+    let archive_path = staging_file.path().to_path_buf();
+    let (temp_asset_file, _temp_guard) = staging_file.into_parts();
+    let mut writer = HashingWriter {
+        writer: async_fs::File::from(temp_asset_file),
+        hasher: Sha256::new(),
+    };
+    futures::io::copy(&mut BufReader::new(body), &mut writer)
+        .await
+        .with_context(|| format!("saving archive contents into the temporary file for {url}"))?;
+    let asset_sha_256 = writer
+        .finish()
+        .await
+        .with_context(|| format!("flushing archive contents for {url}"))?;
+
+    if let Some(expected_sha_256) = digest {
+        anyhow::ensure!(
+            sha256_matches(&asset_sha_256, expected_sha_256),
+            "{url} asset got SHA-256 mismatch. Expected: {expected_sha_256}, Got: {asset_sha_256}",
+        );
+    }
+
+    let context = format!("extracting 7z archive from {url} to {destination_path:?}");
+    smol::unblock(move || {
+        sevenz_rust2::decompress_file(&archive_path, &destination_path)
+            .map_err(|error| anyhow!("extracting 7z archive from {url}: {error}"))
+    })
+    .await
+    .with_context(|| context.clone())?;
     Ok(())
 }
 

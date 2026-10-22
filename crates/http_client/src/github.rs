@@ -157,6 +157,7 @@ pub enum AssetKind {
     TarBz2,
     Gz,
     Zip,
+    SevenZip,
 }
 
 pub fn build_asset_url(repo_name_with_owner: &str, tag: &str, kind: AssetKind) -> Result<String> {
@@ -172,6 +173,7 @@ pub fn build_asset_url(repo_name_with_owner: &str, tag: &str, kind: AssetKind) -
             AssetKind::TarBz2 => "tar.bz2",
             AssetKind::Gz => "gz",
             AssetKind::Zip => "zip",
+            AssetKind::SevenZip => "7z",
         }
     );
     url.path_segments_mut()

@@ -6953,6 +6953,34 @@ impl Repository {
                                 });
                                 ProjectSettings::get(settings_location, cx).git.clone()
                             });
+                            // Commit signing with a GPG key needs the bundled
+                            // gpg tool on PATH; fetch it on demand the same way
+                            // git and codex are provisioned when first needed.
+                            let requires_gpg = (settings.sign_commits == Some(true)
+                                || settings
+                                    .gpg_signing_key
+                                    .as_deref()
+                                    .is_some_and(|key| !key.trim().is_empty()))
+                                && settings
+                                    .ssh_signing_key
+                                    .as_deref()
+                                    .is_none_or(|key| key.trim().is_empty());
+                            if requires_gpg
+                                && http_client::managed_tools::bundled_path(
+                                    http_client::managed_tools::Tool::Gpg,
+                                )
+                                .is_ok_and(|path| !path.is_file())
+                            {
+                                let http_client = cx.update(|cx| cx.http_client());
+                                cx.background_spawn(async move {
+                                    http_client::managed_tools::ensure_tool(
+                                        http_client::managed_tools::Tool::Gpg,
+                                        http_client,
+                                    )
+                                    .await
+                                })
+                                .detach();
+                            }
                             let environment = Arc::make_mut(&mut local.environment);
                             let mut config_count = environment
                                 .get("GIT_CONFIG_COUNT")
@@ -8728,6 +8756,37 @@ impl Repository {
                 _ => None,
             }
         });
+        let settings_location = self.git_store.upgrade().and_then(|git_store| {
+            let git_store = git_store.read(cx);
+            let project = git_store.project.as_ref()?.upgrade()?;
+            let project = project.read(cx);
+            let (worktree, _) = project.find_worktree(&work_directory_abs_path, cx)?;
+            Some(SettingsLocation {
+                worktree_id: worktree.read(cx).id(),
+                path: RelPath::empty(),
+            })
+        });
+        let git_settings = &ProjectSettings::get(settings_location, cx).git;
+        // The commit itself may sign; make sure the bundled gpg is available
+        // before git runs, like the other managed tools are ensured at their
+        // point of use.
+        let ssh_signing = git_settings
+            .ssh_signing_key
+            .as_deref()
+            .is_some_and(|key| !key.trim().is_empty());
+        let gpg_needs_download = !ssh_signing
+            && (git_settings.sign_commits == Some(true)
+                || git_settings
+                    .gpg_signing_key
+                    .as_deref()
+                    .is_some_and(|key| !key.trim().is_empty()))
+            && http_client::managed_tools::bundled_path(http_client::managed_tools::Tool::Gpg)
+                .is_ok_and(|path| !path.is_file());
+        let ensure_gpg = if gpg_needs_download {
+            Some(cx.http_client())
+        } else {
+            None
+        };
 
         self.send_job(
             "commit",
@@ -8739,6 +8798,13 @@ impl Repository {
                         environment,
                         ..
                     }) => {
+                        if let Some(http_client) = ensure_gpg.as_ref() {
+                            http_client::managed_tools::ensure_tool(
+                                http_client::managed_tools::Tool::Gpg,
+                                http_client.clone(),
+                            )
+                            .await?;
+                        }
                         backend
                             .commit(message, name_and_email, options, askpass, environment)
                             .await

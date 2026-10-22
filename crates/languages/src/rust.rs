@@ -252,6 +252,7 @@ impl RustLspAdapter {
             AssetKind::TarBz2 => "tar.bz2",
             AssetKind::Gz => "gz",
             AssetKind::Zip => "zip",
+            AssetKind::SevenZip => "7z",
         };
 
         #[cfg(target_os = "linux")]
@@ -836,6 +837,7 @@ impl LspInstaller for RustLspAdapter {
             let server_path = match Self::GITHUB_ASSET_KIND {
                 AssetKind::TarGz | AssetKind::TarBz2 | AssetKind::Gz => destination_path.clone(), // Tar and gzip extract in place.
                 AssetKind::Zip => destination_path.clone().join("rust-analyzer.exe"), // zip contains a .exe
+                AssetKind::SevenZip => destination_path.clone(), // 7z archives extract like tar
             };
 
             let binary = LanguageServerBinary {
@@ -1413,6 +1415,7 @@ async fn get_cached_server_binary(container_dir: PathBuf) -> Option<LanguageServ
         let path = match RustLspAdapter::GITHUB_ASSET_KIND {
             AssetKind::TarGz | AssetKind::TarBz2 | AssetKind::Gz => path, // Tar and gzip extract in place.
             AssetKind::Zip => path.join("rust-analyzer.exe"),             // zip contains a .exe
+            AssetKind::SevenZip => path, // 7z archives extract in place
         };
 
         anyhow::Ok(Some(LanguageServerBinary {

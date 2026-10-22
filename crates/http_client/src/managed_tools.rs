@@ -1,9 +1,10 @@
 use crate::{
     HttpClient,
-    github::{AssetKind, latest_github_release},
+    github::{AssetKind, GithubRelease, latest_github_release},
     github_download::download_server_binary,
 };
 use anyhow::{Context as _, Result, ensure};
+use futures::{AsyncReadExt as _, StreamExt as _};
 use std::{
     ffi::{OsStr, OsString},
     path::{Path, PathBuf},
@@ -172,7 +173,7 @@ fn asset_suffix(tool: Tool, operating_system: &str, architecture: &str) -> Resul
             Ok(format!("codex-{architecture}-{target}.tar.gz"))
         }
         Tool::Gpg => match operating_system {
-            "windows" => Ok("gnupg-portable-win32.zip".to_string()),
+            "windows" => Ok(".7z".to_string()),
             "linux" => {
                 let architecture = match architecture {
                     "x86_64" => "x86_64",
@@ -192,6 +193,53 @@ fn asset_suffix(tool: Tool, operating_system: &str, architecture: &str) -> Resul
             other => anyhow::bail!("Portable GPG is unavailable for {other}"),
         },
     }
+}
+
+async fn checksums_file_digest(
+    http: &dyn HttpClient,
+    release: &GithubRelease,
+    asset_name: &str,
+) -> Result<String> {
+    let checksums_asset = release
+        .assets
+        .iter()
+        .find(|asset| asset.name == "checksums.txt")
+        .context("The tool release does not attach per-asset digests and has no checksums.txt to verify against")?;
+    let mut response = http
+        .get(
+            &checksums_asset.browser_download_url,
+            Default::default(),
+            true,
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "Could not download checksums.txt from release {}",
+                release.tag_name
+            )
+        })?;
+    let mut checksums = String::new();
+    response
+        .body_mut()
+        .read_to_string(&mut checksums)
+        .await
+        .with_context(|| "Could not read the tool release checksums")?;
+    checksums
+        .lines()
+        .map(|line| line.split_whitespace().collect::<Vec<_>>())
+        .find_map(|fields| match fields.as_slice() {
+            [digest, name]
+                if *name == asset_name
+                    && digest.len() == 64
+                    && digest
+                        .chars()
+                        .all(|character| character.is_ascii_hexdigit()) =>
+            {
+                Some((*digest).to_string())
+            }
+            _ => None,
+        })
+        .with_context(|| format!("checksums.txt has no entry for {asset_name}"))
 }
 
 async fn install_tool(
@@ -218,15 +266,25 @@ async fn install_tool(
         .iter()
         .find_map(|asset| {
             let matches = match tool {
-                Tool::Git => asset.name.starts_with("dugite-native-") && asset.name.ends_with(&suffix),
+                Tool::Git => {
+                    asset.name.starts_with("dugite-native-") && asset.name.ends_with(&suffix)
+                }
                 Tool::Codex => asset.name == suffix,
-                Tool::Gpg => asset.name.contains("gpg") && asset.name.ends_with(&suffix),
+                Tool::Gpg => {
+                    if std::env::consts::OS == "windows" {
+                        gpg_windows_asset_matches(&asset.name)
+                    } else {
+                        asset.name.contains("gpg") && asset.name.ends_with(&suffix)
+                    }
+                }
             };
             if matches {
                 let kind = if asset.name.ends_with(".zip") {
                     AssetKind::Zip
                 } else if asset.name.ends_with(".tar.bz2") {
                     AssetKind::TarBz2
+                } else if asset.name.ends_with(".7z") {
+                    AssetKind::SevenZip
                 } else {
                     AssetKind::TarGz
                 };
@@ -243,15 +301,15 @@ async fn install_tool(
         )),
         "Unexpected tool download URL"
     );
-    let digest = asset
-        .digest
-        .as_deref()
-        .context("The tool release is missing its SHA-256 checksum")?;
+    let digest = match asset.digest.as_deref() {
+        Some(digest) => digest.to_string(),
+        None => checksums_file_digest(http.as_ref(), &release, &asset.name).await?,
+    };
     let payload = staging.path().join("payload");
     download_server_binary(
         http.as_ref(),
         &asset.browser_download_url,
-        Some(digest),
+        Some(digest.as_str()),
         &payload,
         kind,
     )
@@ -270,22 +328,62 @@ async fn install_tool(
             async_fs::set_permissions(destination, std::fs::Permissions::from_mode(0o755)).await?;
         }
     } else if tool == Tool::Gpg {
-        let destination = payload.join(tool.binary(std::env::consts::OS));
+        let binary = tool.binary(std::env::consts::OS);
+        let destination = payload.join(&binary);
         if !destination.is_file() {
-            let binary_name = tool.binary(std::env::consts::OS);
-            let file_name = binary_name.file_name().context("Invalid tool binary name")?;
-            let direct = payload.join(file_name);
-            if direct.is_file() {
-                async_fs::create_dir_all(destination.parent().context("Invalid tool layout")?).await?;
-                async_fs::rename(direct, &destination)
+            let binary_name = binary.file_name().context("Invalid tool binary name")?;
+            let bin_directory = destination
+                .parent()
+                .context("Invalid tool binary name")?
+                .to_path_buf();
+            // portapps archives extract GnuPG to `<root>/app/bin` instead of
+            // the `<root>/bin` layout the bundled tool expects.
+            let portable_bin_directory = payload.join("app").join("bin");
+            if portable_bin_directory.join(binary_name).is_file() {
+                async_fs::create_dir_all(&bin_directory).await?;
+                let mut entries = async_fs::read_dir(&portable_bin_directory).await?;
+                while let Some(entry) = entries.next().await {
+                    let entry = entry?;
+                    async_fs::rename(entry.path(), bin_directory.join(entry.file_name()))
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "Moving {} out of the portable tool layout",
+                                entry.file_name().to_string_lossy()
+                            )
+                        })?;
+                }
+                // Drop the rest of the portable app (docs, locales, launcher)
+                // so only the tool layout is kept.
+                async_fs::remove_dir_all(payload.join("app"))
                     .await
-                    .context("Could not place gpg executable in tool layout")?;
+                    .with_context(|| "Could not remove the leftover portable app files")?;
+            } else {
+                let direct = payload.join(binary_name);
+                if direct.is_file() {
+                    async_fs::create_dir_all(&bin_directory).await?;
+                    async_fs::rename(direct, &destination)
+                        .await
+                        .context("Could not place gpg executable in tool layout")?;
+                }
             }
         }
         #[cfg(unix)]
-        if destination.is_file() {
-            use std::os::unix::fs::PermissionsExt as _;
-            async_fs::set_permissions(&destination, std::fs::Permissions::from_mode(0o755)).await?;
+        {
+            if let Some(bin_directory) = payload
+                .join(&binary)
+                .parent()
+                .map(|parent| parent.to_path_buf())
+                .filter(|bin_directory| bin_directory.is_dir())
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                let mut entries = async_fs::read_dir(&bin_directory).await?;
+                while let Some(entry) = entries.next().await {
+                    let entry = entry?;
+                    async_fs::set_permissions(entry.path(), std::fs::Permissions::from_mode(0o755))
+                        .await?;
+                }
+            }
         }
     }
     ensure!(
@@ -298,9 +396,41 @@ async fn install_tool(
     Ok(binary)
 }
 
+/// Only versioned portapps archives qualify, so the checksum parsed from
+/// `checksums.txt` refers to the asset that is actually downloaded.
+fn gpg_windows_asset_matches(asset_name: &str) -> bool {
+    asset_name
+        .strip_prefix("gnupg-portable-win32-")
+        .and_then(|name| name.strip_suffix(".7z"))
+        .is_some_and(|version| {
+            version
+                .chars()
+                .all(|character| character.is_ascii_digit() || character == '.' || character == '-')
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn gpg_asset_matches_portapps_releases() -> Result<()> {
+        // Real asset names from portapps/gnupg-portable.
+        assert!(gpg_windows_asset_matches(
+            "gnupg-portable-win32-2.4.3-12.7z"
+        ));
+        assert!(gpg_windows_asset_matches(
+            "gnupg-portable-win32-3.1.2-21.7z"
+        ));
+        assert!(!gpg_windows_asset_matches(
+            "gnupg-portable-win32-2.4.3-12.7z.exe"
+        ));
+        assert!(!gpg_windows_asset_matches("gnupg-portable-win32.exe"));
+        assert!(!gpg_windows_asset_matches(
+            "gnupg-portable-win32-2.4.3-12-setup.exe"
+        ));
+        assert!(!gpg_windows_asset_matches("checksums.txt"));
+        Ok(())
+    }
     #[test]
     fn selects_portable_platform_assets() -> Result<()> {
         assert_eq!(
@@ -323,10 +453,7 @@ mod tests {
             asset_suffix(Tool::Gpg, "linux", "x86_64")?,
             "gpg-x86_64-unknown-linux-musl.tar.gz"
         );
-        assert_eq!(
-            asset_suffix(Tool::Gpg, "windows", "x86_64")?,
-            "gnupg-portable-win32.zip"
-        );
+        assert_eq!(asset_suffix(Tool::Gpg, "windows", "x86_64")?, ".7z");
         assert!(asset_suffix(Tool::Codex, "linux", "x86").is_err());
         assert!(asset_suffix(Tool::Git, "unknown", "x86_64").is_err());
         assert!(asset_suffix(Tool::Gpg, "unknown", "x86_64").is_err());
