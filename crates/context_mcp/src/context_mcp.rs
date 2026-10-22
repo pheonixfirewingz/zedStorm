@@ -1,3 +1,4 @@
+mod git;
 mod project_build;
 pub mod semantic;
 pub mod web_search;
@@ -213,6 +214,18 @@ impl Server {
                 project_build::build(&directory, arguments)
             }
             "web_search" => self.web_search.search(&arguments),
+            "git_repos" => {
+                let arguments: git::Repos = serde_json::from_value(arguments)?;
+                let directory = self.path(&arguments.path, false)?;
+                ensure!(directory.is_dir(), "Expected a directory");
+                git::repositories(&self.root, &directory, arguments)
+            }
+            "git_read" => {
+                let arguments: git::Repository = serde_json::from_value(arguments)?;
+                let directory = self.path(&arguments.path, false)?;
+                ensure!(directory.is_dir(), "Expected a directory");
+                git::repository(&directory, arguments)
+            }
             name if semantic::is_tool(name) => {
                 ensure!(
                     name != "rename" || self.writable,
@@ -700,7 +713,7 @@ pub(crate) fn relative_name(path: &Path) -> Result<String> {
     }
 }
 
-fn is_git_metadata(name: &std::ffi::OsStr) -> bool {
+pub(crate) fn is_git_metadata(name: &std::ffi::OsStr) -> bool {
     #[cfg(windows)]
     {
         name.to_str()
@@ -980,6 +993,28 @@ fn tool_definitions(writable: bool, web_search_available: bool) -> Vec<Value> {
             false,
         ));
     }
+    tools.push(tool(
+        "git_repos",
+        "Find git repositories under a directory: rows are quoted project-relative paths, kind repo (directory with .git) or link (.git file: worktree or submodule). Stops inside a found repository unless include_nested.",
+        json!({
+            "path": path, "depth": {"type": "integer", "minimum": 1, "maximum": 8, "default": 4},
+            "include_nested": {"type": "boolean", "default": false},
+            "offset": offset, "max_bytes": budget
+        }),
+        &[],
+        true,
+    ));
+    tools.push(tool(
+        "git_read",
+        "Read one repository's git state with the installed git program: status (branch header, counts, per-file codes), diff (numstat versus HEAD; untracked files excluded), log (sha, ISO date, author, subject), or remotes. Paths are repository-relative.",
+        json!({
+            "path": path, "query": {"type": "string", "enum": ["status", "diff", "log", "remotes"], "default": "status"},
+            "max_commits": {"type": "integer", "minimum": 1, "maximum": 200, "default": 20},
+            "offset": offset, "max_bytes": budget
+        }),
+        &[],
+        true,
+    ));
     tools.extend(semantic::tool_definitions(writable));
     tools
 }
@@ -999,6 +1034,7 @@ fn tool(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
 
     fn call(server: &mut Server, name: &str, arguments: Value) -> Result<(String, bool)> {
         server.respond(json!({"jsonrpc": "2.0", "id": 0, "method": "initialize",
@@ -1016,6 +1052,123 @@ mod tests {
                 .as_bool()
                 .context("Missing error flag")?,
         ))
+    }
+
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "Test helper runs git on the test runner thread, not the editor foreground thread"
+    )]
+    #[test]
+    fn git_tools_discover_repositories_and_read_state() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let project = directory.path();
+        let repository_directory = project.join("outer").join("sub");
+        fs::create_dir_all(&repository_directory)?;
+        let run = |arguments: &[&str], current: &Path| {
+            Command::new("git").args(arguments).current_dir(current).output()
+        };
+        let initialized = run(&["init", "-b", "test-branch"], &repository_directory)?;
+        assert!(initialized.status.success(), "{initialized:?}");
+        fs::write(repository_directory.join("tracked"), "one\n")?;
+        let mut staging = Command::new("git");
+        staging
+            .args(["-c", "user.email=t@example.com", "-c", "user.name=t", "add", "-A"])
+            .current_dir(&repository_directory)
+            .output()?;
+        let committed = Command::new("git")
+            .args([
+                "-c",
+                "user.email=t@example.com",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-m",
+                "initial uniquesubject 42",
+            ])
+            .current_dir(&repository_directory)
+            .output()?;
+        assert!(committed.status.success(), "{committed:?}");
+
+        let mut server = Server::new(project, false)?;
+        let (found, error) = call(&mut server, "git_repos", json!({}))?;
+        assert!(!error, "{found}");
+        assert!(found.contains("repo \"outer/sub\""));
+        let (_, error) = call(
+            &mut server,
+            "git_read",
+            json!({"path": "outer", "query": "log"}),
+        )?;
+        assert!(error, "a directory outside a repository must fail");
+
+        let (status, error) = call(&mut server, "git_read", json!({"path": "outer/sub"}))?;
+        assert!(!error, "{status}");
+        assert!(status.contains("## test-branch"));
+        assert!(status.contains("complete=true"));
+        let (clean, error) = call(
+            &mut server,
+            "git_read",
+            json!({"path": "outer/sub", "query": "diff"}),
+        )?;
+        assert!(!error, "{clean}");
+        assert!(clean.contains("no changes"));
+        fs::write(repository_directory.join("tracked"), "one\ntwo\n")?;
+        fs::write(repository_directory.join("extra"), "three\n")?;
+        let (changed, error) = call(&mut server, "git_read", json!({"path": "outer/sub"}))?;
+        assert!(!error, "{changed}");
+        assert!(changed.contains("staged=0 worktree=1 untracked=1 unmerged=0"));
+        assert!(changed.contains(" M tracked") && changed.contains("?? extra"));
+        let renamed = run(&["mv", "tracked", "renamed"], &repository_directory)?;
+        assert!(renamed.status.success(), "{renamed:?}");
+        let (renaming, error) = call(&mut server, "git_read", json!({"path": "outer/sub"}))?;
+        assert!(!error, "{renaming}");
+        assert!(renaming.contains("staged=1 worktree=1 untracked=1 unmerged=0"));
+        assert!(renaming.contains("tracked -> renamed"));
+
+        let (log, error) = call(
+            &mut server,
+            "git_read",
+            json!({"path": "outer/sub", "query": "log", "max_commits": 5}),
+        )?;
+        assert!(!error, "{log}");
+        assert!(log.contains("initial uniquesubject 42"));
+        let (diff, error) = call(
+            &mut server,
+            "git_read",
+            json!({"path": "outer/sub", "query": "diff"}),
+        )?;
+        assert!(!error, "{diff}");
+        assert!(diff.contains("renamed"));
+        let (remotes, error) = call(
+            &mut server,
+            "git_read",
+            json!({"path": "outer/sub", "query": "remotes"}),
+        )?;
+        assert!(!error, "{remotes}");
+        assert!(remotes.contains("none"));
+
+        let referenced = run(
+            &["worktree", "add", "--detach", "../attach", "HEAD"],
+            &repository_directory,
+        )?;
+        assert!(referenced.status.success(), "{referenced:?}");
+        let (kinds, error) = call(&mut server, "git_repos", json!({}))?;
+        assert!(!error, "{kinds}");
+        assert!(kinds.contains("repo \"outer/sub\"") && kinds.contains("link \"outer/attach\""));
+
+        let nested = repository_directory.join("nested");
+        fs::create_dir_all(&nested)?;
+        let more = run(&["init", "-b", "nested-branch"], &nested)?;
+        assert!(more.status.success(), "{more:?}");
+        let (_, error) = call(&mut server, "git_repos", json!({}))?;
+        assert!(!error, "nested repositories stay hidden by default");
+        let (with_nested, error) = call(
+            &mut server,
+            "git_repos",
+            json!({"include_nested": true}),
+        )?;
+        assert!(!error, "{with_nested}");
+        assert!(with_nested.contains("outer/sub/nested"));
+        Ok(())
     }
 
     #[test]
@@ -1285,7 +1438,7 @@ mod tests {
         let tools = response["result"]["tools"]
             .as_array()
             .context("Missing tools")?;
-        assert_eq!(tools.len(), 5 + semantic::TOOLS.len() - 1);
+        assert_eq!(tools.len(), 7 + semantic::TOOLS.len() - 1);
         assert!(
             tools
                 .iter()

@@ -23,6 +23,8 @@ project's installed build program and keep normal build logs out of model contex
 | `move` | `mv` | Copy then delete one revision-checked text file |
 | `build` | Project build | Only `built` on success, or bounded compiler errors |
 | `web_search` | Web search | Composed answer from the Codex web-search backend (hidden without Codex credentials) |
+| `git_repos` | Git repository discovery | Discover repositories (`repo` directory or `link` worktree/submodule) under a path |
+| `git_read` | `git status/diff/log/remotes` | Read repository state: status counts and codes, diff numstat, log, or remotes |
 
 The panel starts the server read-only. To expose mutation and build tools, launch
 ZedStorm with `ZEDSTORM_CONTEXT_MCP_WRITE=1` in its environment. Reconnect the
@@ -109,6 +111,25 @@ Use `read_buffer` for the editor's current source.
 
 Use semantic tools for code navigation and RTK for compact supported shell output.
 Savings depend on the model choosing focused tools and appropriate budgets.
+
+## Git tools
+
+The server provides read-only Git exploration tools that execute `git` directly without a shell:
+
+| Tool | Purpose | Key Parameters |
+| --- | --- | --- |
+| `git_repos` | Discover git repositories under a directory | `path` (default `.`), `depth` (1–8, default 4), `include_nested` (default `false`) |
+| `git_read` | Read git repository status, diff, log, or remotes | `path` (default `.`), `query` (`status`, `diff`, `log`, `remotes`), `max_commits` (1–200, default 20) |
+
+`git_repos` scans directories for `.git`. It reports `repo "<relative_path>"` for normal repositories (where `.git` is a directory) and `link "<relative_path>"` for worktrees or submodules (where `.git` is a gitlink file). Unless `include_nested` is set to `true`, traversal does not descend into found repositories.
+
+`git_read` supports four queries:
+- `status`: Returns the branch header line (`## <branch>`), a summary line (`staged=X worktree=Y untracked=Z unmerged=W`), followed by porcelain status entries.
+- `diff`: Returns numstat comparisons against `HEAD`.
+- `log`: Returns commit records formatted as `sha\tiso_date\tauthor\tsubject`.
+- `remotes`: Returns configured remotes and URLs.
+
+Both tools support pagination via `offset` and limit output size via `max_bytes`.
 
 ## Semantic navigation and external clients
 
