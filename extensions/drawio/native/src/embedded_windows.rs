@@ -33,6 +33,7 @@ const OFFSCREEN_POSITION: i32 = -32_000;
 enum CustomEvent {
     Input,
     Ipc(Value),
+    Quit,
 }
 
 pub fn run(path: PathBuf) -> Result<()> {
@@ -76,6 +77,10 @@ pub fn run(path: PathBuf) -> Result<()> {
                 Err(error) => eprintln!("Invalid embedded webview input: {error}"),
             }
         }
+        // The host closes stdin when the tab closes or Zed itself dies. Without
+        // this the process outlives the tab because an idle diagram sends no
+        // frames for the broken stdout pipe to fail on.
+        let _ = stdin_proxy.send_event(CustomEvent::Quit);
     });
 
     let window = WindowBuilder::new()
@@ -170,6 +175,9 @@ pub fn run(path: PathBuf) -> Result<()> {
         *control_flow = ControlFlow::Wait;
 
         match event {
+            Event::UserEvent(CustomEvent::Quit) => {
+                *control_flow = ControlFlow::ExitWithCode(0);
+            }
             Event::UserEvent(CustomEvent::Input) => {
                 while let Ok(message) = input_receiver.try_recv() {
                     let result = match message["action"].as_str() {
