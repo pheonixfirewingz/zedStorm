@@ -303,7 +303,16 @@ impl GenerateGpgModal {
         self.is_generating = true;
         cx.notify();
 
+        let http = cx.http_client();
         cx.spawn(async move |this, cx| {
+            if let Err(err) = http_client::managed_tools::ensure_tool(
+                http_client::managed_tools::Tool::Gpg,
+                http,
+            )
+            .await
+            {
+                log::warn!("Could not ensure GPG tool before key generation: {err:#}");
+            }
             let result = generate_gpg_key(&name, &email, &passphrase).await;
             match result {
                 Ok(key) => {
@@ -633,7 +642,14 @@ impl Render for GpgSigningSettings {
         v_flex()
             .items_end()
             .gap_2()
-            .when(self.gpg_binary.is_none(), |this| {
+            .when(self.is_loading, |this| {
+                this.child(
+                    Label::new("Checking GPG / Downloading tools if needed…")
+                        .color(Color::Muted)
+                        .size(LabelSize::Small),
+                )
+            })
+            .when(!self.is_loading && self.gpg_binary.is_none(), |this| {
                 this.child(
                     Label::new("GPG not found on PATH. Install GnuPG to use commit signing.")
                         .color(Color::Warning)
@@ -786,34 +802,34 @@ impl Render for GpgSigningSettings {
                                 })),
                         ),
                 )
-                .child(
-                    h_flex()
-                        .gap_2()
-                        .items_center()
-                        .justify_end()
-                        .child(
-                            Button::new("generate-gpg-key-btn", "Generate Key")
-                                .start_icon(Icon::new(IconName::Plus))
+            })
+            .child(
+                h_flex()
+                    .gap_2()
+                    .items_center()
+                    .justify_end()
+                    .child(
+                        Button::new("generate-gpg-key-btn", "Generate Key")
+                            .start_icon(Icon::new(IconName::Plus))
+                            .size(ButtonSize::Medium)
+                            .style(ButtonStyle::Filled)
+                            .on_click(cx.listener(|_, _, window, cx| {
+                                window.dispatch_action(Box::new(crate::OpenGenerateGpgModalAction), cx);
+                            })),
+                    )
+                    .when_some(current_key_id.clone(), |this, key_id| {
+                        this.child(
+                            Button::new("copy-gpg-pubkey-btn", "Copy Public Key")
+                                .start_icon(Icon::new(IconName::Copy))
                                 .size(ButtonSize::Medium)
-                                .style(ButtonStyle::Filled)
-                                .on_click(cx.listener(|_, _, window, cx| {
-                                    window.dispatch_action(Box::new(crate::OpenGenerateGpgModalAction), cx);
+                                .style(ButtonStyle::OutlinedGhost)
+                                .tooltip(Tooltip::text("Copy ASCII-armored public key to clipboard"))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.copy_public_key(key_id.clone(), cx);
                                 })),
                         )
-                        .when_some(current_key_id.clone(), |this, key_id| {
-                            this.child(
-                                Button::new("copy-gpg-pubkey-btn", "Copy Public Key")
-                                    .start_icon(Icon::new(IconName::Copy))
-                                    .size(ButtonSize::Medium)
-                                    .style(ButtonStyle::OutlinedGhost)
-                                    .tooltip(Tooltip::text("Copy ASCII-armored public key to clipboard"))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.copy_public_key(key_id.clone(), cx);
-                                    })),
-                            )
-                        }),
-                )
-            })
+                    }),
+            )
             .when_some(self.status_message.as_ref(), |this, (msg, is_error)| {
                 this.child(
                     Label::new(msg.clone())
