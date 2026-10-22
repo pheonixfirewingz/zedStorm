@@ -1,6 +1,6 @@
-pub mod browser;
 mod project_build;
 pub mod semantic;
+pub mod web_search;
 
 use anyhow::{Context as _, Result, bail, ensure};
 use ignore::WalkBuilder;
@@ -12,14 +12,13 @@ use std::{
     fs::{self, File},
     io::{self, BufRead as _, Read as _, Write as _},
     path::{Component, Path, PathBuf},
-    sync::Arc,
 };
 
 const MAX_FILE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_REQUEST_BYTES: usize = 2 * MAX_FILE_BYTES + 64 * 1024;
 const DEFAULT_OUTPUT_BYTES: usize = 4 * 1024;
-const MAX_OUTPUT_BYTES: usize = 32 * 1024;
-const MAX_SCAN_FILES: usize = 100_000;
+pub(crate) const MAX_OUTPUT_BYTES: usize = 32 * 1024;
+pub(crate) const MAX_SCAN_FILES: usize = 100_000;
 
 pub fn codex_configuration(
     executable: &Path,
@@ -47,6 +46,8 @@ pub fn codex_configuration(
     }
     Ok(vec![
         "-c".into(),
+        "mcp_servers={}".into(),
+        "-c".into(),
         format!(
             "mcp_servers.zedstorm_context.command={}",
             serde_json::to_string(executable)?
@@ -60,6 +61,10 @@ pub fn codex_configuration(
         "mcp_servers.zedstorm_context.enabled=true".into(),
         "-c".into(),
         "mcp_servers.zedstorm_context.tool_timeout_sec=1900".into(),
+        "-c".into(),
+        "plugins={}".into(),
+        "-c".into(),
+        "features.plugins=false".into(),
     ])
 }
 
@@ -93,7 +98,7 @@ pub struct Server {
     root: PathBuf,
     writable: bool,
     initialized: bool,
-    pub browser: Arc<browser::BrowserBridge>,
+    web_search: web_search::Session,
 }
 
 impl Server {
@@ -108,23 +113,18 @@ impl Server {
             .canonicalize()
             .context("Cannot open project root")?;
         ensure!(root.is_dir(), "Project root must be a directory");
-        let browser_port = std::env::var("ZEDSTORM_BROWSER_PORT")
-            .ok()
-            .and_then(|p| p.parse().ok())
-            .unwrap_or(browser::DEFAULT_BROWSER_PORT);
-        let browser = Arc::new(browser::BrowserBridge::new(browser_port));
         Ok(Self {
             root,
             writable,
             initialized: false,
-            browser,
+            web_search: web_search::Session::from_env(),
         })
     }
 
-    pub fn new_with_browser(
+    pub fn new_with_web_search(
         directory: &Path,
         writable: bool,
-        browser: Arc<browser::BrowserBridge>,
+        web_search: web_search::Session,
     ) -> Result<Self> {
         let root = directory
             .canonicalize()
@@ -134,7 +134,7 @@ impl Server {
             root,
             writable,
             initialized: false,
-            browser,
+            web_search,
         })
     }
 
@@ -166,7 +166,7 @@ impl Server {
             }
             "ping" => json!({}),
             _ if !self.initialized => return Some(rpc_error(id, -32000, "Initialize first")),
-            "tools/list" => json!({"tools": tool_definitions(self.writable, self.browser.is_connected())}),
+            "tools/list" => json!({"tools": tool_definitions(self.writable, self.web_search.is_available())}),
             "tools/call" => {
                 let result = self.call(&message["params"]);
                 match result {
@@ -212,10 +212,7 @@ impl Server {
                 let directory = self.path(&arguments.path, false)?;
                 project_build::build(&directory, arguments)
             }
-            "web_search" => {
-                let arguments: browser::SearchArguments = serde_json::from_value(arguments)?;
-                self.browser.search(arguments)
-            }
+            "web_search" => self.web_search.search(&arguments),
             name if semantic::is_tool(name) => {
                 ensure!(
                     name != "rename" || self.writable,
@@ -691,7 +688,7 @@ fn rpc_error(id: Value, code: i32, message: &str) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
 }
 
-fn relative_name(path: &Path) -> Result<String> {
+pub(crate) fn relative_name(path: &Path) -> Result<String> {
     let name = path.to_str().context("Path must be UTF-8")?;
     #[cfg(windows)]
     {
@@ -752,7 +749,7 @@ fn revision(text: &str) -> String {
     format!("{:x}", Sha256::digest(text.as_bytes()))
 }
 
-fn floor_boundary(text: &str, maximum: usize) -> usize {
+pub(crate) fn floor_boundary(text: &str, maximum: usize) -> usize {
     let mut end = text.len().min(maximum);
     while !text.is_char_boundary(end) {
         end -= 1;
@@ -760,13 +757,13 @@ fn floor_boundary(text: &str, maximum: usize) -> usize {
     end
 }
 
-struct Output {
-    text: String,
+pub(crate) struct Output {
+    pub(crate) text: String,
     limit: usize,
 }
 
 impl Output {
-    fn new(maximum: Option<usize>) -> Result<Self> {
+    pub(crate) fn new(maximum: Option<usize>) -> Result<Self> {
         let limit = maximum.unwrap_or(DEFAULT_OUTPUT_BYTES);
         ensure!(
             (256..=MAX_OUTPUT_BYTES).contains(&limit),
@@ -777,17 +774,17 @@ impl Output {
             limit: limit - 128,
         })
     }
-    fn remaining(&self) -> usize {
+    pub(crate) fn remaining(&self) -> usize {
         self.limit.saturating_sub(self.text.len())
     }
-    fn push(&mut self, text: &str) -> bool {
+    pub(crate) fn push(&mut self, text: &str) -> bool {
         if text.len() > self.remaining() {
             return false;
         }
         self.text.push_str(text);
         true
     }
-    fn finish(mut self, status: &str) -> String {
+    pub(crate) fn finish(mut self, status: &str) -> String {
         self.text.push_str(status);
         self.text
     }
@@ -895,7 +892,7 @@ fn case_sensitive() -> bool {
     true
 }
 
-fn tool_definitions(writable: bool, browser_connected: bool) -> Vec<Value> {
+fn tool_definitions(writable: bool, web_search_available: bool) -> Vec<Value> {
     let path = json!({"type": "string", "description": "Project-relative path; no symlinks or parent traversal."});
     let budget = json!({"type": "integer", "minimum": 256, "maximum": MAX_OUTPUT_BYTES, "default": DEFAULT_OUTPUT_BYTES, "description": "UTF-8 response byte limit; follow continuation when incomplete."});
     let offset = json!({"type": "integer", "minimum": 0, "default": 0, "description": "Use next_offset from the previous page; restart if files change."});
@@ -950,17 +947,8 @@ fn tool_definitions(writable: bool, browser_connected: bool) -> Vec<Value> {
             true,
         ),
     ];
-    if browser_connected {
-        tools.push(tool(
-            "web_search",
-            "Search the web via the connected Chromium browser. Returns titles, snippets, and URLs.",
-            json!({
-                "query": {"type": "string", "minLength": 1, "description": "The search query"},
-                "max_results": {"type": "integer", "minimum": 1, "maximum": 15, "default": 5, "description": "Maximum number of search results to return"}
-            }),
-            &["query"],
-            true,
-        ));
+    if web_search_available {
+        tools.push(web_search::tool_definition());
     }
     if writable {
         tools.push(tool("build", "Build a project natively. Waits for completion; returns only built on success or bounded compiler errors on failure. Auto-detects Cargo, npm, .NET, CMake. No fabricated progress percentages. Build scripts run with this server's permissions.", json!({
@@ -1689,8 +1677,12 @@ mod tests {
             true,
         )?;
         assert_eq!(configuration.first().map(String::as_str), Some("-c"));
+        assert!(configuration.iter().any(|arg| arg == "mcp_servers={}"));
+        assert!(configuration.iter().any(|arg| arg == "plugins={}"));
+        assert!(configuration.iter().any(|arg| arg == "features.plugins=false"));
         let command = configuration
-            .get(1)
+            .iter()
+            .find(|arg| arg.starts_with("mcp_servers.zedstorm_context.command="))
             .context("Missing command")?
             .split_once('=')
             .context("Missing command value")?
@@ -1700,7 +1692,8 @@ mod tests {
             "/path with spaces/zedstorm"
         );
         let arguments = configuration
-            .get(3)
+            .iter()
+            .find(|arg| arg.starts_with("mcp_servers.zedstorm_context.args="))
             .context("Missing arguments")?
             .split_once('=')
             .context("Missing argument value")?
@@ -1727,9 +1720,15 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn browser_web_search_hides_when_disconnected_and_exposes_when_connected() -> Result<()> {
+    fn web_search_hidden_without_codex_credentials() -> Result<()> {
         let directory = tempfile::tempdir()?;
-        let mut server = Server::new(directory.path(), false)?;
+        let auth_home = tempfile::tempdir()?;
+        let session = web_search::Session::with_overrides(
+            "test-session",
+            Some(auth_home.path().to_owned()),
+            None,
+        );
+        let mut server = Server::new_with_web_search(directory.path(), false, session)?;
 
         let response = server
             .respond(json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}}))
@@ -1740,94 +1739,44 @@ mod tests {
             .respond(json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}))
             .context("Missing tools/list response")?;
         let tools = list_resp["result"]["tools"].as_array().context("Missing tools")?;
-        assert!(!tools.iter().any(|t| t["name"] == "web_search"), "web_search must be hidden when disconnected");
+        assert!(!tools.iter().any(|t| t["name"] == "web_search"), "web_search must be hidden without Codex credentials");
 
         let (error_text, is_err) = call(&mut server, "web_search", json!({"query": "rust"}))?;
         assert!(is_err);
-        assert!(error_text.contains("Chromium extension is not connected"));
+        assert!(error_text.contains("no Codex credentials"), "{error_text}");
 
         Ok(())
     }
+
     #[test]
-    fn chromium_extension_connects_and_executes_search() -> Result<()> {
-        let chromium_path = Path::new("/usr/bin/chromium");
-        if !chromium_path.exists() {
-            return Ok(());
-        }
-
-        let port = 42128;
-        let bridge = Arc::new(browser::BrowserBridge::new(port));
+    fn web_search_exposed_when_codex_credentials_present() -> Result<()> {
         let directory = tempfile::tempdir()?;
-        let mut server = Server::new_with_browser(directory.path(), false, bridge.clone())?;
+        let auth_home = tempfile::tempdir()?;
+        std::fs::write(
+            auth_home.path().join("auth.json"),
+            serde_json::to_string(&json!({
+                "OPENAI_API_KEY": null,
+                "tokens": {
+                    "id_token": "jwt",
+                    "access_token": "test-access",
+                    "account_id": "test-account",
+                },
+            }))?,
+        )?;
+        let session = web_search::Session::with_overrides(
+            "test-session",
+            Some(auth_home.path().to_owned()),
+            None,
+        );
+        let mut server = Server::new_with_web_search(directory.path(), false, session)?;
 
-        // 1. Initially disconnected: tools/list hides web_search
-        server.respond(json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}}));
-        let list_resp = server.respond(json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})).context("Missing tools/list")?;
+        server
+            .respond(json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}}));
+        let list_resp = server
+            .respond(json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}))
+            .context("Missing tools/list response")?;
         let tools = list_resp["result"]["tools"].as_array().context("Missing tools")?;
-        assert!(!tools.iter().any(|t| t["name"] == "web_search"), "web_search must be hidden before chromium connects");
-
-        // 2. Prepare temporary user-data-dir and extension folder with port override
-        let ext_dir = tempfile::tempdir()?;
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap();
-        let asset_dir = root.join("assets/browser-extension");
-        let mut bg_content = fs::read_to_string(asset_dir.join("background.js"))?;
-        bg_content = bg_content.replace("const DEFAULT_PORT = 42124;", &format!("const DEFAULT_PORT = {port};"));
-        bg_content = bg_content.replace("const DEFAULT_AUTO_CONNECT = false;", "const DEFAULT_AUTO_CONNECT = true;");
-        fs::write(ext_dir.path().join("background.js"), bg_content)?;
-        fs::copy(asset_dir.join("manifest.json"), ext_dir.path().join("manifest.json"))?;
-        fs::copy(asset_dir.join("popup.html"), ext_dir.path().join("popup.html"))?;
-        fs::copy(asset_dir.join("popup.js"), ext_dir.path().join("popup.js"))?;
-
-        let user_data = tempfile::tempdir()?;
-        let mut chromium = std::process::Command::new("/usr/bin/chromium")
-            .env("TMPDIR", "/tmp")
-            .arg("--headless=new")
-            .arg("--disable-gpu")
-            .arg(format!("--user-data-dir={}", user_data.path().display()))
-            .arg(format!("--load-extension={}", ext_dir.path().display()))
-            .arg("about:blank")
-            .spawn()?;
-
-        // 3. Wait for extension to connect to the bridge (up to 12 seconds)
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(12);
-        while std::time::Instant::now() < deadline && !bridge.is_connected() {
-            std::thread::sleep(std::time::Duration::from_millis(100));
-        }
-
-        let connected = bridge.is_connected();
-        if !connected {
-            let _ = chromium.kill();
-            let _ = chromium.wait();
-            bail!("Chromium extension failed to connect to bridge within timeout");
-        }
-
-        // 4. Now connected: tools/list MUST expose web_search!
-        let list_resp2 = server.respond(json!({"jsonrpc": "2.0", "id": 3, "method": "tools/list"})).context("Missing tools/list")?;
-        let tools2 = list_resp2["result"]["tools"].as_array().context("Missing tools")?;
-        assert!(tools2.iter().any(|t| t["name"] == "web_search"), "web_search must be exposed when connected");
-
-        // 5. Call web_search via tools/call
-        let (search_output, is_err) = call(&mut server, "web_search", json!({"query": "rust language", "max_results": 3}))?;
-        assert!(!is_err, "Search failed: {search_output}");
-        assert!(search_output.contains("Web Search Results"), "Expected header in {search_output}");
-        assert!(search_output.contains("http"), "Expected URL in search results: {search_output}");
-
-        // 6. Terminate chromium
-        let _ = chromium.kill();
-        let _ = chromium.wait();
-
-        // 7. Wait for disconnect detection (bridge checks every 50ms)
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while std::time::Instant::now() < deadline && bridge.is_connected() {
-            std::thread::sleep(std::time::Duration::from_millis(50));
-        }
-        assert!(!bridge.is_connected(), "Bridge should detect disconnect after Chromium closes");
-
-        // 8. tools/list hides web_search again!
-        let list_resp3 = server.respond(json!({"jsonrpc": "2.0", "id": 4, "method": "tools/list"})).context("Missing tools/list")?;
-        let tools3 = list_resp3["result"]["tools"].as_array().context("Missing tools")?;
-        assert!(!tools3.iter().any(|t| t["name"] == "web_search"), "web_search must be hidden after chromium closes");
-
+        assert!(tools.iter().any(|t| t["name"] == "web_search"), "web_search must be exposed with Codex credentials");
         Ok(())
     }
 }

@@ -22,7 +22,7 @@ project's installed build program and keep normal build logs out of model contex
 | `copy` | `cp` | Copy one revision-checked text file without overwriting |
 | `move` | `mv` | Copy then delete one revision-checked text file |
 | `build` | Project build | Only `built` on success, or bounded compiler errors |
-| `web_search` | Web search | Search results from connected Chromium browser (hidden when disconnected) |
+| `web_search` | Web search | Composed answer from the Codex web-search backend (hidden without Codex credentials) |
 
 The panel starts the server read-only. To expose mutation and build tools, launch
 ZedStorm with `ZEDSTORM_CONTEXT_MCP_WRITE=1` in its environment. Reconnect the
@@ -272,14 +272,25 @@ smoke test checks filesystem/build tools, semantic tool discovery and unavailabl
 errors, successful/failed Cargo builds, UTF-8 paths,
 CRLF, read-only copies, junction restrictions, piped stdio, and EOF shutdown.
 
-## Web search via Chromium extension
+## Web search
 
-ZedStorm includes an optional loopback bridge for Chromium web searches. When connected to the extension in `assets/browser-extension`, the context MCP server automatically exposes `web_search`.
+`web_search` uses the same Codex web-search backend as the Codex CLI (`codex-rs/ext/web-search` posting to the provider-relative `alpha/search` endpoint in `codex-api`'s `SearchClient`).
 
-If the browser is closed or the extension is disconnected, `web_search` is **completely hidden** from `tools/list` to save model context and prevent failed tool calls.
+The server reads the saved Codex CLI credentials from `$CODEX_HOME/auth.json` (default `~/.codex/auth.json`), so a Codex sign-in or an OpenAI API key is required. With a ChatGPT subscription it sends the saved access token plus `chatgpt-account-id`; with an API key it sends that key as a bearer token. The tool is exposed only when credentials can be found, so it is hidden from `tools/list` otherwise and calls fail with an actionable message.
 
-### Installation in your browser of choice:
-1. Open your Chromium browser (Chrome, Brave, Edge, Chromium, Vivaldi, Arc, etc.).
-2. Navigate to `chrome://extensions` (or `brave://extensions` / `edge://extensions`).
-3. Enable **Developer mode**.
-4. Click **Load unpacked** and select the [`assets/browser-extension`](../../assets/browser-extension) directory.
+If the Codex CLI stores its selected model in `$CODEX_HOME/config.toml`, the backend composes the answer with that model unless the call overrides it via the `model` argument.
+
+Environment overrides:
+
+| Variable | Effect |
+| --- | --- |
+| `ZEDSTORM_WEB_SEARCH_BASE_URL` | Overrides the Codex backend base URL |
+| `ZEDSTORM_WEB_SEARCH_MODEL` | Overrides the composed-answer model |
+| `OPENAI_BASE_URL` | Overrides the base URL for API-key credentials |
+
+Notes:
+
+- Requests carry only the tool call's search commands; the MCP server does not see the conversation, so no conversation history is forwarded.
+- Response text is returned verbatim, bounded to the server's output budget, and truncated explicitly when the limit is hit.
+- 401/403 responses point at expired credentials; run `codex login` and retry.
+- A credential store backed by a system keyring rather than the auth file may leave the tool unavailable; use the auth file.
