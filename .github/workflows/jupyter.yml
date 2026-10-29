@@ -72,7 +72,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           mkdir -p "dist/jupyter-package"
-          cp "extensions/jupyter/target/wasm32-wasip2/release/repl.wasm" "dist/jupyter-package/extension.wasm"
+          cp "extensions/jupyter/target/wasm32-wasip2/release/zed_jupyter.wasm" "dist/jupyter-package/extension.wasm"
           cp "extensions/jupyter/extension.toml" "dist/jupyter-package/extension.toml"
           if [ -d "extensions/jupyter/languages" ]; then
             cp -r "extensions/jupyter/languages" "dist/jupyter-package/"
@@ -87,7 +87,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $pkgDir = "dist/jupyter-windows-package"
           New-Item -ItemType Directory -Path $pkgDir -Force
-          Copy-Item "extensions/jupyter/target/wasm32-wasip2/release/repl.wasm" -Destination "$pkgDir/extension.wasm"
+          Copy-Item "extensions/jupyter/target/wasm32-wasip2/release/zed_jupyter.wasm" -Destination "$pkgDir/extension.wasm"
           Copy-Item "extensions/jupyter/extension.toml" -Destination "$pkgDir/extension.toml"
           if (Test-Path "extensions/jupyter/languages") {
             Copy-Item -Recurse "extensions/jupyter/languages" -Destination "$pkgDir/"
@@ -110,6 +110,9 @@ jobs:
     needs: build
     if: (github.ref == 'refs/heads/custom' || github.event_name == 'workflow_dispatch') && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
+    concurrency:
+      group: latest-extensions-build
+      cancel-in-progress: false
     permissions:
       actions: read
       contents: write
@@ -136,8 +139,8 @@ jobs:
           TAG_NAME: latest-extensions-build
         run: |
           set -euo pipefail
-          release_id=$(gh api "repos/$GH_REPO/releases" --paginate --jq ".[] | select(.tag_name == "$TAG_NAME") | .id" || true)
-          tag_reference=$(gh api "repos/$GH_REPO/git/matching-refs/tags/$TAG_NAME" --jq ".[] | select(.ref == "refs/tags/$TAG_NAME") | .ref" || true)
+          release_id=$(gh api "repos/$GH_REPO/releases/tags/$TAG_NAME" --jq .id 2>/dev/null || true)
+          tag_reference=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG_NAME" --jq .ref 2>/dev/null || true)
           if [ -n "$tag_reference" ]; then
             gh api --method PATCH "repos/$GH_REPO/git/refs/tags/$TAG_NAME" -f sha="$BUILD_COMMIT" -F force=true
           else

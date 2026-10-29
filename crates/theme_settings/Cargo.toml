@@ -18,12 +18,10 @@ doctest = false
 
 [dependencies]
 anyhow.workspace = true
-collections.workspace = true
 gpui.workspace = true
 gpui_util.workspace = true
 log.workspace = true
 palette.workspace = true
-refineable.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -88,10 +88,10 @@ jobs:
           cp extensions/english-spell-checker/extension.toml dist/english-spell-checker-linux-package/extension.toml
 
           # Linux companion binaries
-          cp extensions/english-spell-checker/native/target/release/english-spell-checker dist/english-spell-checker-linux-package/bin/english-spell-checker
+          cp extensions/english-spell-checker/target/release/english-spell-checker dist/english-spell-checker-linux-package/bin/english-spell-checker
           chmod +x dist/english-spell-checker-linux-package/bin/*
 
-          cp extensions/english-spell-checker/native/target/release/english-spell-checker dist/english-spell-checker-linux-binaries/english-spell-checker
+          cp extensions/english-spell-checker/target/release/english-spell-checker dist/english-spell-checker-linux-binaries/english-spell-checker
           chmod +x dist/english-spell-checker-linux-binaries/*
 
           # Direct binaries for root dist
@@ -127,9 +127,9 @@ jobs:
           Copy-Item extensions/english-spell-checker/extension.toml -Destination dist/english-spell-checker-windows-package/extension.toml
 
           # Windows companion binaries
-          Copy-Item extensions/english-spell-checker/native/target/release/english-spell-checker.exe -Destination dist/english-spell-checker-windows-package/bin/
-          Copy-Item extensions/english-spell-checker/native/target/release/english-spell-checker.exe -Destination dist/english-spell-checker-windows-binaries/
-          Copy-Item extensions/english-spell-checker/native/target/release/english-spell-checker.exe -Destination dist/
+          Copy-Item extensions/english-spell-checker/target/release/english-spell-checker.exe -Destination dist/english-spell-checker-windows-package/bin/
+          Copy-Item extensions/english-spell-checker/target/release/english-spell-checker.exe -Destination dist/english-spell-checker-windows-binaries/
+          Copy-Item extensions/english-spell-checker/target/release/english-spell-checker.exe -Destination dist/
 
           # Archives
           Compress-Archive -Path dist/english-spell-checker-windows-package/* -DestinationPath dist/english-spell-checker-windows-x86_64.zip -Force
@@ -152,6 +152,9 @@ jobs:
     needs: build
     if: (github.ref == 'refs/heads/custom' || github.event_name == 'workflow_dispatch') && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
+    concurrency:
+      group: latest-extensions-build
+      cancel-in-progress: false
     permissions:
       actions: read
       contents: write
@@ -178,8 +181,8 @@ jobs:
           TAG_NAME: latest-extensions-build
         run: |
           set -euo pipefail
-          release_id=$(gh api "repos/$GH_REPO/releases" --paginate --jq ".[] | select(.tag_name == \"$TAG_NAME\") | .id" || true)
-          tag_reference=$(gh api "repos/$GH_REPO/git/matching-refs/tags/$TAG_NAME" --jq ".[] | select(.ref == \"refs/tags/$TAG_NAME\") | .ref" || true)
+          release_id=$(gh api "repos/$GH_REPO/releases/tags/$TAG_NAME" --jq .id 2>/dev/null || true)
+          tag_reference=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG_NAME" --jq .ref 2>/dev/null || true)
           if [ -n "$tag_reference" ]; then
             gh api --method PATCH "repos/$GH_REPO/git/refs/tags/$TAG_NAME" -f sha="$BUILD_COMMIT" -F force=true
           else

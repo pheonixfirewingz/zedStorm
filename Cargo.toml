@@ -185,6 +185,7 @@ members = [
 ]
 default-members = ["crates/zed"]
 exclude = [
+    "extensions/css",
     "extensions/drawio",
     "extensions/english-spell-checker",
     "extensions/glsl",

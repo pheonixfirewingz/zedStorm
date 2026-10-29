@@ -1,6 +1,21 @@
 {
   "data": [
     {
+      "id": "css",
+      "name": "CSS",
+      "version": "0.1.0",
+      "description": "CSS support using vscode-css-language-server.",
+      "authors": [
+        "ZedStorm contributors"
+      ],
+      "repository": "https://github.com/pheonixfirewingz/zedStorm",
+      "schema_version": 1,
+      "wasm_api_version": "0.8.0",
+      "published_at": "2026-10-29T00:00:00Z",
+      "download_count": 0,
+      "provides": []
+    },
+    {
       "id": "drawio",
       "name": "diagrams.net",
       "version": "0.1.0",

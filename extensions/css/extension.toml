@@ -1,0 +1,14 @@
+id = "css"
+name = "CSS"
+description = "CSS support using vscode-css-language-server."
+version = "0.1.0"
+schema_version = 1
+authors = ["ZedStorm contributors"]
+repository = "https://github.com/pheonixfirewingz/zedStorm"
+
+[language_servers.vscode-css-language-server]
+name = "vscode-css-language-server"
+languages = ["CSS"]
+
+[language_servers.vscode-css-language-server.language_ids]
+"CSS" = "css"

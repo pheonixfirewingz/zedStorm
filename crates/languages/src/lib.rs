@@ -1,6 +1,5 @@
 use futures::FutureExt as _;
 use gpui::{App, SharedString, UpdateGlobal};
-use node_runtime::NodeRuntime;
 use project::Fs;
 use python::PyprojectTomlManifestProvider;
 use rust::CargoManifestProvider;
@@ -50,13 +49,12 @@ pub static LANGUAGE_GIT_COMMIT: std::sync::LazyLock<Arc<Language>> =
         ))
     });
 
-pub fn init(languages: Arc<LanguageRegistry>, fs: Arc<dyn Fs>, node: NodeRuntime, cx: &mut App) {
+pub fn init(languages: Arc<LanguageRegistry>, fs: Arc<dyn Fs>, cx: &mut App) {
     #[cfg(feature = "load-grammars")]
     languages.register_native_grammars(grammars::native_grammars());
 
     let bash_lsp_adapter = Arc::new(bash::BashLspAdapter);
     let c_lsp_adapter = Arc::new(c::CLspAdapter);
-    let css_lsp_adapter = Arc::new(css::CssLspAdapter::new(node.clone()));
     let json_context_provider = Arc::new(JsonTaskProvider);
     let json_lsp_adapter = Arc::new(json::JsonLspAdapter::new(languages.clone()));
     let node_version_lsp_adapter = Arc::new(json::NodeVersionAdapter);
@@ -90,7 +88,7 @@ pub fn init(languages: Arc<LanguageRegistry>, fs: Arc<dyn Fs>, node: NodeRuntime
         },
         LanguageInfo {
             name: "css",
-            adapters: vec![css_lsp_adapter],
+            adapters: vec![],
             ..Default::default()
         },
         LanguageInfo {

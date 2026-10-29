@@ -30,7 +30,6 @@ async-trait.workspace = true
 chrono.workspace = true
 collections.workspace = true
 futures.workspace = true
-globset.workspace = true
 gpui.workspace = true
 grammars.workspace = true
 http_client = { workspace = true, features = ["github-download"] }
@@ -39,7 +38,6 @@ json_schema_store.workspace = true
 language.workspace = true
 log.workspace = true
 lsp.workspace = true
-node_runtime.workspace = true
 parking_lot.workspace = true
 paths.workspace = true
 pet-conda.workspace = true

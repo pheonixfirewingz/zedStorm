@@ -40,13 +40,6 @@ pub struct NpmCommand {
     pub env: HashMap<String, String>,
 }
 
-pub enum VersionStrategy<'a> {
-    /// Install if current version doesn't match pinned version
-    Pin(&'a Version),
-    /// Install if current version is older than latest version
-    Latest(&'a Version),
-}
-
 #[derive(Clone)]
 pub struct NodeRuntime(Arc<Mutex<NodeRuntimeState>>);
 
@@ -352,59 +345,6 @@ impl NodeRuntime {
             .map(|package_name| (*package_name, "latest"))
             .collect::<Vec<_>>();
         self.npm_install_packages(directory, &packages).await
-    }
-
-    pub async fn should_install_npm_package(
-        &self,
-        package_name: &str,
-        local_executable_path: &Path,
-        local_package_directory: &Path,
-        version_strategy: VersionStrategy<'_>,
-    ) -> bool {
-        // In the case of the local system not having the package installed,
-        // or in the instances where we fail to parse package.json data,
-        // we attempt to install the package.
-        if fs::metadata(local_executable_path).await.is_err() {
-            log::debug!(
-                "npm package cache miss package={package_name:?} reason=missing-executable executable={}",
-                local_executable_path.display()
-            );
-            return true;
-        }
-
-        let Some(installed_version) = self
-            .npm_package_installed_version(local_package_directory, package_name)
-            .await
-            .log_err()
-            .flatten()
-        else {
-            log::debug!(
-                "npm package cache miss package={package_name:?} reason=missing-installed-version package_dir={}",
-                local_package_directory.display()
-            );
-            return true;
-        };
-
-        let version_strategy_label = match &version_strategy {
-            VersionStrategy::Pin(version) => format!("pin:{version}"),
-            VersionStrategy::Latest(version) => format!("latest:{version}"),
-        };
-        let should_install =
-            should_install_npm_package_version(&installed_version, version_strategy);
-        log::debug!(
-            "npm package cache check package={package_name:?} installed={installed_version} strategy={version_strategy_label} should_install={should_install}"
-        );
-        should_install
-    }
-}
-
-fn should_install_npm_package_version(
-    installed_version: &Version,
-    version_strategy: VersionStrategy<'_>,
-) -> bool {
-    match version_strategy {
-        VersionStrategy::Pin(pinned_version) => installed_version != pinned_version,
-        VersionStrategy::Latest(latest_version) => installed_version < latest_version,
     }
 }
 
@@ -1119,7 +1059,7 @@ impl NodeRuntimeTrait for SystemNodeRuntime {
     }
 }
 
-pub async fn read_package_installed_version(
+async fn read_package_installed_version(
     node_module_directory: PathBuf,
     name: &str,
 ) -> Result<Option<Version>> {
@@ -1308,9 +1248,8 @@ mod tests {
     use semver::{Version, VersionReq};
 
     use super::{
-        NodeDiscoveryError, NpmInfo, VersionStrategy, build_npm_command_args, check_node_version,
+        NodeDiscoveryError, NpmInfo, build_npm_command_args, check_node_version,
         deserialize_npm_info_from_response, find_node_path, select_npm_package_version,
-        should_install_npm_package_version,
     };
 
     #[test]
@@ -1418,26 +1357,6 @@ mod tests {
                 "--yes".to_string(),
             ]
         );
-    }
-
-    #[test]
-    fn test_latest_version_strategy_accepts_newer_installed_versions() -> Result<()> {
-        let target_version = Version::parse("2.0.0")?;
-
-        assert!(!should_install_npm_package_version(
-            &Version::parse("2.0.0")?,
-            VersionStrategy::Latest(&target_version)
-        ));
-        assert!(should_install_npm_package_version(
-            &Version::parse("1.0.0")?,
-            VersionStrategy::Latest(&target_version)
-        ));
-        assert!(!should_install_npm_package_version(
-            &Version::parse("3.0.0")?,
-            VersionStrategy::Latest(&target_version)
-        ));
-
-        Ok(())
     }
 
     #[test]
@@ -1736,21 +1655,6 @@ mod tests {
             error.to_string(),
             "no version found for npm package test-package"
         );
-        Ok(())
-    }
-
-    #[test]
-    fn test_pinned_version_strategy_replaces_different_installed_version() -> Result<()> {
-        let pinned_version = Version::parse("6.0.3")?;
-
-        assert!(!should_install_npm_package_version(
-            &pinned_version,
-            VersionStrategy::Pin(&pinned_version)
-        ));
-        assert!(should_install_npm_package_version(
-            &Version::parse("7.0.0")?,
-            VersionStrategy::Pin(&pinned_version)
-        ));
         Ok(())
     }
 
