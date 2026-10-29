@@ -1,0 +1,28 @@
+id = "english-spell-checker"
+name = "English Spell Checker"
+description = "Fast, self-contained English spell checker that requires no external tools or downloads."
+version = "0.1.0"
+schema_version = 1
+authors = ["ZedStorm contributors"]
+repository = "https://github.com/zed-industries/zed"
+
+[language_servers.english-spell-checker]
+name = "English Spell Checker"
+languages = [
+    "Markdown",
+    "Plain Text",
+    "Rust",
+    "Python",
+    "JavaScript",
+    "TypeScript",
+    "Go",
+    "HTML",
+    "CSS",
+    "JSON",
+    "TOML",
+    "YAML",
+    "C",
+    "C++",
+    "Ruby",
+    "Git Commit"
+]

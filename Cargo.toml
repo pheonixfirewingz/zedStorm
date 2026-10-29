@@ -185,6 +185,7 @@ members = [
 default-members = ["crates/zed"]
 exclude = [
     "extensions/drawio",
+    "extensions/english-spell-checker",
     "extensions/glsl",
     "extensions/go",
     "extensions/html",
@@ -924,3 +925,4 @@ nonminimal_bool = "allow"
 # this workspace on purpose.
 [workspace.metadata.dylint]
 libraries = [{ path = "tooling/lints" }]
+
