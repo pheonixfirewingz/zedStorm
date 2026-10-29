@@ -142,8 +142,9 @@ jobs:
           path: |
             dist/*.zip
             dist/*.tar.gz
-            dist/english-spell-checker*
-          if-no-files-found: error
+            dist/english-spell-checker
+            dist/english-spell-checker.exe
+          if-no-files-found: ignore
           compression-level: 0
           retention-days: 14
 
@@ -153,7 +154,7 @@ jobs:
     if: (github.ref == 'refs/heads/custom' || github.event_name == 'workflow_dispatch') && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     concurrency:
-      group: latest-extensions-build
+      group: release-${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: false
     permissions:
       actions: read
@@ -172,6 +173,7 @@ jobs:
           gh run download "$RUN_ID" --name english-spell-checker-windows-x86_64 --dir dist-windows
           cp -r dist-linux/* release-assets/ 2>/dev/null || true
           cp -r dist-windows/* release-assets/ 2>/dev/null || true
+          find release-assets -maxdepth 1 -type d ! -name release-assets -exec rm -rf {} + 2>/dev/null || true
           ls -la release-assets/
 
       - name: Replace latest-extensions-build release downloads
@@ -181,19 +183,52 @@ jobs:
           TAG_NAME: latest-extensions-build
         run: |
           set -euo pipefail
+          find release-assets -maxdepth 1 -type d ! -name release-assets -exec rm -rf {} + 2>/dev/null || true
+
+          LOCK_REF="refs/locks/latest-extensions-build"
+          cleanup_lock() {
+            gh api --method DELETE "repos/$GH_REPO/git/$LOCK_REF" 2>/dev/null || true
+          }
+          trap cleanup_lock EXIT
+
+          echo "Acquiring lock for latest-extensions-build release deployment..."
+          waited=0
+          max_wait=600
+          while ! gh api --method POST "repos/$GH_REPO/git/refs" -f ref="$LOCK_REF" -f sha="$BUILD_COMMIT" 2>/dev/null; do
+            echo "Lock is held by another deployment. Waiting 10s... (${waited}s / ${max_wait}s)"
+            sleep 10
+            waited=$((waited + 10))
+            if [ $waited -ge $max_wait ]; then
+              echo "Timed out waiting for lock. Breaking stale lock..."
+              gh api --method DELETE "repos/$GH_REPO/git/$LOCK_REF" 2>/dev/null || true
+              sleep 2
+            fi
+          done
+          echo "Lock acquired successfully."
+
           release_id=$(gh api "repos/$GH_REPO/releases/tags/$TAG_NAME" --jq .id 2>/dev/null || true)
           tag_reference=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG_NAME" --jq .ref 2>/dev/null || true)
           if [ -n "$tag_reference" ]; then
-            gh api --method PATCH "repos/$GH_REPO/git/refs/tags/$TAG_NAME" -f sha="$BUILD_COMMIT" -F force=true
+            for i in {1..3}; do
+              gh api --method PATCH "repos/$GH_REPO/git/refs/tags/$TAG_NAME" -f sha="$BUILD_COMMIT" -F force=true && break || sleep 2
+            done
           else
-            gh api --method POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG_NAME" -f sha="$BUILD_COMMIT"
+            for i in {1..3}; do
+              gh api --method POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG_NAME" -f sha="$BUILD_COMMIT" && break || sleep 2
+            done
           fi
 
           notes="Latest extensions build from the custom branch. Commit: $BUILD_COMMIT. Build: $RUN_URL"
           if [ -n "$release_id" ]; then
-            gh release upload "$TAG_NAME" release-assets/* --clobber
-            gh release edit "$TAG_NAME" --title 'Latest Extensions Build' --notes "$notes"
+            for i in {1..3}; do
+              gh release upload "$TAG_NAME" release-assets/* --clobber && break || sleep 3
+            done
+            for i in {1..3}; do
+              gh release edit "$TAG_NAME" --title 'Latest Extensions Build' --notes "$notes" && break || sleep 2
+            done
           else
-            gh release create "$TAG_NAME" release-assets/* \
-              --verify-tag --title 'Latest Extensions Build' --notes "$notes"
+            for i in {1..3}; do
+              gh release create "$TAG_NAME" release-assets/* \
+                --verify-tag --title 'Latest Extensions Build' --notes "$notes" && break || sleep 3
+            done
           fi
