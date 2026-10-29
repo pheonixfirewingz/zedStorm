@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PLCnext Engineer - Project Viewer</title>
+  <style>/* CSS_PLACEHOLDER */</style>
+</head>
+<body>
+  <!-- Header Bar -->
+  <header class="header">
+    <div class="brand">
+      <span class="brand-logo">PHOENIX CONTACT</span>
+      <span class="brand-title">PLCnext Engineer</span>
+      <span class="brand-badge">READ ONLY</span>
+      <span class="target-badge" id="target-badge">AXC F 2152</span>
+    </div>
+    <div class="header-center">
+      <input type="text" id="search-input" class="search-input" placeholder="Search POUs, variables, tasks (Ctrl+F)..." autocomplete="off" />
+    </div>
+    <div class="header-actions">
+      <button id="btn-export-st" class="btn btn-primary" title="Export all Structured Text to .st file">Export ST</button>
+      <button id="btn-export-csv" class="btn" title="Export all variable tables to CSV">Export CSV</button>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <div class="main-container">
+    <!-- Left Navigation Sidebar -->
+    <aside class="sidebar">
+      <div style="padding: 10px 14px; border-bottom: 1px solid var(--border-color); font-size: 13px; font-weight: 600; color: #fff;" id="project-name">
+        Loading Project...
+      </div>
+      <div class="tree-container" id="tree-content">
+        <!-- Discovered POUs, tasks, and types will be populated here -->
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="content-area">
+      <!-- Title & Sub-tab Bar -->
+      <div class="panel-header">
+        <div class="panel-title-group">
+          <span class="panel-title" id="panel-title">Project Overview</span>
+          <span class="panel-type-badge" id="panel-type-badge">SOLUTION</span>
+        </div>
+      </div>
+      <div class="sub-tabs" id="sub-tabs" style="display: none;">
+        <div class="sub-tab active" data-tab="code">📝 Structured Text</div>
+        <div class="sub-tab" data-tab="vars">📊 Variables Table</div>
+        <div class="sub-tab" data-tab="docs">📖 Documentation</div>
+      </div>
+
+      <!-- View Body -->
+      <div class="view-body" id="view-body">
+        <div style="text-align: center; color: var(--text-dim); margin-top: 60px;">
+          Initializing PLCnext Project Viewer...
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>/* JS_PLACEHOLDER */</script>
+</body>
+</html>

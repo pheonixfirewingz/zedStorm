@@ -1,0 +1,154 @@
+{
+  "data": [
+    {
+      "id": "drawio",
+      "name": "diagrams.net",
+      "version": "0.1.0",
+      "description": "Edit Draw.io diagrams in an embedded ZedStorm tab using the system webview.",
+      "authors": [
+        "ZedStorm contributors"
+      ],
+      "repository": "https://github.com/zed-industries/zed",
+      "schema_version": 1,
+      "wasm_api_version": "0.8.0",
+      "published_at": "2026-10-29T00:00:00Z",
+      "download_count": 0,
+      "provides": []
+    },
+    {
+      "id": "english-spell-checker",
+      "name": "English Spell Checker",
+      "version": "0.1.0",
+      "description": "Fast, self-contained English spell checker that requires no external tools or downloads.",
+      "authors": [
+        "ZedStorm contributors"
+      ],
+      "repository": "https://github.com/zed-industries/zed",
+      "schema_version": 1,
+      "wasm_api_version": "0.8.0",
+      "published_at": "2026-10-29T00:00:00Z",
+      "download_count": 0,
+      "provides": []
+    },
+    {
+      "id": "glsl",
+      "name": "GLSL",
+      "version": "0.2.5",
+      "description": "GLSL support.",
+      "authors": [
+        "Mikayla Maki <mikayla@zed.dev>"
+      ],
+      "repository": "https://github.com/zed-industries/zed",
+      "schema_version": 1,
+      "wasm_api_version": "0.8.0",
+      "published_at": "2026-10-29T00:00:00Z",
+      "download_count": 0,
+      "provides": []
+    },
+    {
+      "id": "go",
+      "name": "Go",
+      "version": "0.1.0",
+      "description": "Go, Go module, and Go work support.",
+      "authors": [
+        "Zed Industries <support@zed.dev>"
+      ],
+      "repository": "https://github.com/zed-industries/zed",
+      "schema_version": 1,
+      "wasm_api_version": "0.8.0",
+      "published_at": "2026-10-29T00:00:00Z",
+      "download_count": 0,
+      "provides": []
+    },
+    {
+      "id": "html",
+      "name": "HTML",
+      "version": "0.3.2",
+      "description": "HTML support.",
+      "authors": [
+        "Isaac Clayton <slightknack@gmail.com>"
+      ],
+      "repository": "https://github.com/zed-industries/zed",
+      "schema_version": 1,
+      "wasm_api_version": "0.8.0",
+      "published_at": "2026-10-29T00:00:00Z",
+      "download_count": 0,
+      "provides": []
+    },
+    {
+      "id": "jupyter",
+      "name": "Jupyter",
+      "version": "0.1.0",
+      "description": "Jupyter notebook and REPL support.",
+      "authors": [
+        "ZedStorm contributors"
+      ],
+      "repository": "https://github.com/zed-industries/zed",
+      "schema_version": 1,
+      "wasm_api_version": "0.8.0",
+      "published_at": "2026-10-29T00:00:00Z",
+      "download_count": 0,
+      "provides": []
+    },
+    {
+      "id": "mermaid",
+      "name": "Mermaid",
+      "version": "0.1.0",
+      "description": "Render Mermaid diagrams in Markdown previews and chat.",
+      "authors": [
+        "ZedStorm contributors"
+      ],
+      "repository": "https://github.com/pheonixfirewingz/zedStorm",
+      "schema_version": 1,
+      "wasm_api_version": "0.8.0",
+      "published_at": "2026-10-29T00:00:00Z",
+      "download_count": 0,
+      "provides": []
+    },
+    {
+      "id": "plcnext",
+      "name": "PLCnext Engineer",
+      "version": "0.1.0",
+      "description": "Read-only viewer and explorer for Phoenix Contact PLCnext Engineer projects (.pcwex, .pcweax, .pcwlx, .pcwef).",
+      "authors": [
+        "ZedStorm contributors"
+      ],
+      "repository": "https://github.com/zed-industries/zed",
+      "schema_version": 1,
+      "wasm_api_version": "0.8.0",
+      "published_at": "2026-10-29T00:00:00Z",
+      "download_count": 0,
+      "provides": []
+    },
+    {
+      "id": "proto",
+      "name": "Proto",
+      "version": "0.3.4",
+      "description": "Protocol Buffers support.",
+      "authors": [
+        "Zed Industries <support@zed.dev>"
+      ],
+      "repository": "https://github.com/zed-industries/zed",
+      "schema_version": 1,
+      "wasm_api_version": "0.8.0",
+      "published_at": "2026-10-29T00:00:00Z",
+      "download_count": 0,
+      "provides": []
+    },
+    {
+      "id": "yaml",
+      "name": "YAML",
+      "version": "0.1.0",
+      "description": "YAML support.",
+      "authors": [
+        "Zed Industries <support@zed.dev>"
+      ],
+      "repository": "https://github.com/zed-industries/zed",
+      "schema_version": 1,
+      "wasm_api_version": "0.8.0",
+      "published_at": "2026-10-29T00:00:00Z",
+      "download_count": 0,
+      "provides": []
+    }
+  ]
+}

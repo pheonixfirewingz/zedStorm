@@ -53,7 +53,7 @@ flatpak run --user --command=bash --share=network \
     --env=CXX=/usr/lib/sdk/llvm20/bin/clang++ \
     --env=LIBCLANG_PATH=/usr/lib/sdk/llvm20/lib \
     org.freedesktop.Sdk//25.08 -c \
-    'set -euo pipefail; export PATH="$CARGO_HOME/bin:/usr/lib/sdk/llvm20/bin:$PATH"; cd "$1"; cargo build --release --locked --package zed --bin zed --target-dir target' \
+    'set -euo pipefail; export PATH="$CARGO_HOME/bin:/usr/lib/sdk/llvm20/bin:$PATH"; cd "$1"; cargo build --release --locked --package zed --bin zed --package json_language_server --bin json-language-server --target-dir target' \
     bash "$repository_directory"
 
 flatpak-builder --user --force-clean --disable-rofiles-fuse \

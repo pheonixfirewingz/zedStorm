@@ -1,0 +1,5 @@
+name = "Structured Text"
+path_suffixes = ["st"]
+line_comments = ["//"]
+block_comment = ["(*", "*)"]
+tab_size = 4

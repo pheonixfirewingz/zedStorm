@@ -15,6 +15,7 @@ modules:
     buildsystem: simple
     build-commands:
       - install -Dm755 zed /app/bin/zedstorm
+      - install -Dm755 json-language-server /app/bin/json-language-server
       - install -Dm755 host-compiler /app/bin/host-compiler
       - for compiler in cc c++ gcc g++ clang clang++; do ln -s host-compiler /app/bin/$compiler; done
       - install -Dm644 dev.zedstorm.ZedStorm.desktop /app/share/applications/dev.zedstorm.ZedStorm.desktop
@@ -30,6 +31,8 @@ modules:
           exec /usr/bin/flatpak-spawn --host --watch-bus --directory="$PWD" "${0##*/}" "$@"
       - type: file
         path: ../../target/release/zed
+      - type: file
+        path: ../../target/release/json-language-server
       - type: file
         path: ../../crates/zed/resources/app-icon.png
       - type: file

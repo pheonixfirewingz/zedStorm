@@ -91,6 +91,7 @@ jobs:
           $env:LIBCLANG_PATH = 'C:\Program Files\LLVM\bin'
           cargo test --locked --package context_mcp
           cargo build --release --locked --package zed --bin zed
+          cargo build --release --locked --package json_language_server --bin json-language-server
           & ./script/test-context-mcp.ps1 -Executable ./target/release/zed.exe
 
       - name: Package Windows editor
@@ -99,7 +100,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Path dist/zedstorm-windows-x86_64 -Force
-          Copy-Item target/release/zed.exe, target/release/conpty.dll, target/release/OpenConsole.exe -Destination dist/zedstorm-windows-x86_64
+          Copy-Item target/release/zed.exe, target/release/json-language-server.exe, target/release/conpty.dll, target/release/OpenConsole.exe -Destination dist/zedstorm-windows-x86_64
           Copy-Item LICENSE-GPL, LICENSE-APACHE, assets/licenses.md -Destination dist/zedstorm-windows-x86_64
           Compress-Archive -Path dist/zedstorm-windows-x86_64 -DestinationPath dist/zedstorm-windows-x86_64.zip
 

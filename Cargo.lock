@@ -6044,6 +6044,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "json_language_server"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serde_json_lenient",
+]
+
+[[package]]
 name = "json_schema_store"
 version = "0.1.0"
 dependencies = [
@@ -6425,6 +6434,7 @@ dependencies = [
  "lsp",
  "node_runtime",
  "parking_lot",
+ "paths",
  "pet",
  "pet-conda",
  "pet-core",

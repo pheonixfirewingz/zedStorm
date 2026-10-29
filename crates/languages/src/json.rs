@@ -155,13 +155,17 @@ impl LspInstaller for JsonLspAdapter {
 
     async fn fetch_latest_server_version(
         &self,
-        _: &Arc<dyn LspAdapterDelegate>,
+        delegate: &Arc<dyn LspAdapterDelegate>,
         _: bool,
         _: &mut AsyncApp,
     ) -> Result<Self::BinaryVersion> {
+        if delegate.which("json-language-server".as_ref()).await.is_some() {
+            return Ok(Version::new(0, 1, 0));
+        }
         self.node
             .npm_package_latest_version(Self::PACKAGE_NAME)
             .await
+            .or_else(|_| Ok(Version::new(0, 1, 0)))
     }
 
     async fn check_if_user_installed(
@@ -170,10 +174,47 @@ impl LspInstaller for JsonLspAdapter {
         _: Option<Toolchain>,
         _: &AsyncApp,
     ) -> Option<LanguageServerBinary> {
+        let env = delegate.shell_env().await;
+
+        // 1. Check for pure Rust native json-language-server on PATH
+        if let Some(path) = delegate.which("json-language-server".as_ref()).await {
+            return Some(LanguageServerBinary {
+                path,
+                env: Some(env),
+                arguments: vec!["--stdio".into()],
+            });
+        }
+
+        // 2. Check next to current executable or in zedstorm-tools
+        let exe_name = if cfg!(windows) {
+            "json-language-server.exe"
+        } else {
+            "json-language-server"
+        };
+        if let Ok(current_exe) = std::env::current_exe() {
+            if let Some(candidate) = current_exe.parent().map(|p| p.join(exe_name)) {
+                if candidate.is_file() {
+                    return Some(LanguageServerBinary {
+                        path: candidate,
+                        env: Some(env),
+                        arguments: vec!["--stdio".into()],
+                    });
+                }
+            }
+        }
+        let tools_candidate = paths::zedstorm_tools_dir().join("bin").join(exe_name);
+        if tools_candidate.is_file() {
+            return Some(LanguageServerBinary {
+                path: tools_candidate,
+                env: Some(env),
+                arguments: vec!["--stdio".into()],
+            });
+        }
+
+        // 3. Fall back to legacy node vscode-json-language-server
         let path = delegate
             .which("vscode-json-language-server".as_ref())
             .await?;
-        let env = delegate.shell_env().await;
 
         Some(LanguageServerBinary {
             path,
@@ -193,6 +234,31 @@ impl LspInstaller for JsonLspAdapter {
         let container_dir = container_dir.clone();
 
         async move {
+            let exe_name = if cfg!(windows) {
+                "json-language-server.exe"
+            } else {
+                "json-language-server"
+            };
+            if let Ok(current_exe) = std::env::current_exe() {
+                if let Some(candidate) = current_exe.parent().map(|p| p.join(exe_name)) {
+                    if candidate.is_file() {
+                        return Some(LanguageServerBinary {
+                            path: candidate,
+                            env: None,
+                            arguments: vec!["--stdio".into()],
+                        });
+                    }
+                }
+            }
+            let tools_candidate = paths::zedstorm_tools_dir().join("bin").join(exe_name);
+            if tools_candidate.is_file() {
+                return Some(LanguageServerBinary {
+                    path: tools_candidate,
+                    env: None,
+                    arguments: vec!["--stdio".into()],
+                });
+            }
+
             let server_path = container_dir.join(SERVER_PATH);
 
             let should_install_language_server = node
@@ -225,6 +291,31 @@ impl LspInstaller for JsonLspAdapter {
         let node = self.node.clone();
 
         async move {
+            let exe_name = if cfg!(windows) {
+                "json-language-server.exe"
+            } else {
+                "json-language-server"
+            };
+            if let Ok(current_exe) = std::env::current_exe() {
+                if let Some(candidate) = current_exe.parent().map(|p| p.join(exe_name)) {
+                    if candidate.is_file() {
+                        return Ok(LanguageServerBinary {
+                            path: candidate,
+                            env: None,
+                            arguments: vec!["--stdio".into()],
+                        });
+                    }
+                }
+            }
+            let tools_candidate = paths::zedstorm_tools_dir().join("bin").join(exe_name);
+            if tools_candidate.is_file() {
+                return Ok(LanguageServerBinary {
+                    path: tools_candidate,
+                    env: None,
+                    arguments: vec!["--stdio".into()],
+                });
+            }
+
             let server_path = container_dir.join(SERVER_PATH);
 
             node.npm_install_latest_packages(&container_dir, &[Self::PACKAGE_NAME])

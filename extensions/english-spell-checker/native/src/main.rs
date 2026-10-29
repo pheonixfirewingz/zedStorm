@@ -1,3 +1,5 @@
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 mod checker;
 mod dictionary;
 mod lsp;

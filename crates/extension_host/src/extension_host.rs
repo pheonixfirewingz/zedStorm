@@ -844,22 +844,29 @@ impl ExtensionStore {
                 .data
                 .retain(|extension| !SUPPRESSED_EXTENSIONS.contains(extension.id.as_ref()));
 
-            if !response.data.iter().any(|ext| ext.id.as_ref() == "drawio") {
-                response.data.push(extension::ExtensionMetadata {
-                    id: "drawio".into(),
-                    manifest: extension::ExtensionApiManifest {
-                        name: "Draw.io Diagrams".into(),
-                        version: "0.1.0".into(),
-                        description: Some("Diagram and drawing tab renderer extension for Zed".into()),
-                        authors: vec!["zedStorm".into()],
-                        repository: "https://github.com/pheonixfirewingz/zedStorm".into(),
-                        schema_version: Some(0),
-                        wasm_api_version: Some("0.8.0".into()),
-                        provides: Default::default(),
-                    },
-                    published_at: chrono::Utc::now(),
-                    download_count: 0,
-                });
+            // Dynamically merge extensions from the repository catalog if available
+            let mut catalog_data: Option<GetExtensionsResponse> = None;
+            if let Ok(catalog_url) = Url::parse(
+                "https://raw.githubusercontent.com/pheonixfirewingz/zedStorm/custom/extensions/extensions.json",
+            ) {
+                if let Ok(mut cat_resp) =
+                    http_client.get(catalog_url.as_ref(), AsyncBody::empty(), true).await
+                {
+                    if cat_resp.status().is_success() {
+                        let mut cat_body = Vec::new();
+                        if cat_resp.body_mut().read_to_end(&mut cat_body).await.is_ok() {
+                            catalog_data = serde_json::from_slice(&cat_body).ok();
+                        }
+                    }
+                }
+            }
+
+            if let Some(catalog) = catalog_data {
+                for ext in catalog.data {
+                    if !response.data.iter().any(|existing| existing.id == ext.id) {
+                        response.data.push(ext);
+                    }
+                }
             }
 
             Ok(response.data)
@@ -1007,11 +1014,11 @@ impl ExtensionStore {
         })
     }
 
-    fn drawio_download_url() -> Result<Url> {
+    fn release_extension_download_url(extension_id: &str) -> Result<Url> {
         let archive = if cfg!(target_os = "windows") {
-            "drawio-windows-x86_64.zip"
+            format!("{extension_id}-windows-x86_64.zip")
         } else {
-            "drawio.tar.gz"
+            format!("{extension_id}.tar.gz")
         };
         Url::parse(&format!(
             "https://github.com/pheonixfirewingz/zedStorm/releases/download/latest-extensions-build/{archive}"
@@ -1025,27 +1032,22 @@ impl ExtensionStore {
         let schema_versions = schema_version_range();
         let wasm_api_versions = wasm_api_version_range(ReleaseChannel::global(cx));
 
-        let url = if extension_id.as_ref() == "drawio" {
-            Self::drawio_download_url().log_err()
-        } else {
-            self.http_client
-                .build_zed_api_url(
-                    &format!("/extensions/{extension_id}/download"),
-                    &[
-                        ("min_schema_version", &schema_versions.start().to_string()),
-                        ("max_schema_version", &schema_versions.end().to_string()),
-                        (
-                            "min_wasm_api_version",
-                            &wasm_api_versions.start().to_string(),
-                        ),
-                        ("max_wasm_api_version", &wasm_api_versions.end().to_string()),
-                    ],
-                )
-                .log_err()
-                .or_else(|| {
-                    http_client::Url::parse(&format!("https://github.com/pheonixfirewingz/zedStorm/releases/download/latest/{extension_id}.tar.gz")).log_err()
-                })
-        };
+        let url = self
+            .http_client
+            .build_zed_api_url(
+                &format!("/extensions/{extension_id}/download"),
+                &[
+                    ("min_schema_version", &schema_versions.start().to_string()),
+                    ("max_schema_version", &schema_versions.end().to_string()),
+                    (
+                        "min_wasm_api_version",
+                        &wasm_api_versions.start().to_string(),
+                    ),
+                    ("max_wasm_api_version", &wasm_api_versions.end().to_string()),
+                ],
+            )
+            .log_err()
+            .or_else(|| Self::release_extension_download_url(extension_id.as_ref()).log_err());
         let Some(url) = url else {
             return;
         };
@@ -1076,19 +1078,14 @@ impl ExtensionStore {
         cx: &mut Context<Self>,
     ) -> Task<Result<()>> {
         log::info!("installing extension {extension_id} {version}");
-        let url = if extension_id.as_ref() == "drawio" {
-            Self::drawio_download_url().log_err()
-        } else {
-            self.http_client
-                .build_zed_api_url(
-                    &format!("/extensions/{extension_id}/{version}/download"),
-                    &[],
-                )
-                .log_err()
-                .or_else(|| {
-                    http_client::Url::parse(&format!("https://github.com/pheonixfirewingz/zedStorm/releases/download/latest/{extension_id}.tar.gz")).log_err()
-                })
-        };
+        let url = self
+            .http_client
+            .build_zed_api_url(
+                &format!("/extensions/{extension_id}/{version}/download"),
+                &[],
+            )
+            .log_err()
+            .or_else(|| Self::release_extension_download_url(extension_id.as_ref()).log_err());
         let Some(url) = url else {
             return Task::ready(Ok(()));
         };

@@ -1,57 +1,68 @@
-use std::{env, fs};
+mod tools_path;
+
+use std::{env, fs, path::PathBuf};
 use zed::settings::LspSettings;
 use zed_extension_api::{self as zed, LanguageServerId, Result};
 
 const BINARY_NAME: &str = "yaml-language-server";
-const SERVER_PATH: &str =
-    "node_modules/yaml-language-server/bin/yaml-language-server";
-const PACKAGE_NAME: &str = "yaml-language-server";
 
 struct YamlExtension {
     cached_binary_path: Option<String>,
 }
 
 impl YamlExtension {
-    fn server_exists(&self) -> bool {
-        fs::metadata(SERVER_PATH).is_ok_and(|stat| stat.is_file())
-    }
-
-    fn server_script_path(&mut self, language_server_id: &LanguageServerId) -> Result<String> {
-        let server_exists = self.server_exists();
-        if self.cached_binary_path.is_some() && server_exists {
-            return Ok(SERVER_PATH.to_string());
-        }
-
-        zed::set_language_server_installation_status(
-            language_server_id,
-            &zed::LanguageServerInstallationStatus::CheckingForUpdate,
-        );
-        let version = zed::npm_package_latest_version(PACKAGE_NAME)?;
-
-        if !server_exists
-            || zed::npm_package_installed_version(PACKAGE_NAME)?.as_ref() != Some(&version)
-        {
-            zed::set_language_server_installation_status(
-                language_server_id,
-                &zed::LanguageServerInstallationStatus::Downloading,
-            );
-            let result = zed::npm_install_package(PACKAGE_NAME, &version);
-            match result {
-                Ok(()) => {
-                    if !self.server_exists() {
-                        Err(format!(
-                            "installed package '{PACKAGE_NAME}' did not contain expected path '{SERVER_PATH}'",
-                        ))?;
-                    }
-                }
-                Err(error) => {
-                    if !self.server_exists() {
-                        Err(error)?;
-                    }
-                }
+    fn binary_path(&mut self, worktree: &zed::Worktree) -> Result<String> {
+        if let Some(path) = &self.cached_binary_path {
+            if fs::metadata(path).is_ok_and(|stat| stat.is_file()) {
+                return Ok(path.clone());
             }
         }
-        Ok(SERVER_PATH.to_string())
+
+        let (os, _arch) = zed::current_platform();
+        let binary_filename = if os == zed::Os::Windows {
+            format!("{BINARY_NAME}.exe")
+        } else {
+            BINARY_NAME.to_string()
+        };
+
+        // 1. Check local extension bundle's bin/ directory
+        if let Ok(current_dir) = env::current_dir() {
+            let local_bin = current_dir.join("bin").join(&binary_filename);
+            if fs::metadata(&local_bin).is_ok_and(|stat| stat.is_file()) {
+                let path = local_bin.to_string_lossy().to_string();
+                self.cached_binary_path = Some(path.clone());
+                return Ok(path);
+            }
+        }
+
+        // 2. Check zedstorm-tools managed tools directory
+        let env_vars = worktree.shell_env();
+        let os_str = match os {
+            zed::Os::Mac => "mac",
+            zed::Os::Linux => "linux",
+            zed::Os::Windows => "windows",
+        };
+
+        if let Ok(tools_dir) = tools_path::extension_directory(os_str, &env_vars) {
+            let tools_bin = tools_dir.join("bin").join(&binary_filename);
+            if fs::metadata(&tools_bin).is_ok_and(|stat| stat.is_file()) {
+                let path = tools_bin.to_string_lossy().to_string();
+                self.cached_binary_path = Some(path.clone());
+                return Ok(path);
+            }
+        }
+
+        // 3. Check system PATH
+        if let Some(path) = worktree.which(BINARY_NAME) {
+            self.cached_binary_path = Some(path.clone());
+            return Ok(path);
+        }
+
+        // Fallback to relative bin path in extension dir
+        let fallback = PathBuf::from("bin").join(&binary_filename);
+        let path = fallback.to_string_lossy().to_string();
+        self.cached_binary_path = Some(path.clone());
+        Ok(path)
     }
 }
 
@@ -64,28 +75,14 @@ impl zed::Extension for YamlExtension {
 
     fn language_server_command(
         &mut self,
-        language_server_id: &LanguageServerId,
+        _language_server_id: &LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<zed::Command> {
-        let server_path = if let Some(path) = worktree.which(BINARY_NAME) {
-            return Ok(zed::Command {
-                command: path,
-                args: vec!["--stdio".to_string()],
-                env: worktree.shell_env(),
-            });
-        } else {
-            let server_path = self.server_script_path(language_server_id)?;
-            env::current_dir()
-                .unwrap()
-                .join(&server_path)
-                .to_string_lossy()
-                .to_string()
-        };
-        self.cached_binary_path = Some(server_path.clone());
+        let path = self.binary_path(worktree)?;
 
         Ok(zed::Command {
-            command: zed::node_binary_path()?,
-            args: vec![server_path, "--stdio".to_string()],
+            command: path,
+            args: vec!["--stdio".to_string()],
             env: worktree.shell_env(),
         })
     }

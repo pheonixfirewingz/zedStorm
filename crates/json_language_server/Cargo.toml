@@ -1,0 +1,14 @@
+[package]
+name = "json_language_server"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "json-language-server"
+path = "src/main.rs"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+serde_json_lenient = { workspace = true }
