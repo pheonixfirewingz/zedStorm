@@ -4,7 +4,7 @@ description = "Fast, self-contained English spell checker that requires no exter
 version = "0.1.0"
 schema_version = 1
 authors = ["ZedStorm contributors"]
-repository = "https://github.com/zed-industries/zed"
+repository = "https://github.com/pheonixfirewingz/zedStorm"
 
 [language_servers.english-spell-checker]
 name = "English Spell Checker"

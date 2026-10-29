@@ -8,7 +8,7 @@
       "authors": [
         "ZedStorm contributors"
       ],
-      "repository": "https://github.com/zed-industries/zed",
+      "repository": "https://github.com/pheonixfirewingz/zedStorm",
       "schema_version": 1,
       "wasm_api_version": "0.8.0",
       "published_at": "2026-10-29T00:00:00Z",
@@ -23,7 +23,7 @@
       "authors": [
         "ZedStorm contributors"
       ],
-      "repository": "https://github.com/zed-industries/zed",
+      "repository": "https://github.com/pheonixfirewingz/zedStorm",
       "schema_version": 1,
       "wasm_api_version": "0.8.0",
       "published_at": "2026-10-29T00:00:00Z",
@@ -51,9 +51,9 @@
       "version": "0.1.0",
       "description": "Go, Go module, and Go work support.",
       "authors": [
-        "Zed Industries <support@zed.dev>"
+        "ZedStorm contributors"
       ],
-      "repository": "https://github.com/zed-industries/zed",
+      "repository": "https://github.com/pheonixfirewingz/zedStorm",
       "schema_version": 1,
       "wasm_api_version": "0.8.0",
       "published_at": "2026-10-29T00:00:00Z",
@@ -83,7 +83,7 @@
       "authors": [
         "ZedStorm contributors"
       ],
-      "repository": "https://github.com/zed-industries/zed",
+      "repository": "https://github.com/pheonixfirewingz/zedStorm",
       "schema_version": 1,
       "wasm_api_version": "0.8.0",
       "published_at": "2026-10-29T00:00:00Z",
@@ -113,7 +113,7 @@
       "authors": [
         "ZedStorm contributors"
       ],
-      "repository": "https://github.com/zed-industries/zed",
+      "repository": "https://github.com/pheonixfirewingz/zedStorm",
       "schema_version": 1,
       "wasm_api_version": "0.8.0",
       "published_at": "2026-10-29T00:00:00Z",
@@ -126,9 +126,9 @@
       "version": "0.3.4",
       "description": "Protocol Buffers support.",
       "authors": [
-        "Zed Industries <support@zed.dev>"
+        "ZedStorm contributors"
       ],
-      "repository": "https://github.com/zed-industries/zed",
+      "repository": "https://github.com/pheonixfirewingz/zedStorm",
       "schema_version": 1,
       "wasm_api_version": "0.8.0",
       "published_at": "2026-10-29T00:00:00Z",
@@ -141,9 +141,39 @@
       "version": "0.1.0",
       "description": "YAML support.",
       "authors": [
-        "Zed Industries <support@zed.dev>"
+        "ZedStorm contributors"
       ],
-      "repository": "https://github.com/zed-industries/zed",
+      "repository": "https://github.com/pheonixfirewingz/zedStorm",
+      "schema_version": 1,
+      "wasm_api_version": "0.8.0",
+      "published_at": "2026-10-29T00:00:00Z",
+      "download_count": 0,
+      "provides": []
+    },
+    {
+      "id": "tailwindcss",
+      "name": "Tailwind CSS",
+      "version": "0.1.0",
+      "description": "Tailwind CSS support.",
+      "authors": [
+        "ZedStorm contributors"
+      ],
+      "repository": "https://github.com/pheonixfirewingz/zedStorm",
+      "schema_version": 1,
+      "wasm_api_version": "0.8.0",
+      "published_at": "2026-10-29T00:00:00Z",
+      "download_count": 0,
+      "provides": []
+    },
+    {
+      "id": "vue",
+      "name": "Vue",
+      "version": "0.4.1",
+      "description": "Vue support.",
+      "authors": [
+        "ZedStorm contributors"
+      ],
+      "repository": "https://github.com/pheonixfirewingz/zedStorm",
       "schema_version": 1,
       "wasm_api_version": "0.8.0",
       "published_at": "2026-10-29T00:00:00Z",
@@ -151,4 +181,4 @@
       "provides": []
     }
   ]
-}
+}

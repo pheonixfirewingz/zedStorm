@@ -9,10 +9,8 @@ Python support is available natively in Zed.
 
 - Tree-sitter: [tree-sitter-python](https://github.com/zed-industries/tree-sitter-python)
 - Language Servers:
-  - [DetachHead/basedpyright](https://github.com/DetachHead/basedpyright)
-  - [astral-sh/ruff](https://github.com/astral-sh/ruff)
   - [astral-sh/ty](https://github.com/astral-sh/ty)
-  - [microsoft/pyright](https://github.com/microsoft/pyright)
+  - [astral-sh/ruff](https://github.com/astral-sh/ruff)
   - [python-lsp/python-lsp-server](https://github.com/python-lsp/python-lsp-server) (PyLSP)
 - Debug Adapter: [debugpy](https://github.com/microsoft/debugpy)
 
@@ -72,15 +70,13 @@ Zed includes an integrated terminal, accessible from the bottom panel. If Zed de
 
 ## Configure Python Language Servers in Zed
 
-Zed provides several Python language servers out of the box. By default, [basedpyright](https://github.com/DetachHead/basedpyright) is the primary language server, and [Ruff](https://github.com/astral-sh/ruff) is used for formatting and linting.
+Zed provides several Python language servers out of the box. By default, [ty](https://docs.astral.sh/ty/) is the primary language server for type checking, and [Ruff](https://github.com/astral-sh/ruff) is used for formatting and linting.
 
 Other built-in language servers are:
 
-- [ty](https://docs.astral.sh/ty/)&mdash;Up-and-coming language server from Astral, built for speed.
-- [Pyright](https://github.com/microsoft/pyright)&mdash;The basis for basedpyright.
 - [PyLSP](https://github.com/python-lsp/python-lsp-server)&mdash;A plugin-based language server that integrates with tools like `pycodestyle`, `autopep8`, and `yapf`.
 
-These are disabled by default and are not included by `"..."`. Enable them by listing them by name in your settings.
+This is disabled by default and is not included by `"..."`. Enable it by listing it by name in your settings.
 
 Configure language servers in Settings ({#kb zed::OpenSettings}) under Languages > Python, or add to your settings file:
 
@@ -89,10 +85,8 @@ Configure language servers in Settings ({#kb zed::OpenSettings}) under Languages
   "languages": {
     "Python": {
       "language_servers": [
-        // Enable ty, disable basedpyright, and enable all other
-        // language servers that are enabled by default (e.g. ruff).
         "ty",
-        "!basedpyright",
+        "ruff",
         "..."
       ]
     }
@@ -102,67 +96,6 @@ Configure language servers in Settings ({#kb zed::OpenSettings}) under Languages
 
 See: [Working with Language Servers](https://zed.dev/docs/configuring-languages#working-with-language-servers) for more information about how to enable and disable language servers.
 
-### Basedpyright
-
-[basedpyright](https://docs.basedpyright.com/latest/) is the primary Python language server in Zed beginning with Zed v0.204.0. It provides core language server functionality like navigation (go to definition/find all references) and type checking. Compared to Pyright, it adds support for additional language server features (like inlay hints) and checking rules.
-
-Note that while basedpyright in isolation defaults to the `recommended` [type-checking mode](https://docs.basedpyright.com/latest/benefits-over-pyright/better-defaults/#typecheckingmode), Zed configures it to use the less-strict `standard` mode by default, which matches the behavior of Pyright. You can set the type-checking mode for your project using the `typeCheckingMode` setting in `pyrightconfig.json` or `pyproject.toml`, which will override Zed's default. Read on for more details about how to configure basedpyright.
-
-#### Basedpyright Configuration
-
-basedpyright reads configuration options from two different kinds of sources:
-
-- Language server settings ("workspace configuration"), which must be configured per-editor (using `settings.json` in Zed's case) but apply to all projects opened in that editor
-- Configuration files (`pyrightconfig.json`, `pyproject.toml`), which are editor-independent but specific to the project where they are placed
-
-As a rule of thumb, options that are only relevant when using basedpyright from an editor must be set in language server settings, and options that are relevant even if you're running it [as a command-line tool](https://docs.basedpyright.com/latest/configuration/command-line/) must be set in configuration files. Settings related to inlay hints are examples of the first category, and the [diagnostic category](https://docs.basedpyright.com/latest/configuration/config-files/#diagnostic-categories) settings are examples of the second category.
-
-Examples of both kinds of configuration are provided below. Refer to the basedpyright documentation on [language server settings](https://docs.basedpyright.com/latest/configuration/language-server-settings/) and [configuration files](https://docs.basedpyright.com/latest/configuration/config-files/) for comprehensive lists of available options.
-
-##### Language server settings
-
-Language server settings for basedpyright in Zed can be set in the `lsp` section of your `settings.json`.
-
-For example, to:
-
-- diagnose all files in the workspace instead of the only open files default
-- disable inlay hints on function arguments
-
-You can use the following configuration:
-
-```json [settings]
-{
-  "lsp": {
-    "basedpyright": {
-      "settings": {
-        "basedpyright": {
-          "analysis": {
-            "diagnosticMode": "workspace",
-            "inlayHints": {
-              "callArgumentNames": false
-            }
-          }
-        }
-      }
-    }
-  }
-}
-```
-
-For compatibility with older configurations, Zed also accepts `basedpyright.analysis` as a top-level key within `settings`.
-
-##### Configuration files
-
-basedpyright reads project-specific configuration from the `pyrightconfig.json` configuration file and from the `[tool.basedpyright]` and `[tool.pyright]` sections of `pyproject.toml` manifests. `pyrightconfig.json` overrides `pyproject.toml` if configuration is present in both places.
-
-Here's an example `pyrightconfig.json` file that configures basedpyright to use the `strict` type-checking mode and not to issue diagnostics for any files in `__pycache__` directories:
-
-```json
-{
-  "typeCheckingMode": "strict",
-  "ignore": ["**/__pycache__"]
-}
-```
 
 ### PyLSP
 
@@ -268,7 +201,7 @@ Configure in Settings ({#kb zed::OpenSettings}) under Languages > Python, or add
 
 ### Configuring Ruff
 
-Like basedpyright, Ruff reads options from both Zed's language server settings and configuration files (`ruff.toml`) when used in Zed. Unlike basedpyright, _all_ options can be configured in either of these locations, so the choice of where to put your Ruff configuration comes down to whether you want it to be shared between projects but specific to Zed (in which case you should use language server settings), or specific to one project but common to all Ruff invocations (in which case you should use `ruff.toml`).
+Ruff reads options from both Zed's language server settings and configuration files (`ruff.toml`) when used in Zed. All options can be configured in either of these locations, so the choice of where to put your Ruff configuration comes down to whether you want it to be shared between projects but specific to Zed (in which case you should use language server settings), or specific to one project but common to all Ruff invocations (in which case you should use `ruff.toml`).
 
 Here's an example of using language server settings in Zed's `settings.json` to disable all Ruff lints in Zed (while still using Ruff as a formatter):
 
@@ -445,7 +378,7 @@ If a language server isn't responding or features like diagnostics or autocomple
 - Use the language server logs view to understand the lifecycle of the affected language server. You can access this view using the {#action dev::OpenLanguageServerLogs} action, or by clicking the lightning bolt icon in the status bar and selecting your language server. The most useful pieces of data in this view are:
   - "Server Logs", which shows any errors printed by the language server
   - "Server Info", which shows details about how the language server was started
-- Verify your `settings.json` or `pyrightconfig.json` is syntactically correct.
+- Verify your `settings.json` is syntactically correct.
 - Restart Zed to reinitialize language server connections, or try restarting the language server using the {#action editor::RestartLanguageServer}
 
 If the language server is failing to resolve imports, and you're using a virtual environment, make sure that the right environment is chosen in the selector. You can use the "Server Info" view to confirm which virtual environment Zed is sending to the language server&mdash;look for the `* Configuration` section at the end.

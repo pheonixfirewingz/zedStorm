@@ -8,11 +8,17 @@ description: "Configure Bash language support in Zed, including language servers
 Bash support is available natively in Zed.
 
 - Tree-sitter: [tree-sitter/tree-sitter-bash](https://github.com/tree-sitter/tree-sitter-bash)
-- Language Server: [bash-lsp/bash-language-server](https://github.com/bash-lsp/bash-language-server)
+- Language Server: [ewhauser/shuck](https://github.com/ewhauser/shuck)
 
-## Configuration
+## Language Server (Shuck)
 
-It is highly recommended to install `shellcheck`, as `bash-language-server` depends on it to provide diagnostics.
+Zed uses [Shuck](https://github.com/ewhauser/shuck) natively for Bash language server support, providing fast linting, formatting, and language intelligence in a standalone Rust binary without requiring Node.js.
+
+If `shuck` is not already installed on your `PATH`, Zed will automatically download the precompiled binary from GitHub releases. You can also install it manually via Cargo:
+
+```sh
+cargo install shuck-cli
+```
 
 ### Install `shellcheck`:
 

@@ -208,6 +208,14 @@ fn main() {
 
     let args = Args::parse();
 
+    if args.json_language_server {
+        if let Err(error) = json_language_server::run_server() {
+            eprintln!("JSON language server: {error:#}");
+            process::exit(1);
+        }
+        return;
+    }
+
     if let Some(directory) = &args.context_mcp {
         if let Some(directory) = args.user_data_dir.as_deref() {
             paths::set_custom_data_dir(directory);
@@ -1354,6 +1362,14 @@ fn stdout_is_a_pty() -> bool {
 #[derive(Parser, Debug)]
 #[command(name = "zed", disable_version_flag = true, max_term_width = 100)]
 struct Args {
+    /// Run the embedded JSON language server over stdio.
+    #[arg(long, hide = true)]
+    json_language_server: bool,
+
+    /// Run the language server over stdio (ignored, compatibility flag).
+    #[arg(long, hide = true)]
+    stdio: bool,
+
     /// Serve project filesystem and live-editor semantic tools over MCP stdio.
     #[arg(long, value_name = "DIR")]
     context_mcp: Option<PathBuf>,

@@ -1,14 +1,14 @@
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use async_trait::async_trait;
-use collections::HashMap;
+use futures::StreamExt;
 use gpui::AsyncApp;
+use http_client::github::{AssetKind, GitHubLspBinaryVersion, latest_github_release};
+use http_client::github_download::download_server_binary;
 use language::{LanguageServerName, LspAdapter, LspAdapterDelegate, LspInstaller, Toolchain};
 use lsp::{LanguageServerBinary, Uri};
-use node_runtime::{NodeRuntime, VersionStrategy};
 use project::{ContextProviderWithTasks, lsp_store::language_server_settings};
-use semver::Version;
 use serde_json::Value;
-use std::{future::Future, path::PathBuf, sync::Arc, vec};
+use std::{env::consts, future::Future, path::PathBuf, sync::Arc};
 use task::{TaskTemplate, TaskTemplates, VariableName};
 use util::{ResultExt, maybe};
 
@@ -28,52 +28,23 @@ pub(super) fn bash_task_context() -> ContextProviderWithTasks {
     ]))
 }
 
-pub struct BashLspAdapter {
-    node: NodeRuntime,
-}
+pub struct BashLspAdapter;
 
 impl BashLspAdapter {
-    const PACKAGE_NAME: &str = "bash-language-server";
-    const NODE_MODULE_RELATIVE_SERVER_PATH: &str = "bash-language-server/out/cli.js";
-
-    pub fn new(node: NodeRuntime) -> Self {
-        Self { node }
-    }
-
-    async fn get_cached_server_binary(
-        container_dir: PathBuf,
-        env: HashMap<String, String>,
-        node: &NodeRuntime,
-    ) -> Option<lsp::LanguageServerBinary> {
-        maybe!(async {
-            let server_path = container_dir
-                .join("node_modules")
-                .join(Self::NODE_MODULE_RELATIVE_SERVER_PATH);
-            anyhow::ensure!(
-                server_path.exists(),
-                "missing executable in directory {server_path:?}"
-            );
-            Ok(LanguageServerBinary {
-                path: node.binary_path().await?,
-                env: Some(env),
-                arguments: vec![server_path.into(), "start".into()],
-            })
-        })
-        .await
-        .log_err()
-    }
+    const SERVER_NAME: LanguageServerName = LanguageServerName::new_static("shuck");
 }
 
 impl LspInstaller for BashLspAdapter {
-    type BinaryVersion = Version;
+    type BinaryVersion = GitHubLspBinaryVersion;
 
     async fn cached_server_binary(
         &self,
         container_dir: std::path::PathBuf,
         delegate: &dyn LspAdapterDelegate,
     ) -> Option<lsp::LanguageServerBinary> {
-        let env = delegate.shell_env().await;
-        Self::get_cached_server_binary(container_dir, env, &self.node).await
+        let mut binary = get_cached_server_binary(container_dir).await?;
+        binary.env = Some(delegate.shell_env().await);
+        Some(binary)
     }
 
     async fn check_if_user_installed(
@@ -82,14 +53,49 @@ impl LspInstaller for BashLspAdapter {
         _: Option<Toolchain>,
         _: &gpui::AsyncApp,
     ) -> Option<lsp::LanguageServerBinary> {
-        let path = delegate.which(Self::PACKAGE_NAME.as_ref()).await?;
         let env = delegate.shell_env().await;
 
-        Some(LanguageServerBinary {
-            path,
-            env: Some(env),
-            arguments: vec!["start".into()],
-        })
+        // 1. Check if user has `shuck` in PATH
+        if let Some(path) = delegate.which(Self::SERVER_NAME.as_ref()).await {
+            return Some(LanguageServerBinary {
+                path,
+                env: Some(env),
+                arguments: vec!["server".into()],
+            });
+        }
+
+        // 2. Check next to current executable or in zedstorm-tools
+        let exe_name = format!("shuck{}", consts::EXE_SUFFIX);
+        if let Ok(current_exe) = std::env::current_exe() {
+            if let Some(candidate) = current_exe.parent().map(|p| p.join(&exe_name)) {
+                if candidate.is_file() {
+                    return Some(LanguageServerBinary {
+                        path: candidate,
+                        env: Some(env),
+                        arguments: vec!["server".into()],
+                    });
+                }
+            }
+        }
+        let tools_candidate = paths::zedstorm_tools_dir().join("bin").join(&exe_name);
+        if tools_candidate.is_file() {
+            return Some(LanguageServerBinary {
+                path: tools_candidate,
+                env: Some(env),
+                arguments: vec!["server".into()],
+            });
+        }
+
+        // 3. Fallback to legacy user-installed bash-language-server if present
+        if let Some(path) = delegate.which("bash-language-server".as_ref()).await {
+            return Some(LanguageServerBinary {
+                path,
+                env: Some(env),
+                arguments: vec!["start".into()],
+            });
+        }
+
+        None
     }
 
     fn check_if_version_installed(
@@ -98,80 +104,148 @@ impl LspInstaller for BashLspAdapter {
         container_dir: &PathBuf,
         delegate: &Arc<dyn LspAdapterDelegate>,
     ) -> impl Send + Future<Output = Option<lsp::LanguageServerBinary>> + use<> {
-        let node = self.node.clone();
-        let version = version.clone();
+        let version_name = version.name.clone();
         let container_dir = container_dir.clone();
         let delegate = delegate.clone();
 
         async move {
-            let server_path = container_dir
-                .join("node_modules")
-                .join(Self::NODE_MODULE_RELATIVE_SERVER_PATH);
-
-            let should_install_language_server = node
-                .should_install_npm_package(
-                    Self::PACKAGE_NAME,
-                    &server_path,
-                    &container_dir,
-                    VersionStrategy::Latest(&version),
-                )
-                .await;
-
-            if should_install_language_server {
-                None
-            } else {
-                let env = delegate.shell_env().await;
-                Some(LanguageServerBinary {
-                    path: node.binary_path().await.ok()?,
-                    env: Some(env),
-                    arguments: vec![server_path.into(), "start".into()],
-                })
-            }
+            let version_dir = container_dir.join(format!("shuck_{version_name}"));
+            let mut binary = get_cached_server_binary(version_dir).await?;
+            binary.env = Some(delegate.shell_env().await);
+            Some(binary)
         }
     }
 
     async fn fetch_latest_server_version(
         &self,
-        _: &Arc<dyn LspAdapterDelegate>,
-        _: bool,
+        delegate: &Arc<dyn LspAdapterDelegate>,
+        pre_release: bool,
         _: &mut gpui::AsyncApp,
     ) -> Result<Self::BinaryVersion> {
-        self.node
-            .npm_package_latest_version(Self::PACKAGE_NAME)
-            .await
+        let release =
+            latest_github_release("ewhauser/shuck", true, pre_release, delegate.http_client())
+                .await?;
+
+        let (os_pattern, ext) = match consts::OS {
+            "macos" => ("apple-darwin", "tar.gz"),
+            "linux" => ("unknown-linux", "tar.gz"),
+            "windows" => ("pc-windows", "zip"),
+            other => anyhow::bail!("Running on unsupported os: {other}"),
+        };
+        let arch = match consts::ARCH {
+            "x86_64" => "x86_64",
+            "aarch64" => "aarch64",
+            other => anyhow::bail!("Running on unsupported arch: {other}"),
+        };
+
+        let asset = release
+            .assets
+            .iter()
+            .find(|asset| {
+                asset.name.contains(arch)
+                    && asset.name.contains(os_pattern)
+                    && (asset.name.ends_with(ext) || asset.name.ends_with("tar.xz"))
+            })
+            .or_else(|| {
+                release
+                    .assets
+                    .iter()
+                    .find(|asset| asset.name.contains(arch) && asset.name.contains(consts::OS))
+            })
+            .with_context(|| {
+                format!(
+                    "no prebuilt shuck asset found for {arch}-{os_pattern} in release {}. Consider installing shuck via `cargo install shuck-cli`.",
+                    release.tag_name
+                )
+            })?;
+
+        let version = GitHubLspBinaryVersion {
+            name: release.tag_name,
+            url: asset.browser_download_url.clone(),
+            digest: asset.digest.clone(),
+        };
+        Ok(version)
     }
 
     fn fetch_server_binary(
         &self,
-        _latest_version: Self::BinaryVersion,
+        version: Self::BinaryVersion,
         container_dir: std::path::PathBuf,
         delegate: &Arc<dyn LspAdapterDelegate>,
     ) -> impl Send + Future<Output = Result<lsp::LanguageServerBinary>> + use<> {
-        let node = self.node.clone();
         let delegate = delegate.clone();
 
         async move {
-            let server_path = container_dir
-                .join("node_modules")
-                .join(Self::NODE_MODULE_RELATIVE_SERVER_PATH);
+            let GitHubLspBinaryVersion {
+                name,
+                url,
+                digest: expected_digest,
+            } = version;
+            let version_dir = container_dir.join(format!("shuck_{name}"));
 
-            node.npm_install_latest_packages(&container_dir, &[Self::PACKAGE_NAME])
-                .await?;
+            if let Some(mut cached) = get_cached_server_binary(version_dir.clone()).await {
+                cached.env = Some(delegate.shell_env().await);
+                return Ok(cached);
+            }
 
-            let env = delegate.shell_env().await;
-            Ok(LanguageServerBinary {
-                path: node.binary_path().await?,
-                env: Some(env),
-                arguments: vec![server_path.into(), "start".into()],
-            })
+            let asset_kind = if consts::OS == "windows" {
+                AssetKind::Zip
+            } else {
+                AssetKind::TarGz
+            };
+
+            download_server_binary(
+                &*delegate.http_client(),
+                &url,
+                expected_digest.as_deref(),
+                &version_dir,
+                asset_kind,
+            )
+            .await?;
+
+            let mut binary = get_cached_server_binary(version_dir)
+                .await
+                .context("could not locate shuck binary after download")?;
+            util::fs::make_file_executable(&binary.path).await?;
+            binary.env = Some(delegate.shell_env().await);
+            Ok(binary)
         }
     }
+}
+
+async fn get_cached_server_binary(container_dir: PathBuf) -> Option<LanguageServerBinary> {
+    maybe!(async {
+        let binary_name = format!("shuck{}", consts::EXE_SUFFIX);
+        let mut candidates = vec![container_dir.join(&binary_name)];
+        if let Ok(mut entries) = smol::fs::read_dir(&container_dir).await {
+            while let Some(entry) = entries.next().await {
+                if let Ok(entry) = entry {
+                    if entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false) {
+                        candidates.push(entry.path().join(&binary_name));
+                        candidates.push(entry.path().join("bin").join(&binary_name));
+                    }
+                }
+            }
+        }
+        for candidate in candidates {
+            if candidate.is_file() {
+                return Ok(LanguageServerBinary {
+                    path: candidate,
+                    env: None,
+                    arguments: vec!["server".into()],
+                });
+            }
+        }
+        anyhow::bail!("no cached shuck binary found in {container_dir:?}");
+    })
+    .await
+    .log_err()
 }
 
 #[async_trait(?Send)]
 impl LspAdapter for BashLspAdapter {
     fn name(&self) -> LanguageServerName {
-        LanguageServerName::new_static(Self::PACKAGE_NAME)
+        Self::SERVER_NAME
     }
 
     async fn workspace_configuration(

@@ -1,0 +1,47 @@
+id = "tailwindcss"
+name = "Tailwind CSS"
+description = "Tailwind CSS support."
+version = "0.1.0"
+schema_version = 1
+authors = ["ZedStorm contributors"]
+repository = "https://github.com/pheonixfirewingz/zedStorm"
+
+[language_servers.tailwindcss-language-server]
+name = "Tailwind CSS Language Server"
+languages = [
+    "Astro",
+    "CSS",
+    "Elixir",
+    "ERB",
+    "Gleam",
+    "HEEx",
+    "HTML",
+    "HTML+ERB",
+    "JavaScript",
+    "PHP",
+    "Svelte",
+    "TSX",
+    "TypeScript",
+    "Vue.js",
+]
+
+[language_servers.tailwindcss-language-server.language_ids]
+"Astro" = "astro"
+"CSS" = "css"
+"Elixir" = "elixir"
+"ERB" = "erb"
+"Gleam" = "html"
+"HEEx" = "heex"
+"HTML" = "html"
+"HTML+ERB" = "erb"
+"JavaScript" = "javascript"
+"PHP" = "php"
+"Svelte" = "svelte"
+"TSX" = "typescriptreact"
+"TypeScript" = "typescript"
+"Vue.js" = "vue"
+
+[language_servers.tailwindcss-intellisense-css]
+name = "Tailwind CSS IntelliSense (CSS)"
+languages = ["CSS"]
+opt_in_languages = ["CSS"]

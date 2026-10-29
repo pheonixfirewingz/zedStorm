@@ -11,7 +11,6 @@ use language::{
     LspAdapterDelegate, LspInstaller, Toolchain,
 };
 use lsp::{LanguageServerBinary, LanguageServerName, Uri};
-use node_runtime::{NodeRuntime, VersionStrategy};
 use project::lsp_store::language_server_settings;
 use semver::Version;
 use serde_json::{Value, json};
@@ -23,9 +22,8 @@ use smol::{
 use std::{
     borrow::Cow,
     env::consts,
-    ffi::OsString,
     future::Future,
-    path::{Path, PathBuf},
+    path::PathBuf,
     str::FromStr,
     sync::Arc,
 };
@@ -36,9 +34,6 @@ use util::{
 };
 
 use crate::PackageJsonData;
-
-const SERVER_PATH: &str =
-    "node_modules/vscode-langservers-extracted/bin/vscode-json-language-server";
 
 pub(crate) struct JsonTaskProvider;
 
@@ -133,20 +128,56 @@ impl ContextProvider for JsonTaskProvider {
     }
 }
 
-fn server_binary_arguments(server_path: &Path) -> Vec<OsString> {
-    vec![server_path.into(), "--stdio".into()]
+fn json_language_server_binary(
+    delegate_env: Option<HashMap<String, String>>,
+) -> Option<LanguageServerBinary> {
+    // 1. Embedded directly in the Zed binary
+    if let Ok(current_exe) = std::env::current_exe() {
+        return Some(LanguageServerBinary {
+            path: current_exe,
+            env: delegate_env,
+            arguments: vec!["--json-language-server".into(), "--stdio".into()],
+        });
+    }
+
+    // 2. Pure Rust native json-language-server next to current executable or in zedstorm-tools
+    let exe_name = if cfg!(windows) {
+        "json-language-server.exe"
+    } else {
+        "json-language-server"
+    };
+
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(candidate) = current_exe.parent().map(|p| p.join(exe_name)) {
+            if candidate.is_file() {
+                return Some(LanguageServerBinary {
+                    path: candidate,
+                    env: delegate_env,
+                    arguments: vec!["--stdio".into()],
+                });
+            }
+        }
+    }
+
+    let tools_candidate = paths::zedstorm_tools_dir().join("bin").join(exe_name);
+    if tools_candidate.is_file() {
+        return Some(LanguageServerBinary {
+            path: tools_candidate,
+            env: delegate_env,
+            arguments: vec!["--stdio".into()],
+        });
+    }
+
+    None
 }
 
 pub struct JsonLspAdapter {
     languages: Arc<LanguageRegistry>,
-    node: NodeRuntime,
 }
 
 impl JsonLspAdapter {
-    const PACKAGE_NAME: &str = "vscode-langservers-extracted";
-
-    pub fn new(languages: Arc<LanguageRegistry>, node: NodeRuntime) -> Self {
-        Self { languages, node }
+    pub fn new(languages: Arc<LanguageRegistry>) -> Self {
+        Self { languages }
     }
 }
 
@@ -155,17 +186,11 @@ impl LspInstaller for JsonLspAdapter {
 
     async fn fetch_latest_server_version(
         &self,
-        delegate: &Arc<dyn LspAdapterDelegate>,
+        _: &Arc<dyn LspAdapterDelegate>,
         _: bool,
         _: &mut AsyncApp,
     ) -> Result<Self::BinaryVersion> {
-        if delegate.which("json-language-server".as_ref()).await.is_some() {
-            return Ok(Version::new(0, 1, 0));
-        }
-        self.node
-            .npm_package_latest_version(Self::PACKAGE_NAME)
-            .await
-            .or_else(|_| Ok(Version::new(0, 1, 0)))
+        Ok(Version::new(0, 1, 0))
     }
 
     async fn check_if_user_installed(
@@ -176,7 +201,7 @@ impl LspInstaller for JsonLspAdapter {
     ) -> Option<LanguageServerBinary> {
         let env = delegate.shell_env().await;
 
-        // 1. Check for pure Rust native json-language-server on PATH
+        // 1. Explicit user installed binary on PATH
         if let Some(path) = delegate.which("json-language-server".as_ref()).await {
             return Some(LanguageServerBinary {
                 path,
@@ -185,156 +210,57 @@ impl LspInstaller for JsonLspAdapter {
             });
         }
 
-        // 2. Check next to current executable or in zedstorm-tools
-        let exe_name = if cfg!(windows) {
-            "json-language-server.exe"
-        } else {
-            "json-language-server"
-        };
-        if let Ok(current_exe) = std::env::current_exe() {
-            if let Some(candidate) = current_exe.parent().map(|p| p.join(exe_name)) {
-                if candidate.is_file() {
-                    return Some(LanguageServerBinary {
-                        path: candidate,
-                        env: Some(env),
-                        arguments: vec!["--stdio".into()],
-                    });
-                }
-            }
-        }
-        let tools_candidate = paths::zedstorm_tools_dir().join("bin").join(exe_name);
-        if tools_candidate.is_file() {
-            return Some(LanguageServerBinary {
-                path: tools_candidate,
-                env: Some(env),
-                arguments: vec!["--stdio".into()],
-            });
-        }
-
-        // 3. Fall back to legacy node vscode-json-language-server
-        let path = delegate
-            .which("vscode-json-language-server".as_ref())
-            .await?;
-
-        Some(LanguageServerBinary {
-            path,
-            env: Some(env),
-            arguments: vec!["--stdio".into()],
-        })
+        json_language_server_binary(Some(env))
     }
 
     fn check_if_version_installed(
         &self,
-        version: &Self::BinaryVersion,
-        container_dir: &PathBuf,
-        _: &Arc<dyn LspAdapterDelegate>,
+        _version: &Self::BinaryVersion,
+        _container_dir: &PathBuf,
+        delegate: &Arc<dyn LspAdapterDelegate>,
     ) -> impl Send + Future<Output = Option<LanguageServerBinary>> + use<> {
-        let node = self.node.clone();
-        let version = version.clone();
-        let container_dir = container_dir.clone();
-
+        let delegate = delegate.clone();
         async move {
-            let exe_name = if cfg!(windows) {
-                "json-language-server.exe"
-            } else {
-                "json-language-server"
-            };
-            if let Ok(current_exe) = std::env::current_exe() {
-                if let Some(candidate) = current_exe.parent().map(|p| p.join(exe_name)) {
-                    if candidate.is_file() {
-                        return Some(LanguageServerBinary {
-                            path: candidate,
-                            env: None,
-                            arguments: vec!["--stdio".into()],
-                        });
-                    }
-                }
-            }
-            let tools_candidate = paths::zedstorm_tools_dir().join("bin").join(exe_name);
-            if tools_candidate.is_file() {
+            let env = delegate.shell_env().await;
+            if let Some(path) = delegate.which("json-language-server".as_ref()).await {
                 return Some(LanguageServerBinary {
-                    path: tools_candidate,
-                    env: None,
+                    path,
+                    env: Some(env),
                     arguments: vec!["--stdio".into()],
                 });
             }
-
-            let server_path = container_dir.join(SERVER_PATH);
-
-            let should_install_language_server = node
-                .should_install_npm_package(
-                    Self::PACKAGE_NAME,
-                    &server_path,
-                    &container_dir,
-                    VersionStrategy::Latest(&version),
-                )
-                .await;
-
-            if should_install_language_server {
-                None
-            } else {
-                Some(LanguageServerBinary {
-                    path: node.binary_path().await.ok()?,
-                    env: None,
-                    arguments: server_binary_arguments(&server_path),
-                })
-            }
+            json_language_server_binary(Some(env))
         }
     }
 
     fn fetch_server_binary(
         &self,
         _latest_version: Self::BinaryVersion,
-        container_dir: PathBuf,
-        _: &Arc<dyn LspAdapterDelegate>,
+        _container_dir: PathBuf,
+        delegate: &Arc<dyn LspAdapterDelegate>,
     ) -> impl Send + Future<Output = Result<LanguageServerBinary>> + use<> {
-        let node = self.node.clone();
-
+        let delegate = delegate.clone();
         async move {
-            let exe_name = if cfg!(windows) {
-                "json-language-server.exe"
-            } else {
-                "json-language-server"
-            };
-            if let Ok(current_exe) = std::env::current_exe() {
-                if let Some(candidate) = current_exe.parent().map(|p| p.join(exe_name)) {
-                    if candidate.is_file() {
-                        return Ok(LanguageServerBinary {
-                            path: candidate,
-                            env: None,
-                            arguments: vec!["--stdio".into()],
-                        });
-                    }
-                }
-            }
-            let tools_candidate = paths::zedstorm_tools_dir().join("bin").join(exe_name);
-            if tools_candidate.is_file() {
+            let env = delegate.shell_env().await;
+            if let Some(path) = delegate.which("json-language-server".as_ref()).await {
                 return Ok(LanguageServerBinary {
-                    path: tools_candidate,
-                    env: None,
+                    path,
+                    env: Some(env),
                     arguments: vec!["--stdio".into()],
                 });
             }
-
-            let server_path = container_dir.join(SERVER_PATH);
-
-            node.npm_install_latest_packages(&container_dir, &[Self::PACKAGE_NAME])
-                .await?;
-
-            Ok(LanguageServerBinary {
-                path: node.binary_path().await?,
-                env: None,
-                arguments: server_binary_arguments(&server_path),
-            })
+            json_language_server_binary(Some(env))
+                .context("could not locate embedded or bundled json-language-server")
         }
     }
 
     async fn cached_server_binary(
         &self,
-        container_dir: PathBuf,
-        _: &dyn LspAdapterDelegate,
+        _container_dir: PathBuf,
+        delegate: &dyn LspAdapterDelegate,
     ) -> Option<LanguageServerBinary> {
-        get_cached_server_binary(container_dir, &self.node).await
+        let env = delegate.shell_env().await;
+        json_language_server_binary(Some(env))
     }
 }
 
@@ -473,26 +399,6 @@ fn worktree_root(delegate: &Arc<dyn LspAdapterDelegate>, settings: Option<Value>
     }
 
     Some(Value::Object(settings_map))
-}
-
-async fn get_cached_server_binary(
-    container_dir: PathBuf,
-    node: &NodeRuntime,
-) -> Option<LanguageServerBinary> {
-    maybe!(async {
-        let server_path = container_dir.join(SERVER_PATH);
-        anyhow::ensure!(
-            server_path.exists(),
-            "missing executable in directory {server_path:?}"
-        );
-        Ok(LanguageServerBinary {
-            path: node.binary_path().await?,
-            env: None,
-            arguments: server_binary_arguments(&server_path),
-        })
-    })
-    .await
-    .log_err()
 }
 
 #[cfg(test)]

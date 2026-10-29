@@ -15926,6 +15926,7 @@ dependencies = [
  "inspector_ui",
  "itertools 0.14.0",
  "journal",
+ "json_language_server",
  "json_schema_store",
  "keymap_editor",
  "language",

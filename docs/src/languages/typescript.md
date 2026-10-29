@@ -9,30 +9,11 @@ TypeScript and TSX support are available natively in Zed.
 
 - Tree-sitter: [tree-sitter/tree-sitter-typescript](https://github.com/tree-sitter/tree-sitter-typescript)
 - Language Server: [tsrs](https://github.com/oxc-project/tsrs) (native Rust port, no Node.js required)
-- Alternate Language Servers: [yioneko/vtsls](https://github.com/yioneko/vtsls), [typescript-language-server/typescript-language-server](https://github.com/typescript-language-server/typescript-language-server)
 - Debug Adapter: [vscode-js-debug](https://github.com/microsoft/vscode-js-debug)
 
 ## Language servers
 
 By default Zed uses [tsrs](https://github.com/oxc-project/tsrs) for TypeScript, TSX, and JavaScript files. `tsrs` is a high-performance native Rust port of the TypeScript type checker and language server, eliminating the need for a Node.js runtime for TypeScript support.
-
-If you prefer to use `vtsls` or `typescript-language-server`, configure language servers in Settings ({#kb zed::OpenSettings}) under Languages > TypeScript/TSX/JavaScript, or add to your settings file:
-
-```json [settings]
-{
-  "languages": {
-    "TypeScript": {
-      "language_servers": ["vtsls", "!tsrs", "..."]
-    },
-    "TSX": {
-      "language_servers": ["vtsls", "!tsrs", "..."]
-    },
-    "JavaScript": {
-      "language_servers": ["vtsls", "!tsrs", "..."]
-    }
-  }
-}
-```
 
 Prettier will also be used for TypeScript files by default. To disable this, configure in Settings ({#kb zed::OpenSettings}) under Languages > TypeScript, or add to your settings file:
 
@@ -188,7 +169,7 @@ When using `vtsls`:
 
 ## Code Lens
 
-Zed enables references and implementations code lenses for `tsrs` and `vtsls` by default. These show reference counts and implementation counts above functions, classes, and interfaces. To use them, enable the `code_lens` setting:
+Zed enables references and implementations code lenses for `tsrs` by default. These show reference counts and implementation counts above functions, classes, and interfaces. To use them, enable the `code_lens` setting:
 
 ```json [settings]
 {

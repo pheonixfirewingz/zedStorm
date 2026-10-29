@@ -5,8 +5,9 @@ description: "Configure Tailwind CSS language support in Zed, including language
 
 # Tailwind CSS
 
-Zed has built-in support for Tailwind CSS autocomplete, linting, and hover previews.
+Tailwind CSS support is provided via the official Tailwind CSS extension (`tailwindcss`), offering autocompletion, linting, hover previews, and Tailwind CSS IntelliSense for CSS files.
 
+- Extension: `tailwindcss`
 - Language Server: [tailwindlabs/tailwindcss-intellisense](https://github.com/tailwindlabs/tailwindcss-intellisense)
 
 Languages which can be used with Tailwind CSS in Zed:

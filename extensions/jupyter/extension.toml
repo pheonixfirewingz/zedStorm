@@ -4,7 +4,7 @@ description = "Jupyter notebook and REPL support."
 version = "0.1.0"
 schema_version = 1
 authors = ["ZedStorm contributors"]
-repository = "https://github.com/zed-industries/zed"
+repository = "https://github.com/pheonixfirewingz/zedStorm"
 
 [tab_renderers.jupyter]
 file_types = ["ipynb"]

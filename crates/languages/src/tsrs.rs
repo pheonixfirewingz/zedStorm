@@ -12,6 +12,7 @@ use language::{
 use lsp::{CodeActionKind, LanguageServerBinary, LanguageServerName, Uri};
 use project::Fs;
 use project::lsp_store::language_server_settings;
+use regex::Regex;
 use serde::Deserialize;
 use serde_json::Value;
 use smol::fs;
@@ -19,7 +20,7 @@ use std::{
     ffi::OsString,
     future::Future,
     path::PathBuf,
-    sync::Arc,
+    sync::{Arc, LazyLock},
 };
 use util::{ResultExt, maybe, merge_json_value_into};
 
@@ -149,6 +150,20 @@ impl TsrsLspAdapter {
 
     fn binary_arguments() -> Vec<OsString> {
         vec!["--lsp".into(), "-stdio".into()]
+    }
+
+    pub fn enhance_diagnostic_message(message: &str) -> Option<String> {
+        static SINGLE_WORD_REGEX: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"'([^\s']*)'").expect("Failed to create REGEX"));
+
+        static MULTI_WORD_REGEX: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"'([^']+\s+[^']*)'").expect("Failed to create REGEX"));
+
+        let first = SINGLE_WORD_REGEX.replace_all(message, "`$1`").to_string();
+        let second = MULTI_WORD_REGEX
+            .replace_all(&first, "\n```typescript\n$1\n```\n")
+            .to_string();
+        Some(second)
     }
 }
 
@@ -529,13 +544,40 @@ impl LspAdapter for TsrsLspAdapter {
     }
 
     fn diagnostic_message_to_markdown(&self, message: &str) -> Option<String> {
-        crate::vtsls::VtslsLspAdapter::enhance_diagnostic_message(message)
+        Self::enhance_diagnostic_message(message)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_diagnostic_message_to_markdown() {
+        // Leaves simple messages unchanged
+        let message = "The expected type comes from the return type of this signature.";
+        let expected = "The expected type comes from the return type of this signature.";
+        assert_eq!(
+            TsrsLspAdapter::enhance_diagnostic_message(message).expect("Should be some"),
+            expected
+        );
+
+        // Parses both multi-word and single-word correctly
+        let message = "Property 'baz' is missing in type '{ foo: string; bar: string; }' but required in type 'User'.";
+        let expected = "Property `baz` is missing in type \n```typescript\n{ foo: string; bar: string; }\n```\n but required in type `User`.";
+        assert_eq!(
+            TsrsLspAdapter::enhance_diagnostic_message(message).expect("Should be some"),
+            expected
+        );
+
+        // Parses multi-and-single word in any order, and ignores existing newlines
+        let message = "Type '() => { foo: string; bar: string; }' is not assignable to type 'GetUserFunction'.\n  Property 'baz' is missing in type '{ foo: string; bar: string; }' but required in type 'User'.";
+        let expected = "Type \n```typescript\n() => { foo: string; bar: string; }\n```\n is not assignable to type `GetUserFunction`.\n  Property `baz` is missing in type \n```typescript\n{ foo: string; bar: string; }\n```\n but required in type `User`.";
+        assert_eq!(
+            TsrsLspAdapter::enhance_diagnostic_message(message).expect("Should be some"),
+            expected
+        );
+    }
 
     #[test]
     fn test_tsrs_server_name_and_args() {

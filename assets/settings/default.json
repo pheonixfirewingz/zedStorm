@@ -2015,6 +2015,7 @@
   "auto_install_extensions": {
     "html": true,
     "java": true,
+    "tailwindcss": true,
   },
   // Whether to suggest installing extensions based on the files you open.
   "suggest_extensions": true,
@@ -2174,7 +2175,7 @@
       },
     },
     "JavaScript": {
-      "language_servers": ["tsrs", "!vtsls", "!typescript-language-server", "..."],
+      "language_servers": ["tsrs", "..."],
       "prettier": {
         "allowed": true,
       },
@@ -2244,7 +2245,7 @@
         },
       },
       "debuggers": ["Debugpy"],
-      "language_servers": ["basedpyright", "ruff", "!ty", "!pyrefly", "!pyright", "!pylsp", "..."],
+      "language_servers": ["ty", "ruff", "!pyrefly", "!pylsp", "..."],
     },
     "Ruby": {
       "language_servers": [
@@ -2279,7 +2280,7 @@
       },
     },
     "TSX": {
-      "language_servers": ["tsrs", "!vtsls", "!typescript-language-server", "..."],
+      "language_servers": ["tsrs", "..."],
       "prettier": {
         "allowed": true,
       },
@@ -2290,7 +2291,7 @@
       },
     },
     "TypeScript": {
-      "language_servers": ["tsrs", "!vtsls", "!typescript-language-server", "..."],
+      "language_servers": ["tsrs", "..."],
       "prettier": {
         "allowed": true,
       },
@@ -2301,12 +2302,6 @@
     "SystemVerilog": {
       "language_servers": ["slang", "!verible", "!veridian", "!svls", "..."],
       "use_on_type_format": false,
-    },
-    "Vue.js": {
-      "language_servers": ["vue-language-server", "vtsls", "..."],
-      "prettier": {
-        "allowed": true,
-      },
     },
     "XML": {
       "prettier": {
