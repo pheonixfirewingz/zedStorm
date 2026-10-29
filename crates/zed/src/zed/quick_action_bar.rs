@@ -1,5 +1,4 @@
 mod preview;
-mod repl_menu;
 
 use editor::actions::{CodeActionSource, ToggleCodeActions};
 use editor::code_context_menus::{CodeContextMenu, ContextMenuOrigin};
@@ -67,7 +66,6 @@ impl QuickActionBar {
 
         if editor.read(cx).code_actions_enabled_for_toolbar(cx)
             || self.render_preview_button(cx).is_some()
-            || self.render_repl_menu(cx).is_some()
         {
             ToolbarItemLocation::PrimaryRight
         } else {
@@ -156,7 +154,6 @@ impl Render for QuickActionBar {
         h_flex()
             .id("quick action bar")
             .gap(DynamicSpacing::Base01.rems(cx))
-            .children(self.render_repl_menu(cx))
             .children(self.render_preview_button(cx))
             .children(code_actions_dropdown)
     }

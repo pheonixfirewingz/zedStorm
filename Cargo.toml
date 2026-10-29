@@ -118,7 +118,6 @@ members = [
     "crates/refineable/derive_refineable",
     "crates/release_channel",
     "crates/remote",
-    "crates/repl",
     "crates/reqwest_client",
     "crates/rope",
     "crates/rpc",
@@ -187,10 +186,12 @@ default-members = ["crates/zed"]
 exclude = [
     "extensions/drawio",
     "extensions/glsl",
+    "extensions/go",
     "extensions/html",
     "extensions/mermaid",
     "extensions/proto",
     "extensions/test-extension",
+    "extensions/yaml",
 ]
 
 [workspace.package]
@@ -313,7 +314,6 @@ recent_projects = { path = "crates/recent_projects" }
 refineable = { path = "crates/refineable" }
 release_channel = { path = "crates/release_channel" }
 remote = { path = "crates/remote" }
-repl = { path = "crates/repl" }
 reqwest_client = { path = "crates/reqwest_client" }
 rope = { path = "crates/rope" }
 rpc = { path = "crates/rpc" }

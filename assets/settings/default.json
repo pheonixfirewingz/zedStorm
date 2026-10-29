@@ -2014,6 +2014,7 @@
   // and change the value to `false`.
   "auto_install_extensions": {
     "html": true,
+    "java": true,
   },
   // Whether to suggest installing extensions based on the files you open.
   "suggest_extensions": true,
@@ -2438,7 +2439,7 @@
   },
   // Jupyter settings
   "jupyter": {
-    "enabled": true,
+    "enabled": false,
     "kernel_selections": {},
     // Specify the language name as the key and the kernel name as the value.
     // "kernel_selections": {

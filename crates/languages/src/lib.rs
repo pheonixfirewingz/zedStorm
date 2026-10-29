@@ -21,7 +21,6 @@ mod c;
 mod cpp;
 mod css;
 mod eslint;
-mod go;
 mod json;
 mod package_json;
 mod python;
@@ -31,7 +30,6 @@ mod tailwindcss;
 mod tsrs;
 mod typescript;
 mod vtsls;
-mod yaml;
 
 pub(crate) use package_json::{PackageJson, PackageJsonData};
 
@@ -64,8 +62,6 @@ pub fn init(languages: Arc<LanguageRegistry>, fs: Arc<dyn Fs>, node: NodeRuntime
     let c_lsp_adapter = Arc::new(c::CLspAdapter);
     let css_lsp_adapter = Arc::new(css::CssLspAdapter::new(node.clone()));
     let eslint_adapter = Arc::new(eslint::EsLintLspAdapter::new(node.clone(), fs.clone()));
-    let go_context_provider = Arc::new(go::GoContextProvider);
-    let go_lsp_adapter = Arc::new(go::GoLspAdapter);
     let json_context_provider = Arc::new(JsonTaskProvider);
     let json_lsp_adapter = Arc::new(json::JsonLspAdapter::new(languages.clone(), node.clone()));
     let node_version_lsp_adapter = Arc::new(json::NodeVersionAdapter);
@@ -87,7 +83,6 @@ pub fn init(languages: Arc<LanguageRegistry>, fs: Arc<dyn Fs>, node: NodeRuntime
         fs.clone(),
     ));
     let vtsls_adapter = Arc::new(vtsls::VtslsLspAdapter::new(node.clone(), fs.clone()));
-    let yaml_lsp_adapter = Arc::new(yaml::YamlLspAdapter::new(node));
 
     let built_in_languages = [
         LanguageInfo {
@@ -120,25 +115,6 @@ pub fn init(languages: Arc<LanguageRegistry>, fs: Arc<dyn Fs>, node: NodeRuntime
         LanguageInfo {
             name: "env",
             adapters: vec![],
-            ..Default::default()
-        },
-        LanguageInfo {
-            name: "go",
-            adapters: vec![go_lsp_adapter.clone()],
-            context: Some(go_context_provider.clone()),
-            semantic_token_rules: Some(go::semantic_token_rules()),
-            ..Default::default()
-        },
-        LanguageInfo {
-            name: "gomod",
-            adapters: vec![go_lsp_adapter.clone()],
-            context: Some(go_context_provider.clone()),
-            ..Default::default()
-        },
-        LanguageInfo {
-            name: "gowork",
-            adapters: vec![go_lsp_adapter],
-            context: Some(go_context_provider),
             ..Default::default()
         },
         LanguageInfo {
@@ -211,11 +187,6 @@ pub fn init(languages: Arc<LanguageRegistry>, fs: Arc<dyn Fs>, node: NodeRuntime
         LanguageInfo {
             name: "regex",
             adapters: vec![],
-            ..Default::default()
-        },
-        LanguageInfo {
-            name: "yaml",
-            adapters: vec![yaml_lsp_adapter],
             ..Default::default()
         },
         LanguageInfo {

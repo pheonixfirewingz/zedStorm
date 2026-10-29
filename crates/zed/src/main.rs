@@ -638,7 +638,6 @@ fn main() {
         ai::init(cx);
         zed::init_command_filters(cx);
         snippet_provider::init(cx);
-        repl::init(app_state.fs.clone(), cx);
         recent_projects::init(cx);
 
         load_embedded_fonts(cx);
@@ -647,7 +646,6 @@ fn main() {
 
         editor::init(cx);
         image_viewer::init(cx);
-        repl::notebook::init(cx);
         diagnostics::init(cx);
 
         workspace::init(app_state.clone(), cx);

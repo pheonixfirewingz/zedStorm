@@ -5435,8 +5435,6 @@ mod tests {
             calculator_panel::init(cx);
             terminal_view::init(cx);
             image_viewer::init(cx);
-            repl::init(app_state.fs.clone(), cx);
-            repl::notebook::init(cx);
             tasks_ui::init(cx);
             project::debugger::breakpoint_store::BreakpointStore::init(
                 &app_state.client.clone().into(),

@@ -1,0 +1,23 @@
+id = "go"
+name = "Go"
+description = "Go, Go module, and Go work support."
+version = "0.1.0"
+schema_version = 1
+authors = ["Zed Industries <support@zed.dev>"]
+repository = "https://github.com/zed-industries/zed"
+
+[grammars.go]
+repository = "https://github.com/tree-sitter/tree-sitter-go"
+commit = "251ca0ea8d103b41d08e5e54d87948a9203672a9"
+
+[grammars.gomod]
+repository = "https://github.com/camdencheek/tree-sitter-go-mod"
+commit = "2e886870578eeba1927a2dc4bd2e2b3f598c5f9a"
+
+[grammars.gowork]
+repository = "https://github.com/zed-industries/tree-sitter-go-work"
+commit = "acb0617bf7f4fda02c6217676cc64acb89536dc7"
+
+[language_servers.gopls]
+name = "gopls"
+languages = ["Go", "Go Mod", "Go Work"]

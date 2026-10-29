@@ -206,8 +206,8 @@ pub struct SearchSettings {
 }
 
 impl EditorSettings {
-    pub fn jupyter_enabled(cx: &App) -> bool {
-        EditorSettings::get_global(cx).jupyter.enabled
+    pub fn jupyter_enabled(_cx: &App) -> bool {
+        false
     }
 }
 

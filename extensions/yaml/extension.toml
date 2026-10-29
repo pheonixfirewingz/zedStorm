@@ -1,0 +1,15 @@
+id = "yaml"
+name = "YAML"
+description = "YAML support."
+version = "0.1.0"
+schema_version = 1
+authors = ["Zed Industries <support@zed.dev>"]
+repository = "https://github.com/zed-industries/zed"
+
+[grammars.yaml]
+repository = "https://github.com/zed-industries/tree-sitter-yaml"
+commit = "baff0b51c64ef6a1fb1f8390f3ad6015b83ec13a"
+
+[language_servers.yaml-language-server]
+name = "YAML Language Server"
+languages = ["YAML"]
