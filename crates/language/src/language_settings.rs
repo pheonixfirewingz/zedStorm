@@ -1608,7 +1608,7 @@ mod tests {
         let available_language_servers = language_server_names(&[
             "typescript-language-server",
             "biome",
-            "deno",
+            "tsrs",
             "eslint",
             "tailwind",
         ]);
@@ -1628,7 +1628,7 @@ mod tests {
                 &[
                     "biome".into(),
                     REST_OF_LANGUAGE_SERVERS.into(),
-                    "deno".into()
+                    "tsrs".into()
                 ],
                 &available_language_servers
             ),
@@ -1637,7 +1637,7 @@ mod tests {
                 "typescript-language-server",
                 "eslint",
                 "tailwind",
-                "deno",
+                "tsrs",
             ])
         );
 
@@ -1645,14 +1645,14 @@ mod tests {
         assert_eq!(
             LanguageSettings::resolve_language_servers(
                 &[
-                    "deno".into(),
+                    "tsrs".into(),
                     "!typescript-language-server".into(),
                     "!biome".into(),
                     REST_OF_LANGUAGE_SERVERS.into()
                 ],
                 &available_language_servers
             ),
-            language_server_names(&["deno", "eslint", "tailwind"])
+            language_server_names(&["tsrs", "eslint", "tailwind"])
         );
 
         // Adding a language server not in the list of available language servers adds it to the list.
@@ -1668,7 +1668,7 @@ mod tests {
                 "my-cool-language-server",
                 "typescript-language-server",
                 "biome",
-                "deno",
+                "tsrs",
                 "eslint",
                 "tailwind",
             ])
@@ -1695,7 +1695,7 @@ mod tests {
 
             assert_eq!(
                 resolved_language_servers(&store, None, "TypeScript"),
-                servers(&["vtsls", "eslint"]),
+                servers(&["tsrs", "eslint"]),
                 "default settings should disable typescript-language-server for TypeScript"
             );
             assert_eq!(
@@ -1708,7 +1708,7 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 resolved_language_servers(&store, None, "TypeScript"),
-                servers(&["vtsls", "eslint"]),
+                servers(&["tsrs", "eslint"]),
                 "the per-language list should fully replace the user's global list"
             );
             assert_eq!(
@@ -1753,7 +1753,7 @@ mod tests {
             );
             assert_eq!(
                 resolved_language_servers(&store, root_location, "TypeScript"),
-                servers(&["vtsls", "eslint"]),
+                servers(&["tsrs", "eslint"]),
                 "the per-language list should fully replace the project's global list"
             );
 
@@ -1905,7 +1905,7 @@ mod tests {
             );
             assert_eq!(
                 resolved_language_servers(&store, root_location, "TypeScript"),
-                servers(&["vtsls", "eslint"]),
+                servers(&["tsrs", "eslint"]),
                 "a language with its own list should ignore global lists from every file"
             );
 
@@ -1937,7 +1937,7 @@ mod tests {
             );
             assert_eq!(
                 resolved_language_servers(&store, None, "TypeScript"),
-                servers(&["vtsls", "eslint"]),
+                servers(&["tsrs", "eslint"]),
                 "a global list, exhaustive or not, never applies to languages with their own list"
             );
 

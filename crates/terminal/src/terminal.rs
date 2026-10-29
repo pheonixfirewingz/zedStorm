@@ -3569,7 +3569,7 @@ fn foreground_process_command_from_argv(argv: &[String]) -> Option<String> {
 
     if !matches!(
         command.as_deref(),
-        Some("node" | "python" | "python3" | "bun" | "deno")
+        Some("node" | "python" | "python3" | "bun")
     ) {
         return command;
     }

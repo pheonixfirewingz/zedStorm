@@ -16,7 +16,7 @@ leaving the editor.
 
 - **[Debugger](./debugger.md)**: Set breakpoints, step through code, and inspect variables using Zed's built-in debugger. Works with C, C++, Go, JavaScript, Python, Rust, TypeScript, and more through the Debug Adapter Protocol.
 
-- **[REPL](./repl.md)**: Run code interactively using Jupyter kernels. Execute selections or cells and see results inline—useful for Python, TypeScript (Deno), R, Julia, and other supported languages.
+- **[REPL](./repl.md)**: Run code interactively using Jupyter kernels. Execute selections or cells and see results inline—useful for Python, TypeScript, R, Julia, and other supported languages.
 
 ## Quick start
 

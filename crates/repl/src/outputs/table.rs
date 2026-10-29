@@ -3,7 +3,7 @@
 //! This module provides functionality to render tabular data in Zed's REPL output.
 //!
 //! It supports the [Frictionless Data Table Schema](https://specs.frictionlessdata.io/table-schema/)
-//! for data interchange, implemented by Pandas in Python and Polars for Deno.
+//! for data interchange, implemented by Pandas in Python.
 //!
 //! # Python Example
 //!

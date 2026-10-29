@@ -8,30 +8,27 @@ description: "Configure TypeScript language support in Zed, including language s
 TypeScript and TSX support are available natively in Zed.
 
 - Tree-sitter: [tree-sitter/tree-sitter-typescript](https://github.com/tree-sitter/tree-sitter-typescript)
-- Language Server: [yioneko/vtsls](https://github.com/yioneko/vtsls)
-- Alternate Language Server: [typescript-language-server/typescript-language-server](https://github.com/typescript-language-server/typescript-language-server)
+- Language Server: [tsrs](https://github.com/oxc-project/tsrs) (native Rust port, no Node.js required)
+- Alternate Language Servers: [yioneko/vtsls](https://github.com/yioneko/vtsls), [typescript-language-server/typescript-language-server](https://github.com/typescript-language-server/typescript-language-server)
 - Debug Adapter: [vscode-js-debug](https://github.com/microsoft/vscode-js-debug)
-
-<!--
-TBD: Document the difference between Language servers
--->
 
 ## Language servers
 
-By default Zed uses [vtsls](https://github.com/yioneko/vtsls) for TypeScript, TSX, and JavaScript files.
-Configure language servers in Settings ({#kb zed::OpenSettings}) under Languages > TypeScript/TSX/JavaScript, or add to your settings file:
+By default Zed uses [tsrs](https://github.com/oxc-project/tsrs) for TypeScript, TSX, and JavaScript files. `tsrs` is a high-performance native Rust port of the TypeScript type checker and language server, eliminating the need for a Node.js runtime for TypeScript support.
+
+If you prefer to use `vtsls` or `typescript-language-server`, configure language servers in Settings ({#kb zed::OpenSettings}) under Languages > TypeScript/TSX/JavaScript, or add to your settings file:
 
 ```json [settings]
 {
   "languages": {
     "TypeScript": {
-      "language_servers": ["typescript-language-server", "!vtsls", "..."]
+      "language_servers": ["vtsls", "!tsrs", "..."]
     },
     "TSX": {
-      "language_servers": ["typescript-language-server", "!vtsls", "..."]
+      "language_servers": ["vtsls", "!tsrs", "..."]
     },
     "JavaScript": {
-      "language_servers": ["typescript-language-server", "!vtsls", "..."]
+      "language_servers": ["vtsls", "!tsrs", "..."]
     }
   }
 }
@@ -191,7 +188,7 @@ When using `vtsls`:
 
 ## Code Lens
 
-Zed enables references and implementations code lenses for `vtsls` by default. These show reference counts and implementation counts above functions, classes, and interfaces. To use them, enable the `code_lens` setting:
+Zed enables references and implementations code lenses for `tsrs` and `vtsls` by default. These show reference counts and implementation counts above functions, classes, and interfaces. To use them, enable the `code_lens` setting:
 
 ```json [settings]
 {
@@ -284,4 +281,3 @@ Given an externally-run web server (e.g., with `npx serve` or `npx live-server`)
 ## See also
 
 - [Zed Yarn documentation](./yarn.md) for a walkthrough of configuring your project to use Yarn.
-- [Zed Deno documentation](./deno.md)

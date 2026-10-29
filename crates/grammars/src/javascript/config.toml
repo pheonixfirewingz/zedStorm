@@ -3,7 +3,7 @@ grammar = "tsx"
 path_suffixes = ["js", "jsx", "mjs", "cjs"]
 modeline_aliases = ["js", "js2"]
 # [/ ] is so we match "env node" or "/node" but not "ts-node"
-first_line_pattern = '^#!.*\b(?:[/ ]node|deno run.*--ext[= ]js)\b'
+first_line_pattern = '^#!.*\b[/ ]node\b'
 line_comments = ["// "]
 block_comment = { start = "/*", prefix = "* ", end = "*/", tab_size = 1 }
 documentation_comment = { start = "/**", prefix = "* ", end = "*/", tab_size = 1 }

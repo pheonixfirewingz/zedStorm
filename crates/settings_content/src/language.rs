@@ -1621,7 +1621,7 @@ mod test {
                     "TypeScript".into(),
                     LanguageSettingsContent {
                         language_servers: Some(vec![
-                            "deno".into(),
+                            "tsrs".into(),
                             "!vtsls".into(),
                             REST_OF_LANGUAGE_SERVERS.into(),
                         ]),
@@ -1643,7 +1643,7 @@ mod test {
         assert_eq!(
             ts_servers,
             &vec![
-                ConfiguredLanguageServer::new("deno"),
+                ConfiguredLanguageServer::new("tsrs"),
                 ConfiguredLanguageServer::new_disabled("vtsls"),
                 ConfiguredLanguageServer::new(REST_OF_LANGUAGE_SERVERS),
             ]

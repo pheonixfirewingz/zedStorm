@@ -16,7 +16,10 @@ pub enum Tool {
     Git,
     Codex,
     Gpg,
+    Tsrs,
 }
+
+pub const ALL_TOOLS: [Tool; 4] = [Tool::Git, Tool::Codex, Tool::Gpg, Tool::Tsrs];
 
 impl Tool {
     pub fn name(self) -> &'static str {
@@ -24,6 +27,7 @@ impl Tool {
             Self::Git => "git",
             Self::Codex => "codex",
             Self::Gpg => "gpg",
+            Self::Tsrs => "tsrs",
         }
     }
 
@@ -33,6 +37,7 @@ impl Tool {
             (Self::Codex, _) => "openai/codex",
             (Self::Gpg, "windows") => "portapps/gnupg-portable",
             (Self::Gpg, _) => "pheonixfirewingz/zedStorm",
+            (Self::Tsrs, _) => "oxc-project/tsrs",
         }
     }
 
@@ -44,6 +49,8 @@ impl Tool {
             (Self::Codex, _) => PathBuf::from("bin/codex"),
             (Self::Gpg, "windows") => PathBuf::from("bin/gpg.exe"),
             (Self::Gpg, _) => PathBuf::from("bin/gpg"),
+            (Self::Tsrs, "windows") => PathBuf::from("tsrs.exe"),
+            (Self::Tsrs, _) => PathBuf::from("tsrs"),
         }
     }
 }
@@ -55,9 +62,18 @@ pub fn tools_directory() -> Result<PathBuf> {
 }
 
 pub fn bundled_path(tool: Tool) -> Result<PathBuf> {
-    Ok(tools_directory()?
-        .join(tool.name())
-        .join(tool.binary(std::env::consts::OS)))
+    let tool_dir = tools_directory()?.join(tool.name());
+    let primary = tool_dir.join(tool.binary(std::env::consts::OS));
+    if primary.is_file() {
+        return Ok(primary);
+    }
+    if tool == Tool::Tsrs {
+        let bin_variant = tool_dir.join("bin").join(tool.binary(std::env::consts::OS));
+        if bin_variant.is_file() {
+            return Ok(bin_variant);
+        }
+    }
+    Ok(primary)
 }
 
 pub fn system_or_bundled(tool: Tool) -> Result<Option<PathBuf>> {
@@ -91,6 +107,8 @@ pub fn path_with_tools(existing: Option<&OsStr>) -> Result<OsString> {
         directory.join("github-cli/bin"),
         directory.join("gpg/bin"),
         directory.join("gpg"),
+        directory.join("tsrs/bin"),
+        directory.join("tsrs"),
     ];
     if let Some(existing) = existing {
         paths.extend(std::env::split_paths(existing));
@@ -141,6 +159,14 @@ pub async fn ensure_tool(tool: Tool, http: Arc<dyn HttpClient>) -> Result<PathBu
             Err(install_error)
         }
     }
+}
+
+pub async fn ensure_all_tools(http: Arc<dyn HttpClient>) -> Vec<(Tool, Result<PathBuf>)> {
+    let mut results = Vec::new();
+    for &tool in &ALL_TOOLS {
+        results.push((tool, ensure_tool(tool, http.clone()).await));
+    }
+    results
 }
 
 fn asset_suffix(tool: Tool, operating_system: &str, architecture: &str) -> Result<String> {
@@ -194,6 +220,17 @@ fn asset_suffix(tool: Tool, operating_system: &str, architecture: &str) -> Resul
             }
             other => anyhow::bail!("Portable GPG is unavailable for {other}"),
         },
+        Tool::Tsrs => {
+            let pkg = match (operating_system, architecture) {
+                ("windows", "x86_64") => "@tsrs/win32-x64",
+                ("macos", "aarch64") => "@tsrs/darwin-arm64",
+                ("macos", "x86_64") => "@tsrs/darwin-x64",
+                ("linux", "x86_64") => "@tsrs/linux-x64-gnu",
+                ("linux", "aarch64") => "@tsrs/linux-arm64-gnu",
+                (os, arch) => anyhow::bail!("Portable tsrs is unavailable for {os}-{arch}"),
+            };
+            Ok(pkg.to_string())
+        }
     }
 }
 
@@ -244,6 +281,149 @@ async fn checksums_file_digest(
         .with_context(|| format!("checksums.txt has no entry for {asset_name}"))
 }
 
+#[cfg(target_os = "windows")]
+fn tsrs_platform_package_name() -> Result<&'static str> {
+    match std::env::consts::ARCH {
+        "x86_64" => Ok("@tsrs/win32-x64"),
+        arch => anyhow::bail!("Unsupported Windows architecture for tsrs: {arch}"),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn tsrs_platform_package_name() -> Result<&'static str> {
+    match std::env::consts::ARCH {
+        "aarch64" => Ok("@tsrs/darwin-arm64"),
+        "x86_64" => Ok("@tsrs/darwin-x64"),
+        arch => anyhow::bail!("Unsupported macOS architecture for tsrs: {arch}"),
+    }
+}
+
+#[cfg(target_os = "linux")]
+async fn is_linux_musl() -> bool {
+    if let Ok(output) = util::command::new_command("ldd").arg("--version").output().await {
+        let text = String::from_utf8_lossy(&output.stdout);
+        if text.contains("musl") {
+            return true;
+        }
+        if text.contains("GLIBC") || text.contains("GNU libc") {
+            return false;
+        }
+    }
+    if let Ok(mut entries) = async_fs::read_dir("/lib").await {
+        while let Some(Ok(entry)) = entries.next().await {
+            if entry.file_name().to_string_lossy().starts_with("ld-musl-") {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[cfg(target_os = "linux")]
+async fn tsrs_platform_package_name() -> Result<&'static str> {
+    let is_musl = is_linux_musl().await;
+    match (std::env::consts::ARCH, is_musl) {
+        ("x86_64", false) => Ok("@tsrs/linux-x64-gnu"),
+        ("x86_64", true) => Ok("@tsrs/linux-x64-musl"),
+        ("aarch64", false) => Ok("@tsrs/linux-arm64-gnu"),
+        ("aarch64", true) => Ok("@tsrs/linux-arm64-musl"),
+        (arch, _) => anyhow::bail!("Unsupported Linux architecture for tsrs: {arch}"),
+    }
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+fn tsrs_platform_package_name() -> Result<&'static str> {
+    anyhow::bail!("Unsupported OS for tsrs: {}", std::env::consts::OS);
+}
+
+#[derive(serde::Deserialize)]
+struct NpmLatestMetadata {
+    dist: NpmDistMetadata,
+}
+
+#[derive(serde::Deserialize)]
+struct NpmDistMetadata {
+    tarball: String,
+}
+
+async fn install_tsrs(
+    staging_path: &Path,
+    directory: &Path,
+    http: &dyn HttpClient,
+) -> Result<()> {
+    #[cfg(target_os = "linux")]
+    let package_name = tsrs_platform_package_name().await?;
+    #[cfg(not(target_os = "linux"))]
+    let package_name = tsrs_platform_package_name()?;
+
+    let url = format!("https://registry.npmjs.org/{package_name}/latest");
+    let mut response = http
+        .get(&url, Default::default(), true)
+        .await
+        .with_context(|| format!("Fetching latest tsrs package metadata from {url}"))?;
+
+    ensure!(
+        response.status().is_success(),
+        "Failed to fetch tsrs metadata from {url}: status {}",
+        response.status()
+    );
+
+    let mut body = String::new();
+    response.body_mut().read_to_string(&mut body).await?;
+    let parsed: NpmLatestMetadata = serde_json::from_str(&body)
+        .with_context(|| format!("Parsing npm metadata from {url}"))?;
+
+    let archive = staging_path.join("archive");
+    download_server_binary(
+        http,
+        &parsed.dist.tarball,
+        None,
+        &archive,
+        AssetKind::TarGz,
+    )
+    .await
+    .context("Could not download tsrs binary archive")?;
+
+    let payload = staging_path.join("payload");
+    async_fs::create_dir_all(&payload).await?;
+
+    let source_dir = if archive.join("package").is_dir() {
+        archive.join("package")
+    } else {
+        archive.clone()
+    };
+
+    let mut entries = async_fs::read_dir(&source_dir).await?;
+    while let Some(entry) = entries.next().await {
+        let entry = entry?;
+        async_fs::rename(entry.path(), payload.join(entry.file_name())).await?;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let binary_path = payload.join(Tool::Tsrs.binary(std::env::consts::OS));
+        if binary_path.is_file() {
+            async_fs::set_permissions(binary_path, std::fs::Permissions::from_mode(0o755)).await?;
+        }
+    }
+
+    ensure!(
+        payload.join(Tool::Tsrs.binary(std::env::consts::OS)).is_file(),
+        "The downloaded tsrs tool did not contain its expected executable"
+    );
+
+    let destination = directory.join(Tool::Tsrs.name());
+    if destination.is_dir() {
+        let _ = async_fs::remove_dir_all(&destination).await;
+    }
+    async_fs::rename(payload, destination)
+        .await
+        .context("Could not finish installing tsrs tool")?;
+
+    Ok(())
+}
+
 async fn install_tool(
     tool: Tool,
     directory: PathBuf,
@@ -260,6 +440,12 @@ async fn install_tool(
     let staging = tempfile::Builder::new()
         .prefix(".tool-install-")
         .tempdir_in(&directory)?;
+
+    if tool == Tool::Tsrs {
+        install_tsrs(staging.path(), &directory, http.as_ref()).await?;
+        return Ok(binary);
+    }
+
     let repository = tool.repository(std::env::consts::OS);
     let release = latest_github_release(repository, true, false, http.clone()).await?;
     let suffix = asset_suffix(tool, std::env::consts::OS, std::env::consts::ARCH)?;
@@ -279,6 +465,7 @@ async fn install_tool(
                         asset.name.contains("gpg") && asset.name.ends_with(&suffix)
                     }
                 }
+                Tool::Tsrs => false,
             };
             if matches {
                 let kind = if asset.name.ends_with(".zip") {
@@ -456,6 +643,14 @@ mod tests {
             "gpg-x86_64-unknown-linux-musl.tar.gz"
         );
         assert_eq!(asset_suffix(Tool::Gpg, "windows", "x86_64")?, ".7z");
+        assert_eq!(
+            asset_suffix(Tool::Tsrs, "windows", "x86_64")?,
+            "@tsrs/win32-x64"
+        );
+        assert_eq!(
+            asset_suffix(Tool::Tsrs, "macos", "aarch64")?,
+            "@tsrs/darwin-arm64"
+        );
         assert!(asset_suffix(Tool::Codex, "linux", "x86").is_err());
         assert!(asset_suffix(Tool::Git, "unknown", "x86_64").is_err());
         assert!(asset_suffix(Tool::Gpg, "unknown", "x86_64").is_err());
@@ -470,6 +665,17 @@ mod tests {
             assert_eq!(resolved, Some(bundled));
         } else {
             assert_eq!(resolved, None);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn tsrs_tool_binary_name() -> Result<()> {
+        let binary = Tool::Tsrs.binary(std::env::consts::OS);
+        if cfg!(windows) {
+            assert_eq!(binary, PathBuf::from("tsrs.exe"));
+        } else {
+            assert_eq!(binary, PathBuf::from("tsrs"));
         }
         Ok(())
     }

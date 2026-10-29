@@ -33,7 +33,6 @@ Zed supports running code in multiple languages. To get started, you need to ins
 **Currently supported languages:**
 
 - [Python (ipykernel)](#python)
-- [TypeScript (Deno)](#typescript-deno)
 - [R (Ark)](#r-ark)
 - [R (Xeus)](#r-xeus)
 - [Julia](#julia)
@@ -115,18 +114,6 @@ ark --install
 TBD: Improve R REPL (Ark Kernel) instructions
 -->
 
-### TypeScript: Deno {#typescript-deno}
-
-- [Install Deno](https://docs.deno.com/runtime/manual/getting_started/installation/) and then install the Deno jupyter kernel:
-
-```sh
-deno jupyter --install
-```
-
-<!--
-TBD: Improve R REPL (Ark Kernel) instructions
--->
-
 ### Julia
 
 - Download and install Julia from the [official website](https://julialang.org/downloads/).
@@ -177,8 +164,6 @@ To configure a different default kernel for a language, you can assign a kernel 
   "jupyter": {
     "kernel_selections": {
       "python": "conda-env",
-      "typescript": "deno",
-      "javascript": "deno",
       "r": "ark"
     }
   }
@@ -206,7 +191,6 @@ $ jupyter kernelspec list
 Available kernels:
   ark                   /Users/z/Library/Jupyter/kernels/ark
   conda-base            /Users/z/Library/Jupyter/kernels/conda-base
-  deno                  /Users/z/Library/Jupyter/kernels/deno
   python-chatlab-dev    /Users/z/Library/Jupyter/kernels/python-chatlab-dev
   python3               /Users/z/Library/Jupyter/kernels/python3
   ruby                  /Users/z/Library/Jupyter/kernels/ruby

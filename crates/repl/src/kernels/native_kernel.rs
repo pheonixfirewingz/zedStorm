@@ -429,11 +429,11 @@ mod test {
                             "env": {}
                         }"#
                     },
-                    "deno": {
+                    "bash": {
                         "kernel.json": r#"{
-                            "display_name": "Deno",
-                            "language": "typescript",
-                            "argv": ["deno", "run", "--unstable", "--allow-net", "--allow-read", "https://deno.land/std/http/file_server.ts", "{connection_file}"],
+                            "display_name": "Bash",
+                            "language": "bash",
+                            "argv": ["bash", "-i"],
                             "env": {}
                         }"#
                     }
@@ -450,7 +450,7 @@ mod test {
 
         assert_eq!(
             kernels.iter().map(|c| c.name.clone()).collect::<Vec<_>>(),
-            vec!["deno", "python"]
+            vec!["bash", "python"]
         );
     }
 }

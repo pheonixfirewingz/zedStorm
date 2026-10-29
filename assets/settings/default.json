@@ -2173,7 +2173,7 @@
       },
     },
     "JavaScript": {
-      "language_servers": ["!typescript-language-server", "vtsls", "..."],
+      "language_servers": ["tsrs", "!vtsls", "!typescript-language-server", "..."],
       "prettier": {
         "allowed": true,
       },
@@ -2278,7 +2278,7 @@
       },
     },
     "TSX": {
-      "language_servers": ["!typescript-language-server", "vtsls", "..."],
+      "language_servers": ["tsrs", "!vtsls", "!typescript-language-server", "..."],
       "prettier": {
         "allowed": true,
       },
@@ -2289,7 +2289,7 @@
       },
     },
     "TypeScript": {
-      "language_servers": ["!typescript-language-server", "vtsls", "..."],
+      "language_servers": ["tsrs", "!vtsls", "!typescript-language-server", "..."],
       "prettier": {
         "allowed": true,
       },
@@ -2443,7 +2443,6 @@
     // Specify the language name as the key and the kernel name as the value.
     // "kernel_selections": {
     //    "python": "conda-base"
-    //    "typescript": "deno"
     // }
   },
   // REPL settings.

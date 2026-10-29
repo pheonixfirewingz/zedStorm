@@ -23,7 +23,6 @@ Some work out-of-the-box and others rely on [3rd party extensions](./extensions/
 - [Clojure](./languages/clojure.md)
 - [CSS](./languages/css.md) \*
 - [Dart](./languages/dart.md)
-- [Deno](./languages/deno.md)
 - [Diff](./languages/diff.md) \*
 - [Docker](./languages/docker.md)
 - [Elixir](./languages/elixir.md)

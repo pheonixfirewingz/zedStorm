@@ -8,8 +8,8 @@ description: "Configure JavaScript language support in Zed, including language s
 JavaScript support is available natively in Zed.
 
 - Tree-sitter: [tree-sitter/tree-sitter-javascript](https://github.com/tree-sitter/tree-sitter-javascript)
-- Language Server: [yioneko/vtsls](https://github.com/yioneko/vtsls)
-- Alternate Language Server: [typescript-language-server/typescript-language-server](https://github.com/typescript-language-server/typescript-language-server)
+- Language Server: [tsrs](https://github.com/oxc-project/tsrs) (native Rust port, no Node.js required)
+- Alternate Language Servers: [yioneko/vtsls](https://github.com/yioneko/vtsls), [typescript-language-server/typescript-language-server](https://github.com/typescript-language-server/typescript-language-server)
 - Debug Adapter: [vscode-js-debug](https://github.com/microsoft/vscode-js-debug)
 
 ## Code formatting

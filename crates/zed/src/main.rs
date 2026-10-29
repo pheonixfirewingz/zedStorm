@@ -522,6 +522,17 @@ fn main() {
 
         let client = Client::production(cx);
         cx.set_http_client(client.http_client());
+        let http_client = client.http_client();
+        cx.background_spawn(async move {
+            for &tool in &http_client::managed_tools::ALL_TOOLS {
+                if let Err(err) =
+                    http_client::managed_tools::ensure_tool(tool, http_client.clone()).await
+                {
+                    log::warn!("Could not ensure managed tool {}: {err:#}", tool.name());
+                }
+            }
+        })
+        .detach();
         let mut languages = LanguageRegistry::new(cx.background_executor().clone());
         languages.set_language_server_download_dir(paths::languages_dir().clone());
         let languages = Arc::new(languages);

@@ -1,4 +1,4 @@
-; Add support for (node:test, bun:test, Jest and Deno.test) runnable
+; Add support for (node:test, bun:test, and Jest) runnable
 ; Function expression that has `it`, `test` or `describe` as the function name
 ; Also matches direct modifiers: .skip, .todo, .only, .failing (Jest, Bun, Vitest)
 ((call_expression
@@ -49,33 +49,4 @@
         (string_fragment) @run)
       (identifier) @run
     ])) @_js-test
-  (#set! tag js-test))
-
-; Add support for Deno.test with string names
-((call_expression
-  function: (member_expression
-    object: (identifier) @_namespace
-    property: (property_identifier) @_method)
-  (#eq? @_namespace "Deno")
-  (#eq? @_method "test")
-  arguments: (arguments
-    .
-    [
-      (string
-        (string_fragment) @run @DENO_TEST_NAME)
-      (identifier) @run @DENO_TEST_NAME
-    ])) @_js-test
-  (#set! tag js-test))
-
-; Add support for Deno.test with named function expressions
-((call_expression
-  function: (member_expression
-    object: (identifier) @_namespace
-    property: (property_identifier) @_method)
-  (#eq? @_namespace "Deno")
-  (#eq? @_method "test")
-  arguments: (arguments
-    .
-    (function_expression
-      name: (identifier) @run @DENO_TEST_NAME))) @_js-test
   (#set! tag js-test))
