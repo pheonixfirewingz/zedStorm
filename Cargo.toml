@@ -188,6 +188,7 @@ exclude = [
     "extensions/glsl",
     "extensions/go",
     "extensions/html",
+    "extensions/jupyter",
     "extensions/mermaid",
     "extensions/proto",
     "extensions/test-extension",
