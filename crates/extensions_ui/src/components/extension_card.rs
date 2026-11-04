@@ -2,7 +2,9 @@ use std::{collections::BTreeSet, sync::Arc};
 
 use extension::{ExtensionApiManifest, ExtensionMetadata, ExtensionProvides};
 use extension::{ExtensionManifest, SchemaVersion};
-use extension_host::{ExtensionOperation, ExtensionStatus, ExtensionStore};
+use extension_host::{
+    ExtensionOperation, ExtensionStatus, ExtensionStore, is_custom_manifest, is_custom_metadata,
+};
 use gpui::{Anchor, ElementId, Entity, Point, SharedString, prelude::*};
 use release_channel::ReleaseChannel;
 use ui::{Chip, ContextMenu, PopoverMenu, Tooltip, prelude::*, utils::format_number_with_commas};
@@ -49,6 +51,7 @@ struct ExtensionCardDetails {
     repository_icon: IconName,
     provided_features: Vec<&'static str>,
     source: ExtensionCardSource,
+    is_custom: bool,
 }
 
 #[derive(Clone)]
@@ -143,6 +146,7 @@ impl ExtensionCard {
                 LocalExtensionKind::Dev => ExtensionCardSource::Dev,
                 LocalExtensionKind::Installed => ExtensionCardSource::Installed,
             },
+            is_custom: is_custom_manifest(&extension),
         };
 
         Self {
@@ -167,6 +171,7 @@ impl ExtensionCard {
                 state,
                 download_count: extension.download_count,
             },
+            is_custom: is_custom_metadata(extension),
         };
 
         Self {
@@ -610,6 +615,7 @@ impl RenderOnce for ExtensionCard {
             repository_icon,
             provided_features,
             source,
+            is_custom,
         } = details;
         let installed_version = source.installed_version(&version);
         let download_count = source.download_count();
@@ -656,6 +662,9 @@ impl RenderOnce for ExtensionCard {
                                     Headline::new(format!("(v{installed_version} installed)"))
                                         .size(HeadlineSize::XSmall)
                                 }))
+                                .when(is_custom, |parent| {
+                                    parent.child(Chip::new("ZedStorm"))
+                                })
                                 .when(!provided_features.is_empty(), |parent| {
                                     parent.child(
                                         h_flex()

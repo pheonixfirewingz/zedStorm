@@ -154,6 +154,50 @@ pub fn is_version_compatible(
     true
 }
 
+pub fn release_extension_download_url(extension_id: &str) -> Result<Url> {
+    let archive = if cfg!(target_os = "windows") {
+        format!("{extension_id}-windows-x86_64.zip")
+    } else {
+        format!("{extension_id}.tar.gz")
+    };
+    Url::parse(&format!(
+        "https://github.com/pheonixfirewingz/zedStorm/releases/download/latest-extensions-build/{archive}"
+    ))
+    .map_err(Into::into)
+}
+
+pub static BUNDLED_EXTENSIONS: LazyLock<Vec<ExtensionMetadata>> = LazyLock::new(|| {
+    serde_json::from_str::<GetExtensionsResponse>(include_str!("../../../extensions/extensions.json"))
+        .map(|resp| resp.data)
+        .unwrap_or_default()
+});
+
+pub fn is_custom_extension(id: &str) -> bool {
+    BUNDLED_EXTENSIONS.iter().any(|ext| ext.id.as_ref() == id)
+}
+
+pub fn is_custom_metadata(metadata: &ExtensionMetadata) -> bool {
+    metadata.manifest.repository.contains("pheonixfirewingz/zedStorm")
+        || metadata
+            .manifest
+            .authors
+            .iter()
+            .any(|a| a.to_lowercase().contains("zedstorm"))
+        || is_custom_extension(metadata.id.as_ref())
+}
+
+pub fn is_custom_manifest(manifest: &ExtensionManifest) -> bool {
+    manifest
+        .repository
+        .as_deref()
+        .map_or(false, |r| r.contains("pheonixfirewingz/zedStorm"))
+        || manifest
+            .authors
+            .iter()
+            .any(|a| a.to_lowercase().contains("zedstorm"))
+        || is_custom_extension(manifest.id.as_ref())
+}
+
 pub struct ExtensionStore {
     pub proxy: Arc<ExtensionHostProxy>,
     pub builder: Arc<ExtensionBuilder>,
@@ -818,34 +862,14 @@ impl ExtensionStore {
     ) -> Task<Result<Vec<ExtensionMetadata>>> {
         let url = self.http_client.build_zed_api_url(path, query);
         let http_client = self.http_client.clone();
+        let path = path.to_string();
+        let query_owned: Vec<(String, String)> =
+            query.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         cx.spawn(async move |_, _| {
-            let mut response = http_client
-                .get(url?.as_ref(), AsyncBody::empty(), true)
-                .await?;
-
-            let mut body = Vec::new();
-            response
-                .body_mut()
-                .read_to_end(&mut body)
-                .await
-                .context("error reading extensions")?;
-
-            if response.status().is_client_error() {
-                let text = String::from_utf8_lossy(body.as_slice());
-                bail!(
-                    "status error {}, response: {text:?}",
-                    response.status().as_u16()
-                );
-            }
-
-            let mut response: GetExtensionsResponse = serde_json::from_slice(&body)?;
-
-            response
-                .data
-                .retain(|extension| !SUPPRESSED_EXTENSIONS.contains(extension.id.as_ref()));
+            // Start with bundled custom extensions as base catalog
+            let mut custom_extensions = BUNDLED_EXTENSIONS.clone();
 
             // Dynamically merge extensions from the repository catalog if available
-            let mut catalog_data: Option<GetExtensionsResponse> = None;
             if let Ok(catalog_url) = Url::parse(
                 "https://raw.githubusercontent.com/pheonixfirewingz/zedStorm/custom/extensions/extensions.json",
             ) {
@@ -855,21 +879,121 @@ impl ExtensionStore {
                     if cat_resp.status().is_success() {
                         let mut cat_body = Vec::new();
                         if cat_resp.body_mut().read_to_end(&mut cat_body).await.is_ok() {
-                            catalog_data = serde_json::from_slice(&cat_body).ok();
+                            if let Ok(catalog_data) =
+                                serde_json::from_slice::<GetExtensionsResponse>(&cat_body)
+                            {
+                                for ext in catalog_data.data {
+                                    if let Some(pos) =
+                                        custom_extensions.iter().position(|e| e.id == ext.id)
+                                    {
+                                        custom_extensions[pos] = ext;
+                                    } else {
+                                        custom_extensions.push(ext);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
 
-            if let Some(catalog) = catalog_data {
-                for ext in catalog.data {
-                    if !response.data.iter().any(|existing| existing.id == ext.id) {
-                        response.data.push(ext);
-                    }
+            if path.starts_with("/extensions/")
+                && path != "/extensions"
+                && path != "/extensions/updates"
+            {
+                let extension_id = path.trim_start_matches("/extensions/");
+                if let Some(ext) = custom_extensions.iter().find(|e| e.id.as_ref() == extension_id) {
+                    return Ok(vec![ext.clone()]);
                 }
             }
 
-            Ok(response.data)
+            let api_result: Result<Vec<ExtensionMetadata>> = async {
+                let mut response = http_client
+                    .get(url?.as_ref(), AsyncBody::empty(), true)
+                    .await?;
+
+                let mut body = Vec::new();
+                response
+                    .body_mut()
+                    .read_to_end(&mut body)
+                    .await
+                    .context("error reading extensions")?;
+
+                if response.status().is_client_error() {
+                    let text = String::from_utf8_lossy(body.as_slice());
+                    bail!(
+                        "status error {}, response: {text:?}",
+                        response.status().as_u16()
+                    );
+                }
+
+                let mut response: GetExtensionsResponse = serde_json::from_slice(&body)?;
+
+                response
+                    .data
+                    .retain(|extension| !SUPPRESSED_EXTENSIONS.contains(extension.id.as_ref()));
+
+                Ok(response.data)
+            }
+            .await;
+
+            let filter_query = query_owned
+                .iter()
+                .find(|(k, _)| k == "filter")
+                .map(|(_, v)| v.as_str());
+            let provides_query = query_owned
+                .iter()
+                .find(|(k, _)| k == "provides")
+                .map(|(_, v)| v.as_str());
+
+            custom_extensions.retain(|ext| {
+                if let Some(filter) = filter_query {
+                    let filter_lower = filter.to_lowercase();
+                    let matches_id = ext.id.to_lowercase().contains(&filter_lower);
+                    let matches_name = ext.manifest.name.to_lowercase().contains(&filter_lower);
+                    let matches_desc = ext
+                        .manifest
+                        .description
+                        .as_deref()
+                        .map_or(false, |d| d.to_lowercase().contains(&filter_lower));
+                    let matches_author = ext
+                        .manifest
+                        .authors
+                        .iter()
+                        .any(|a| a.to_lowercase().contains(&filter_lower));
+                    if !(matches_id || matches_name || matches_desc || matches_author) {
+                        return false;
+                    }
+                }
+                if let Some(provides) = provides_query {
+                    if !ext
+                        .manifest
+                        .provides
+                        .iter()
+                        .any(|p| provides.contains(&p.to_string()))
+                    {
+                        return false;
+                    }
+                }
+                true
+            });
+
+            match api_result {
+                Ok(mut remote_data) => {
+                    for ext in custom_extensions {
+                        if let Some(idx) =
+                            remote_data.iter().position(|existing| existing.id == ext.id)
+                        {
+                            remote_data[idx] = ext;
+                        } else {
+                            remote_data.push(ext);
+                        }
+                    }
+                    Ok(remote_data)
+                }
+                Err(_) if !custom_extensions.is_empty() => Ok(custom_extensions),
+                Err(err) => Err(err),
+            }
         })
     }
 
@@ -910,15 +1034,48 @@ impl ExtensionStore {
                 }
             });
 
+            let download_extension_id = extension_id.clone();
             cx.background_spawn(async move {
-                let mut response = http_client
+                let initial_resp = http_client
                     .get(url.as_ref(), Default::default(), true)
-                    .await
-                    .context("downloading extension")?;
+                    .await;
 
-                if !response.status().is_success() {
-                    bail!("downloading extension from {url}: HTTP {}", response.status());
-                }
+                let (mut response, final_url) = match initial_resp {
+                    Ok(resp) if resp.status().is_success() => (resp, url),
+                    failed_resp => {
+                        if let Ok(gh_url) = release_extension_download_url(&download_extension_id) {
+                            if gh_url != url {
+                                log::info!(
+                                    "download from {url} failed; falling back to GitHub releases: {gh_url}"
+                                );
+                                let gh_resp = http_client
+                                    .get(gh_url.as_ref(), Default::default(), true)
+                                    .await;
+                                if let Ok(resp) = gh_resp && resp.status().is_success() {
+                                    (resp, gh_url)
+                                } else {
+                                    let resp = failed_resp.context("downloading extension")?;
+                                    bail!(
+                                        "downloading extension from {url}: HTTP {}",
+                                        resp.status()
+                                    );
+                                }
+                            } else {
+                                let resp = failed_resp.context("downloading extension")?;
+                                bail!(
+                                    "downloading extension from {url}: HTTP {}",
+                                    resp.status()
+                                );
+                            }
+                        } else {
+                            let resp = failed_resp.context("downloading extension")?;
+                            bail!(
+                                "downloading extension from {url}: HTTP {}",
+                                resp.status()
+                            );
+                        }
+                    }
+                };
 
                 let content_length = response
                     .headers()
@@ -939,7 +1096,7 @@ impl ExtensionStore {
                     }
                 }
 
-                let is_zip = url.path().ends_with(".zip");
+                let is_zip = final_url.path().ends_with(".zip");
                 let unpack = |destination: PathBuf| {
                     let archive_bytes = &archive_bytes;
                     async move {
@@ -1014,16 +1171,8 @@ impl ExtensionStore {
         })
     }
 
-    fn release_extension_download_url(extension_id: &str) -> Result<Url> {
-        let archive = if cfg!(target_os = "windows") {
-            format!("{extension_id}-windows-x86_64.zip")
-        } else {
-            format!("{extension_id}.tar.gz")
-        };
-        Url::parse(&format!(
-            "https://github.com/pheonixfirewingz/zedStorm/releases/download/latest-extensions-build/{archive}"
-        ))
-        .map_err(Into::into)
+    pub fn release_extension_download_url(extension_id: &str) -> Result<Url> {
+        release_extension_download_url(extension_id)
     }
 
     pub fn install_latest_extension(&mut self, extension_id: Arc<str>, cx: &mut Context<Self>) {
@@ -1032,22 +1181,25 @@ impl ExtensionStore {
         let schema_versions = schema_version_range();
         let wasm_api_versions = wasm_api_version_range(ReleaseChannel::global(cx));
 
-        let url = self
-            .http_client
-            .build_zed_api_url(
-                &format!("/extensions/{extension_id}/download"),
-                &[
-                    ("min_schema_version", &schema_versions.start().to_string()),
-                    ("max_schema_version", &schema_versions.end().to_string()),
-                    (
-                        "min_wasm_api_version",
-                        &wasm_api_versions.start().to_string(),
-                    ),
-                    ("max_wasm_api_version", &wasm_api_versions.end().to_string()),
-                ],
-            )
-            .log_err()
-            .or_else(|| Self::release_extension_download_url(extension_id.as_ref()).log_err());
+        let url = if is_custom_extension(extension_id.as_ref()) {
+            release_extension_download_url(extension_id.as_ref()).log_err()
+        } else {
+            self.http_client
+                .build_zed_api_url(
+                    &format!("/extensions/{extension_id}/download"),
+                    &[
+                        ("min_schema_version", &schema_versions.start().to_string()),
+                        ("max_schema_version", &schema_versions.end().to_string()),
+                        (
+                            "min_wasm_api_version",
+                            &wasm_api_versions.start().to_string(),
+                        ),
+                        ("max_wasm_api_version", &wasm_api_versions.end().to_string()),
+                    ],
+                )
+                .log_err()
+                .or_else(|| release_extension_download_url(extension_id.as_ref()).log_err())
+        };
         let Some(url) = url else {
             return;
         };
@@ -1078,14 +1230,17 @@ impl ExtensionStore {
         cx: &mut Context<Self>,
     ) -> Task<Result<()>> {
         log::info!("installing extension {extension_id} {version}");
-        let url = self
-            .http_client
-            .build_zed_api_url(
-                &format!("/extensions/{extension_id}/{version}/download"),
-                &[],
-            )
-            .log_err()
-            .or_else(|| Self::release_extension_download_url(extension_id.as_ref()).log_err());
+        let url = if is_custom_extension(extension_id.as_ref()) {
+            release_extension_download_url(extension_id.as_ref()).log_err()
+        } else {
+            self.http_client
+                .build_zed_api_url(
+                    &format!("/extensions/{extension_id}/{version}/download"),
+                    &[],
+                )
+                .log_err()
+                .or_else(|| release_extension_download_url(extension_id.as_ref()).log_err())
+        };
         let Some(url) = url else {
             return Task::ready(Ok(()));
         };
@@ -2504,4 +2659,21 @@ async fn load_plugin_queries(
     }))
     .await;
     LanguageQueries::from_files(files.into_iter().flatten())
+}
+
+#[cfg(test)]
+mod custom_extension_tests {
+    use super::*;
+
+    #[test]
+    fn test_custom_extensions() {
+        assert!(is_custom_extension("drawio"));
+        assert!(is_custom_extension("plcnext"));
+        assert!(!is_custom_extension("nonexistent-extension-id"));
+
+        let download_url = release_extension_download_url("drawio").unwrap();
+        assert!(download_url.as_str().starts_with(
+            "https://github.com/pheonixfirewingz/zedStorm/releases/download/latest-extensions-build/"
+        ));
+    }
 }

@@ -289,6 +289,7 @@ enum ExtensionFilter {
     All,
     Installed,
     NotInstalled,
+    ZedStorm,
 }
 
 
@@ -549,6 +550,23 @@ impl ExtensionsPage {
                 .filter(|(_, extension)| !installed_extensions.contains_key(&extension.id))
                 .map(remote_row)
                 .collect(),
+            ExtensionFilter::ZedStorm => {
+                let is_custom_entry = |manifest: &ExtensionManifest| {
+                    extension_host::is_custom_manifest(manifest)
+                };
+                let is_custom_remote = |remote: &ExtensionMetadata| {
+                    extension_host::is_custom_metadata(remote)
+                };
+                installed_rows
+                    .filter(|(_, extension)| extension.dev && is_custom_entry(&extension.manifest))
+                    .map(installed_row)
+                    .chain(
+                        remote_rows
+                            .filter(|(_, remote)| is_custom_remote(remote))
+                            .map(remote_row),
+                    )
+                    .collect()
+            }
         };
         cx.notify();
     }
@@ -929,6 +947,13 @@ impl ExtensionsPage {
                         "No not installed extensions."
                     }
                 }
+                ExtensionFilter::ZedStorm => {
+                    if has_search {
+                        "No ZedStorm extensions that match your search."
+                    } else {
+                        "No ZedStorm extensions."
+                    }
+                }
             }
         };
 
@@ -1190,6 +1215,14 @@ impl Render for ExtensionsPage {
                                                     this.scroll_to_top(cx);
                                                 }),
                                             ),
+                                            ToggleButtonSimple::new(
+                                                "ZedStorm",
+                                                cx.listener(|this, _event, _, cx| {
+                                                    this.filter = ExtensionFilter::ZedStorm;
+                                                    this.rebuild_displayed_extensions(cx);
+                                                    this.scroll_to_top(cx);
+                                                }),
+                                            ),
                                         ],
                                     )
                                     .style(ToggleButtonGroupStyle::Outlined)
@@ -1200,6 +1233,7 @@ impl Render for ExtensionsPage {
                                         ExtensionFilter::All => 0,
                                         ExtensionFilter::Installed => 1,
                                         ExtensionFilter::NotInstalled => 2,
+                                        ExtensionFilter::ZedStorm => 3,
                                     })
                                     .into_any_element(),
                                 ),
@@ -1266,7 +1300,8 @@ impl Render for ExtensionsPage {
                     let scroll_handle = &self.list;
                     this.when(
                         self.fetch_state == ExtensionFetchState::Failed
-                            && self.filter == ExtensionFilter::All,
+                            && (self.filter == ExtensionFilter::All
+                                || self.filter == ExtensionFilter::ZedStorm),
                         |this| {
                             this.child(
                                 div().pt_4().child(
