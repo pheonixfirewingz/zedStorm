@@ -24,5 +24,15 @@ languages = [
     "C",
     "C++",
     "Ruby",
-    "Git Commit"
+    "Git Commit",
+    "PHP",
+    "Java",
+    "Kotlin",
+    "C#",
+    "Swift",
+    "SQL",
+    "Shell Script",
+    "Bash",
+    "Lua",
+    "Zig"
 ]

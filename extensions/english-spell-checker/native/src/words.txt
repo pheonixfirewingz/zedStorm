@@ -32,6 +32,7 @@ abnormal
 abnormalities
 aboard
 aboriginal
+abort
 abortion
 about
 above
@@ -88,6 +89,7 @@ accessibility
 accessible
 accessing
 accession
+accessor
 accessories
 accessory
 accident
@@ -241,6 +243,7 @@ address
 addressed
 addresses
 addressing
+addrspace
 adds
 adelaide
 adequacy
@@ -521,8 +524,10 @@ alien
 aliens
 alienware
 align
+alignas
 aligned
 alignment
+alignof
 alike
 alison
 alito
@@ -561,6 +566,7 @@ allowances
 allowed
 allowing
 allows
+allowzero
 alloy
 alloys
 ally
@@ -832,10 +838,13 @@ anxiety
 anxious
 any
 anybody
+anyerror
+anyframe
 anymore
 anyone
 anything
 anytime
+anytype
 anyway
 anyways
 anywhere
@@ -989,6 +998,7 @@ aren't
 arena
 ares
 arg
+argc
 argentina
 argentine
 argos
@@ -1167,6 +1177,7 @@ assists
 assoc
 associate
 associated
+associatedtype
 associates
 association
 associations
@@ -1226,6 +1237,9 @@ atlas
 atm
 atmosphere
 atmospheric
+atof
+atoi
+atol
 atom
 atomic
 atoms
@@ -1418,6 +1432,7 @@ awe
 awesome
 awful
 awhile
+awk
 awkward
 ax
 axe
@@ -1860,6 +1875,7 @@ bien
 big
 bigger
 biggest
+bigint
 bike
 biker
 bikes
@@ -1933,12 +1949,14 @@ bison
 bissau
 bistro
 bit
+bitand
 bitch
 bitches
 bite
 bites
 biting
 bitmap
+bitor
 bitpipe
 bits
 bitter
@@ -2394,6 +2412,7 @@ bs
 bsc
 bsd
 bse
+bsearch
 bst
 bt
 btw
@@ -2539,6 +2558,7 @@ byrd
 byrne
 byron
 byte
+bytearray
 bytecode
 bytes
 c
@@ -2602,12 +2622,15 @@ caliber
 calibration
 california
 call
+callable
 callaway
 callback
 callbacks
+callconv
 called
 caller
 calling
+calloc
 calls
 calm
 calorie
@@ -2948,6 +2971,7 @@ ceremonies
 ceremony
 cerevisiae
 cern
+cerr
 cert
 certain
 certainly
@@ -2966,6 +2990,7 @@ cet
 cette
 cf
 cfa
+cfg
 cfo
 cfr
 cfs
@@ -3165,6 +3190,7 @@ chit
 chloe
 chloride
 chlorine
+chmod
 cho
 chocolate
 chocolates
@@ -3185,6 +3211,7 @@ chorus
 chose
 chosen
 chow
+chown
 chr
 chris
 christ
@@ -3230,6 +3257,7 @@ cigarette
 cigarettes
 cigars
 cimel
+cin
 cincinnati
 cinderella
 cindy
@@ -3319,6 +3347,7 @@ classified
 classifieds
 classify
 classmates
+classmethod
 classroom
 classrooms
 classy
@@ -3388,8 +3417,10 @@ clippers
 clips
 clit
 clive
+clob
 clock
 clocks
+clog
 clone
 cloned
 clones
@@ -3415,6 +3446,7 @@ cloudy
 clover
 clown
 clr
+cls
 club
 clubhouse
 clubs
@@ -3443,6 +3475,7 @@ coach
 coaches
 coaching
 coal
+coalesce
 coalition
 coarse
 coast
@@ -3699,6 +3732,7 @@ compiled
 compiler
 compilers
 compiling
+compl
 complain
 complainant
 complained
@@ -3753,6 +3787,7 @@ comprises
 comprising
 compromise
 compromised
+comptime
 compton
 comptroller
 compulsory
@@ -3938,6 +3973,9 @@ const
 constant
 constantly
 constants
+consteval
+constexpr
+constinit
 constituency
 constituent
 constituents
@@ -4119,6 +4157,7 @@ copies
 coping
 copper
 coppermine
+coproc
 cops
 copy
 copying
@@ -4146,6 +4185,7 @@ corning
 cornwall
 corona
 coronary
+coroutine
 corp
 corporate
 corporation
@@ -4253,7 +4293,9 @@ courts
 courtyard
 cousin
 cousins
+cout
 couture
+covariant
 cove
 covenant
 coventry
@@ -4394,6 +4436,7 @@ crosse
 crossed
 crosses
 crossing
+crossinline
 crossover
 crossroads
 crossword
@@ -4660,6 +4703,7 @@ dayton
 daytona
 db
 dba
+dbg
 dblp
 dbz
 dc
@@ -4739,6 +4783,7 @@ decline
 declined
 declines
 declining
+decltype
 deco
 decode
 decoded
@@ -4798,12 +4843,14 @@ defending
 defense
 defenses
 defensive
+defer
 deferred
 deficiencies
 deficiency
 deficient
 deficit
 deficits
+defimpl
 definately
 define
 defined
@@ -4814,14 +4861,21 @@ definitely
 definition
 definitions
 definitive
+defmacro
+defmodule
 deformation
+defp
+defprotocol
+defstruct
 deg
 degradation
 degree
 degrees
 dehydrogenase
 dei
+deinit
 del
+delattr
 delaware
 delay
 delayed
@@ -4846,6 +4900,7 @@ delightful
 delights
 delimiter
 delimiters
+delitem
 deliver
 delivered
 deliveries
@@ -4950,6 +5005,7 @@ dept
 depth
 depths
 deputy
+deque
 der
 derby
 derbyshire
@@ -4959,6 +5015,7 @@ derivative
 derivatives
 derive
 derived
+deriving
 dermatology
 des
 desc
@@ -5117,6 +5174,7 @@ dickens
 dickinson
 dicks
 dickson
+dict
 dictionaries
 dictionary
 did
@@ -5653,6 +5711,7 @@ dumping
 dun
 duncan
 dundee
+dunder
 dune
 dunes
 dungeon
@@ -5702,6 +5761,7 @@ dying
 dyke
 dylan
 dylib
+dyn
 dynamic
 dynamically
 dynamics
@@ -5915,6 +5975,7 @@ eleven
 elf
 elgin
 eli
+elif
 eligibility
 eligible
 elijah
@@ -5938,8 +5999,10 @@ elliott
 ellis
 elm
 else
+elseif
 elsevier
 elsewhere
+elsif
 elton
 elvis
 em
@@ -6056,8 +6119,11 @@ endangered
 endeavor
 endeavour
 ended
+endfor
+endforeach
 endif
 ending
+endl
 endless
 endocrine
 endorse
@@ -6070,6 +6136,7 @@ ends
 endurance
 endure
 enduring
+endwhile
 enemies
 enemy
 energetic
@@ -6164,6 +6231,7 @@ entries
 entropy
 entry
 enum
+enumerate
 enumeration
 enums
 env
@@ -6192,6 +6260,7 @@ episode
 episodes
 epoch
 epoxy
+eprintln
 eps
 epsilon
 epson
@@ -6241,6 +6310,7 @@ erotica
 erotik
 erp
 err
+errdefer
 errno
 erroneous
 error
@@ -6248,6 +6318,7 @@ errors
 ers
 es
 esa
+esac
 esc
 escape
 escaped
@@ -6669,6 +6740,7 @@ fallback
 fallen
 falling
 falls
+fallthrough
 false
 fam
 fame
@@ -6879,6 +6951,7 @@ filed
 filemaker
 filename
 fileplanet
+fileprivate
 files
 filesize
 filesystem
@@ -7142,7 +7215,9 @@ footnotes
 footprint
 footwear
 for
+forall
 forbes
+forbid
 forbidden
 force
 forced
@@ -7654,8 +7729,10 @@ germany
 gerry
 gesture
 get
+getattr
 getaway
 getaways
+getitem
 gets
 getter
 getters
@@ -7815,6 +7892,7 @@ gorge
 gorgeous
 gorilla
 gorillaz
+goroutine
 gospel
 gossip
 got
@@ -8204,6 +8282,7 @@ harvested
 harvesting
 harvey
 has
+hasattr
 hasbro
 hash
 hashed
@@ -8652,6 +8731,7 @@ href
 hrs
 hs
 hsbc
+hsla
 hsn
 ht
 htdocs
@@ -8818,6 +8898,7 @@ ies
 ietf
 if
 ifdef
+ifndef
 iframe
 ifs
 ig
@@ -8858,6 +8939,7 @@ ilo
 ilug
 im
 imac
+imag
 image
 imagery
 images
@@ -9069,12 +9151,16 @@ infected
 infection
 infections
 infectious
+infer
 inference
 inferior
 infertility
 infinite
 infiniti
 infinity
+infix
+infixl
+infixr
 inflammation
 inflammatory
 inflatable
@@ -9113,6 +9199,7 @@ inhabitants
 inhalation
 inherent
 inherently
+inherit
 inheritance
 inherited
 inhibit
@@ -9163,6 +9250,7 @@ innovations
 innovative
 inns
 inorganic
+inout
 inpatient
 input
 inputs
@@ -9213,6 +9301,7 @@ installing
 installment
 installs
 instance
+instanceof
 instances
 instant
 instantiate
@@ -9340,7 +9429,9 @@ interviews
 intestinal
 intimate
 intl
+intmax
 into
+intptr
 intra
 intracellular
 intranet
@@ -9416,8 +9507,10 @@ ionamin
 ionic
 ions
 ios
+iota
 iowa
 ip
+ipairs
 ipaq
 ipb
 ipc
@@ -9470,7 +9563,9 @@ isbn
 isd
 isdn
 ish
+isinstance
 isis
+isize
 isl
 islam
 islamic
@@ -9493,8 +9588,10 @@ israel
 israeli
 israelis
 iss
+isset
 issn
 issuance
+issubclass
 issue
 issued
 issuer
@@ -9876,10 +9973,12 @@ kevin
 key
 keyboard
 keyboards
+keyframes
 keygen
 keymap
 keynes
 keynote
+keyof
 keypad
 keys
 keystone
@@ -10022,6 +10121,7 @@ kuwait
 kv
 kvm
 kw
+kwargs
 kx
 ky
 kyle
@@ -10487,6 +10587,7 @@ linker
 linkin
 linking
 links
+linksection
 linksys
 linn
 lint
@@ -11259,7 +11360,9 @@ membership
 memberships
 membrane
 membranes
+memcmp
 memcpy
+memmove
 memo
 memoir
 memoirs
@@ -11271,6 +11374,7 @@ memorials
 memories
 memory
 memphis
+memset
 men
 menace
 menopause
@@ -11557,6 +11661,7 @@ mixed
 mixer
 mixers
 mixes
+mixin
 mixing
 mixture
 mixtures
@@ -11672,6 +11777,7 @@ monoclonal
 monogram
 monophonic
 monopoly
+monospace
 monroe
 monster
 monsters
@@ -11885,6 +11991,7 @@ mut
 mutable
 mutant
 mutants
+mutating
 mutation
 mutations
 mute
@@ -11933,6 +12040,7 @@ nam
 name
 named
 namely
+nameof
 names
 namespace
 namespaces
@@ -12132,6 +12240,7 @@ newsroom
 newsweek
 newswire
 newton
+newtype
 next
 nextag
 nextel
@@ -12192,6 +12301,7 @@ nine
 nineteenth
 ninety
 ninja
+nint
 nintendo
 ninth
 nip
@@ -12216,6 +12326,7 @@ nn
 no
 noaa
 noah
+noalias
 nobel
 noble
 nobody
@@ -12224,6 +12335,8 @@ nodded
 node
 nodes
 noel
+noexcept
+noinline
 noir
 noise
 noisy
@@ -12244,6 +12357,9 @@ none
 nonetheless
 nonfiction
 nonlinear
+nonlocal
+nonmutating
+nonnull
 nonprofit
 nonsense
 noodles
@@ -12254,6 +12370,7 @@ nor
 nora
 nord
 nordic
+noreturn
 norfolk
 norm
 norma
@@ -12282,6 +12399,7 @@ norwood
 nos
 nose
 nostalgia
+nosuspend
 not
 notable
 notably
@@ -12354,10 +12472,12 @@ nudists
 nudity
 nuevo
 nuggets
+nuint
 nuisance
 nuke
 null
 nullable
+nullptr
 num
 number
 numbered
@@ -12380,6 +12500,7 @@ nutritional
 nuts
 nutten
 nv
+nvarchar
 nvidia
 nw
 nws
@@ -12590,6 +12711,7 @@ ooh
 ooo
 oops
 op
+opacity
 opal
 opaque
 opcode
@@ -12670,6 +12792,7 @@ orchestra
 orchid
 ord
 order
+orderby
 ordered
 ordering
 orders
@@ -12680,6 +12803,7 @@ ordination
 ordinator
 ore
 oregon
+orelse
 orf
 org
 organ
@@ -13134,6 +13258,7 @@ paz
 pb
 pbs
 pc
+pcall
 pcb
 pcg
 pci
@@ -14019,6 +14144,7 @@ printer
 printers
 printf
 printing
+println
 printprinter
 prints
 prior
@@ -14030,6 +14156,7 @@ prisoner
 prisoners
 prisons
 pristine
+priv
 privacy
 privat
 private
@@ -14140,7 +14267,9 @@ prom
 prominent
 promise
 promised
+promiselike
 promises
+promisify
 promising
 promo
 promote
@@ -14277,6 +14406,7 @@ pt
 pta
 pte
 ptr
+ptrdiff
 pts
 pty
 pu
@@ -14387,6 +14517,7 @@ qld
 qos
 qq
 qr
+qsort
 qt
 qtr
 qty
@@ -14644,6 +14775,7 @@ realization
 realize
 realized
 realizing
+realloc
 really
 realm
 realms
@@ -14765,6 +14897,7 @@ redistribute
 redistributed
 redistribution
 redmond
+redo
 reds
 redskins
 reduce
@@ -14786,6 +14919,7 @@ reeves
 ref
 refactor
 refactoring
+refcell
 refer
 referee
 reference
@@ -14815,6 +14949,7 @@ reflective
 reflector
 reflects
 reflex
+reflexpr
 reform
 reformed
 reforms
@@ -14890,6 +15025,7 @@ rehearsal
 rei
 reich
 reid
+reified
 reign
 reiki
 reilly
@@ -14897,6 +15033,7 @@ reimbursement
 reinforce
 reinforced
 reinforcement
+reinterpret
 reits
 reject
 rejected
@@ -15059,6 +15196,7 @@ reports
 repos
 repositories
 repository
+repr
 represent
 representation
 representations
@@ -15208,6 +15346,7 @@ retaining
 retains
 retardation
 retention
+rethrows
 retire
 retired
 retirement
@@ -15444,6 +15583,7 @@ role
 roles
 rolex
 roll
+rollback
 rolled
 roller
 rollers
@@ -15522,6 +15662,7 @@ rover
 row
 rowan
 rowe
+rowid
 rowing
 rowling
 rows
@@ -15579,6 +15720,7 @@ rumors
 rumsfeld
 run
 runaway
+rune
 runner
 runners
 running
@@ -15609,6 +15751,7 @@ rutland
 rv
 rw
 rwanda
+rwlock
 rx
 ry
 ryan
@@ -15789,6 +15932,7 @@ sbc
 sbin
 sbjct
 sbs
+sbyte
 sc
 sca
 scalability
@@ -15804,6 +15948,7 @@ scan
 scandal
 scandinavia
 scandinavian
+scanf
 scanned
 scanner
 scanners
@@ -16160,7 +16305,9 @@ session
 sessions
 sesso
 set
+setattr
 seth
+setitem
 sets
 setter
 setters
@@ -16687,6 +16834,7 @@ snowboarding
 snowmobile
 snowy
 snp
+snprintf
 snr
 snyder
 so
@@ -17001,6 +17149,7 @@ springer
 springfield
 springs
 sprint
+sprintf
 spruce
 spun
 spur
@@ -17030,8 +17179,10 @@ srl
 srs
 ss
 ssa
+sscanf
 ssh
 ssi
+ssize
 ssk
 ssl
 sst
@@ -17044,6 +17195,7 @@ stabilization
 stable
 stacey
 stack
+stackalloc
 stacked
 stacks
 stacy
@@ -17123,6 +17275,7 @@ states
 statesman
 statewide
 static
+staticmethod
 stating
 station
 stationary
@@ -17281,6 +17434,11 @@ strauss
 straw
 strawberry
 stray
+strcat
+strchr
+strcmp
+strcpy
+strdup
 streak
 stream
 streaming
@@ -17301,6 +17459,7 @@ stretched
 stretches
 stretching
 strict
+strictfp
 strictly
 strike
 strikes
@@ -17319,6 +17478,9 @@ stripping
 strips
 strive
 striving
+strlen
+strncmp
+strncpy
 stroke
 strokes
 stroll
@@ -17328,6 +17490,10 @@ strong
 stronger
 strongest
 strongly
+strstr
+strtok
+strtol
+strtoul
 struck
 struct
 structs
@@ -17406,6 +17572,7 @@ subscribed
 subscriber
 subscribers
 subscribing
+subscript
 subscription
 subscriptions
 subsection
@@ -17462,6 +17629,7 @@ sudan
 sudbury
 sudden
 suddenly
+sudo
 sudoku
 sue
 sued
@@ -17876,6 +18044,7 @@ taylor
 tb
 tba
 tbd
+tbody
 tc
 tcl
 tcm
@@ -18057,6 +18226,7 @@ texture
 textured
 textures
 tf
+tfoot
 tft
 tg
 tgp
@@ -18077,6 +18247,7 @@ that's
 thats
 thb
 the
+thead
 theater
 theaters
 theatre
@@ -18175,6 +18346,7 @@ thousands
 thr
 thread
 threaded
+threadlocal
 threads
 threat
 threaten
@@ -18374,6 +18546,7 @@ toni
 tonight
 tonnes
 tons
+tonumber
 tony
 too
 took
@@ -18418,6 +18591,7 @@ tos
 toshiba
 toss
 tossed
+tostring
 tot
 total
 totaling
@@ -18693,6 +18867,7 @@ truly
 truman
 trump
 trumpet
+truncate
 trunk
 trust
 truste
@@ -18805,12 +18980,17 @@ tying
 tyler
 tyne
 type
+typealias
 typed
 typedef
+typeid
 typekey
+typename
+typeof
 typepad
 types
 typescript
+typeset
 typical
 typically
 typing
@@ -18845,10 +19025,13 @@ uh
 ui
 uid
 uint
+uintmax
+uintptr
 uk
 ukraine
 ukrainian
 ul
+ulong
 ulster
 ultima
 ultimate
@@ -18860,6 +19043,7 @@ ultrasound
 ultraviolet
 um
 uma
+umask
 umbrella
 umd
 uml
@@ -18868,6 +19052,7 @@ una
 unable
 unabridged
 unacceptable
+unalias
 unanimous
 unanimously
 unanswered
@@ -18884,6 +19069,7 @@ uncertain
 uncertainties
 uncertainty
 unchanged
+unchecked
 unclassified
 uncle
 unclear
@@ -18947,6 +19133,7 @@ unified
 uniform
 uniformly
 uniforms
+unimplemented
 uninstall
 uninsured
 union
@@ -18981,12 +19168,15 @@ unnamed
 unnecessary
 uno
 unofficial
+unordered
+unowned
 unpaid
 unpleasant
 unprecedented
 unpredictable
 unpublished
 unrated
+unreachable
 unread
 unreal
 unreasonable
@@ -18997,7 +19187,9 @@ unrestricted
 unsafe
 unsecured
 unseen
+unset
 unsigned
+unsized
 unsolicited
 unspecified
 unstable
@@ -19094,7 +19286,10 @@ users
 uses
 usgs
 usher
+ushort
 using
+usingnamespace
+usize
 usps
 usr
 uss
@@ -19188,6 +19383,8 @@ vantage
 vanuatu
 vapor
 var
+vararg
+varchar
 variability
 variable
 variables
@@ -19309,6 +19506,7 @@ vf
 vg
 vga
 vgroup
+vh
 vhf
 vhs
 vi
@@ -19348,6 +19546,7 @@ viet
 vietnam
 vietnamese
 view
+viewbox
 viewed
 viewer
 viewers
@@ -19660,6 +19859,7 @@ wayne
 ways
 wb
 wc
+wchar
 wd
 we
 we'd
@@ -19778,6 +19978,7 @@ wetlands
 weymouth
 wf
 wg
+wget
 wh
 whale
 whales
@@ -20123,9 +20324,12 @@ xlibs
 xm
 xmas
 xml
+xmlns
 xnxx
 xoops
+xor
 xp
+xpcall
 xpress
 xr
 xs
@@ -20243,6 +20447,7 @@ zhang
 ziff
 zimbabwe
 zinc
+zindex
 zine
 zion
 zip

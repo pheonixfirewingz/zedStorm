@@ -60,9 +60,10 @@ use std::{
 };
 use theme_settings::ThemeSettings;
 use ui::{
-    ContextMenu, DecoratedIcon, IconDecoration, IconDecorationKind, IndentGuideColors,
-    IndentGuideLayout, Indicator, KeyBinding, ListItem, ListItemSpacing, ProjectEmptyState,
-    ScrollAxes, ScrollableHandle, Scrollbars, StickyCandidate, Tooltip, WithScrollbar, prelude::*,
+    ContextMenu, DecoratedIcon, IconDecoration, IconDecorationKind, IconButtonShape,
+    IndentGuideColors, IndentGuideLayout, Indicator, KeyBinding, ListItem, ListItemSpacing,
+    ProjectEmptyState, ScrollAxes, ScrollableHandle, Scrollbars, StickyCandidate, Tab, Tooltip,
+    WithScrollbar, prelude::*,
 };
 use util::{
     ResultExt, TryFutureExt,
@@ -72,11 +73,14 @@ use util::{
     rel_path::{RelPath, RelPathBuf},
 };
 use workspace::{
-    DraggedSelection, OpenInTerminal, OpenMode, OpenOptions, OpenVisible, PreviewTabsSettings,
-    SelectedEntry, SplitDirection, Workspace, WorkspaceSettings, copy_file_permalink,
+    DraggedSelection, OpenInTerminal, OpenMode, OpenOptions, OpenVisible, PreviewTabsSettings, SelectedEntry, SplitDirection, Workspace, WorkspaceSettings,
+    copy_file_permalink,
     dock::{DockPosition, Panel, PanelEvent},
     focus_follows_mouse::FocusFollowsMouse as _,
-    notifications::{DetachAndPromptErr, NotifyResultExt, NotifyTaskExt},
+    notifications::{
+        DetachAndPromptErr, NotificationId, NotifyResultExt, NotifyTaskExt, show_app_notification,
+        simple_message_notification::MessageNotification,
+    },
     open_file_permalink,
 };
 use worktree::CreatedEntry;
@@ -371,6 +375,8 @@ actions!(
     [
         /// Expands the selected entry in the project tree.
         ExpandSelectedEntry,
+        /// Reveals the current active tab in the project panel.
+        RevealActiveTab,
         /// Collapses the selected entry in the project tree.
         CollapseSelectedEntry,
         /// Collapses the selected entry and its children in the project tree.
@@ -1640,6 +1646,108 @@ impl ProjectPanel {
 
         self.update_visible_entries(None, false, false, window, cx);
         cx.notify();
+    }
+
+    pub fn reveal_active_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(workspace) = self.workspace.upgrade() else {
+            return;
+        };
+        let active_pane = workspace.read(cx).active_pane().clone();
+        let active_item = active_pane.read(cx).active_item();
+        let Some(active_item) = active_item else {
+            return;
+        };
+
+        let project = self.project.clone();
+        let entry_id = active_item.project_entry_ids(cx).first().copied().or_else(|| {
+            active_item
+                .project_path(cx)
+                .and_then(|path| project.read(cx).entry_for_path(&path, cx))
+                .map(|entry| entry.id)
+        });
+
+        let show_reveal_error_toast = |display_name: &str, cx: &mut App| {
+            let notification_id = NotificationId::unique::<workspace::RevealInProjectPanel>();
+            let message = SharedString::from(format!(
+                "\"{display_name}\" is not part of any open projects."
+            ));
+
+            show_app_notification(notification_id, cx, move |cx| {
+                let message = message.clone();
+                cx.new(|cx| MessageNotification::new(message, cx))
+            });
+        };
+
+        let Some(entry_id) = entry_id else {
+            let display_name = active_item
+                .tab_tooltip_text(cx)
+                .unwrap_or_else(|| active_item.tab_content_text(0, cx));
+
+            return show_reveal_error_toast(&display_name, cx);
+        };
+
+        let display_name = project
+            .read(cx)
+            .worktree_for_entry(entry_id, cx)
+            .filter(|worktree| !worktree.read(cx).is_visible())
+            .map(|worktree| worktree.read(cx).root_name_str().to_string());
+
+        if let Some(display_name) = display_name {
+            return show_reveal_error_toast(&display_name, cx);
+        }
+
+        if self
+            .reveal_entry(project, entry_id, false, window, cx)
+            .log_err()
+            .is_some()
+        {
+            self.focus_handle(cx).focus(window, cx);
+        }
+    }
+
+    fn render_header(&self, cx: &Context<Self>) -> impl IntoElement {
+        h_flex()
+            .h(Tab::container_height(cx))
+            .w_full()
+            .px_2()
+            .justify_between()
+            .items_center()
+            .border_b_1()
+            .border_color(cx.theme().colors().border)
+            .child(
+                Label::new("Project")
+                    .size(LabelSize::Small)
+                    .color(Color::Muted),
+            )
+            .child(
+                h_flex()
+                    .gap_1()
+                    .items_center()
+                    .child(
+                        IconButton::new("locate-active-tab", IconName::Locate)
+                            .shape(IconButtonShape::Square)
+                            .tooltip(Tooltip::for_action_title_in(
+                                "Find Current Active Tab",
+                                &workspace::RevealInProjectPanel::default(),
+                                &self.focus_handle,
+                            ))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.reveal_active_tab(window, cx);
+                            })),
+                    )
+                    .child(
+                        IconButton::new("collapse-all-entries", IconName::ListCollapse)
+                            .shape(IconButtonShape::Square)
+                            .tooltip(Tooltip::for_action_title_in(
+                                "Collapse All",
+                                &CollapseAllEntries,
+                                &self.focus_handle,
+                            ))
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.collapse_all_entries(&CollapseAllEntries, window, cx);
+                            })),
+                    ),
+            )
     }
 
     fn collapse_all_entries(
@@ -7504,8 +7612,15 @@ impl Render for ProjectPanel {
                         .on_action(cx.listener(Self::download_from_remote))
                 })
                 .track_focus(&self.focus_handle(cx))
+                .on_action(cx.listener(|this, _: &RevealActiveTab, window, cx| {
+                    this.reveal_active_tab(window, cx);
+                }))
+                .on_action(cx.listener(|this, _: &workspace::RevealInProjectPanel, window, cx| {
+                    this.reveal_active_tab(window, cx);
+                }))
                 .child(
                     v_flex()
+                        .child(self.render_header(cx))
                         .child(
                             uniform_list("entries", item_count, {
                                 cx.processor(|this, range: Range<usize>, window, cx| {

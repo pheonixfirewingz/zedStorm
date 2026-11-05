@@ -1,0 +1,323 @@
+{
+  "Angular Standalone Component": {
+    "prefix": ["a-component", "ng-component"],
+    "body": [
+      "import { ChangeDetectionStrategy, Component } from '@angular/core';",
+      "",
+      "@Component({",
+      "  selector: '${1:app-my-component}',",
+      "  standalone: true,",
+      "  imports: [],",
+      "  templateUrl: './${2:my-component}.component.html',",
+      "  styleUrls: ['./${2:my-component}.component.scss'],",
+      "  changeDetection: ChangeDetectionStrategy.OnPush,",
+      "})",
+      "export class ${3:MyComponent}Component {",
+      "  $0",
+      "}"
+    ],
+    "description": "Angular standalone component with external template and styles"
+  },
+  "Angular Component (Inline Template)": {
+    "prefix": ["a-component-inline", "ng-component-inline"],
+    "body": [
+      "import { ChangeDetectionStrategy, Component } from '@angular/core';",
+      "",
+      "@Component({",
+      "  selector: '${1:app-my-component}',",
+      "  standalone: true,",
+      "  imports: [],",
+      "  template: `",
+      "    <div class=\"${2:container}\">",
+      "      $0",
+      "    </div>",
+      "  `,",
+      "  styles: [`",
+      "    :${1:host} { display: block; }",
+      "  `],",
+      "  changeDetection: ChangeDetectionStrategy.OnPush,",
+      "})",
+      "export class ${3:MyComponent}Component {",
+      "}"
+    ],
+    "description": "Angular standalone component with inline template and styles"
+  },
+  "Angular Injectable Service": {
+    "prefix": ["a-service", "ng-service"],
+    "body": [
+      "import { Injectable } from '@angular/core';",
+      "",
+      "@Injectable({",
+      "  providedIn: 'root',",
+      "})",
+      "export class ${1:My}Service {",
+      "  $0",
+      "}"
+    ],
+    "description": "Angular injectable service provided in root"
+  },
+  "Angular Standalone Pipe": {
+    "prefix": ["a-pipe", "ng-pipe"],
+    "body": [
+      "import { Pipe, PipeTransform } from '@angular/core';",
+      "",
+      "@Pipe({",
+      "  name: '${1:myPipe}',",
+      "  standalone: true,",
+      "})",
+      "export class ${2:MyPipe}Pipe implements PipeTransform {",
+      "  transform(value: ${3:unknown}, ...args: ${4:unknown}[]): ${5:unknown} {",
+      "    $0return value;",
+      "  }",
+      "}"
+    ],
+    "description": "Angular standalone pipe implementing PipeTransform"
+  },
+  "Angular Standalone Directive": {
+    "prefix": ["a-directive", "ng-directive"],
+    "body": [
+      "import { Directive, ElementRef, inject } from '@angular/core';",
+      "",
+      "@Directive({",
+      "  selector: '[${1:appMyDirective}]',",
+      "  standalone: true,",
+      "})",
+      "export class ${2:MyDirective}Directive {",
+      "  private readonly elementRef = inject(ElementRef);",
+      "  $0",
+      "}"
+    ],
+    "description": "Angular standalone directive"
+  },
+  "Angular Functional Guard": {
+    "prefix": ["a-guard", "ng-guard"],
+    "body": [
+      "import { inject } from '@angular/core';",
+      "import { CanActivateFn, Router } from '@angular/router';",
+      "",
+      "export const ${1:my}Guard: CanActivateFn = (route, state) => {",
+      "  const router = inject(Router);",
+      "  $0",
+      "  return true;",
+      "};"
+    ],
+    "description": "Angular functional CanActivateFn route guard"
+  },
+  "Angular Functional Resolver": {
+    "prefix": ["a-resolver", "ng-resolver"],
+    "body": [
+      "import { inject } from '@angular/core';",
+      "import { ResolveFn } from '@angular/router';",
+      "",
+      "export const ${1:my}Resolver: ResolveFn<${2:unknown}> = (route, state) => {",
+      "  $0",
+      "  return null;",
+      "};"
+    ],
+    "description": "Angular functional ResolveFn route resolver"
+  },
+  "Angular Functional Interceptor": {
+    "prefix": ["a-interceptor", "ng-interceptor"],
+    "body": [
+      "import { HttpInterceptorFn } from '@angular/common/http';",
+      "",
+      "export const ${1:my}Interceptor: HttpInterceptorFn = (req, next) => {",
+      "  $0",
+      "  return next(req);",
+      "};"
+    ],
+    "description": "Angular functional HttpInterceptorFn"
+  },
+  "Angular Signal": {
+    "prefix": ["a-signal", "ng-signal"],
+    "body": [
+      "readonly ${1:count} = signal<${2:number}>(${3:0});$0"
+    ],
+    "description": "Angular signal reactive primitive"
+  },
+  "Angular Computed": {
+    "prefix": ["a-computed", "ng-computed"],
+    "body": [
+      "readonly ${1:double} = computed(() => ${2:this.count()} * 2);$0"
+    ],
+    "description": "Angular computed reactive value"
+  },
+  "Angular Effect": {
+    "prefix": ["a-effect", "ng-effect"],
+    "body": [
+      "private readonly ${1:logEffect} = effect(() => {",
+      "  $0",
+      "});"
+    ],
+    "description": "Angular reactive effect"
+  },
+  "Angular Signal Input": {
+    "prefix": ["a-input", "ng-input"],
+    "body": [
+      "readonly ${1:value} = input<${2:string}>(${3:''});$0"
+    ],
+    "description": "Angular signal input() property"
+  },
+  "Angular Required Signal Input": {
+    "prefix": ["a-input-required", "ng-input-required"],
+    "body": [
+      "readonly ${1:value} = input.required<${2:string}>();$0"
+    ],
+    "description": "Angular required signal input.required() property"
+  },
+  "Angular Signal Output": {
+    "prefix": ["a-output", "ng-output"],
+    "body": [
+      "readonly ${1:selected} = output<${2:void}>();$0"
+    ],
+    "description": "Angular signal output() event"
+  },
+  "Angular Signal Model": {
+    "prefix": ["a-model", "ng-model"],
+    "body": [
+      "readonly ${1:value} = model<${2:string}>(${3:''});$0"
+    ],
+    "description": "Angular two-way signal model()"
+  },
+  "Angular Inject": {
+    "prefix": ["a-inject", "ng-inject"],
+    "body": [
+      "private readonly ${1:service} = inject(${2:MyService});$0"
+    ],
+    "description": "Angular inject() dependency function"
+  },
+  "Angular Control Flow @if": {
+    "prefix": ["@if", "a-if"],
+    "body": [
+      "@if (${1:condition}) {",
+      "  $0",
+      "}"
+    ],
+    "description": "Angular control flow @if statement"
+  },
+  "Angular Control Flow @if @else": {
+    "prefix": ["@if-else", "a-if-else"],
+    "body": [
+      "@if (${1:condition}) {",
+      "  $2",
+      "} @else {",
+      "  $0",
+      "}"
+    ],
+    "description": "Angular control flow @if @else block"
+  },
+  "Angular Control Flow @for": {
+    "prefix": ["@for", "a-for"],
+    "body": [
+      "@for (${1:item} of ${2:items()}; track ${3:item.id}) {",
+      "  $0",
+      "} @empty {",
+      "  <p>${4:No items found.}</p>",
+      "}"
+    ],
+    "description": "Angular control flow @for loop with tracking and @empty fallback"
+  },
+  "Angular Control Flow @switch": {
+    "prefix": ["@switch", "a-switch"],
+    "body": [
+      "@switch (${1:expression}) {",
+      "  @case (${2:'case1'}) {",
+      "    $3",
+      "  }",
+      "  @default {",
+      "    $0",
+      "  }",
+      "}"
+    ],
+    "description": "Angular control flow @switch statement"
+  },
+  "Angular Control Flow @defer": {
+    "prefix": ["@defer", "a-defer"],
+    "body": [
+      "@defer (${1:on viewport}) {",
+      "  $0",
+      "} @placeholder {",
+      "  <div class=\"skeleton\">${2:Loading placeholder...}</div>",
+      "} @loading (minimum 500ms) {",
+      "  <loading-spinner />",
+      "} @error {",
+      "  <p>${3:Failed to load content.}</p>",
+      "}"
+    ],
+    "description": "Angular control flow @defer block for deferred template loading"
+  },
+  "Angular Template Variable @let": {
+    "prefix": ["@let", "a-let"],
+    "body": [
+      "@let ${1:variableName} = ${2:expression};$0"
+    ],
+    "description": "Angular 18+ template variable @let statement"
+  },
+  "Angular *ngIf": {
+    "prefix": ["*ngIf", "a-ngIf"],
+    "body": [
+      "*ngIf=\"${1:condition}\"$0"
+    ],
+    "description": "Angular *ngIf structural directive"
+  },
+  "Angular *ngFor": {
+    "prefix": ["*ngFor", "a-ngFor"],
+    "body": [
+      "*ngFor=\"let ${1:item} of ${2:items}; trackBy: ${3:trackById}\"$0"
+    ],
+    "description": "Angular *ngFor structural directive"
+  },
+  "Angular [(ngModel)]": {
+    "prefix": ["[(ngModel)]", "a-ngModel"],
+    "body": [
+      "[(ngModel)]=\"${1:property}\"$0"
+    ],
+    "description": "Angular two-way data binding [(ngModel)]"
+  },
+  "Angular [ngClass]": {
+    "prefix": ["[ngClass]", "a-ngClass"],
+    "body": [
+      "[ngClass]=\"{ '${1:className}': ${2:condition} }\"$0"
+    ],
+    "description": "Angular [ngClass] class binding"
+  },
+  "Angular [ngStyle]": {
+    "prefix": ["[ngStyle]", "a-ngStyle"],
+    "body": [
+      "[ngStyle]=\"{ '${1:color}': ${2:value} }\"$0"
+    ],
+    "description": "Angular [ngStyle] style binding"
+  },
+  "Angular ng-container": {
+    "prefix": ["ng-container", "a-container"],
+    "body": [
+      "<ng-container>",
+      "  $0",
+      "</ng-container>"
+    ],
+    "description": "Angular <ng-container> grouping element"
+  },
+  "Angular ng-template": {
+    "prefix": ["ng-template", "a-template"],
+    "body": [
+      "<ng-template #${1:templateName}>",
+      "  $0",
+      "</ng-template>"
+    ],
+    "description": "Angular <ng-template> element"
+  },
+  "Angular ng-content": {
+    "prefix": ["ng-content", "a-content"],
+    "body": [
+      "<ng-content select=\"${1:[header]}\"></ng-content>$0"
+    ],
+    "description": "Angular <ng-content> projection tag"
+  },
+  "Angular router-outlet": {
+    "prefix": ["router-outlet", "a-router-outlet"],
+    "body": [
+      "<router-outlet></router-outlet>$0"
+    ],
+    "description": "Angular <router-outlet> component placeholder"
+  }
+}

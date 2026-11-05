@@ -3,6 +3,7 @@ from pathlib import Path
 
 script_dir = Path("extensions/english-spell-checker/native/src")
 raw_20k = script_dir / "google-20k.txt"
+out_file = script_dir / "words.txt"
 
 words = set()
 
@@ -11,6 +12,12 @@ if raw_20k.exists():
         for line in f:
             w = line.strip().lower()
             if w and w.isalpha():
+                words.add(w)
+elif out_file.exists():
+    with open(out_file, "r", encoding="utf-8") as f:
+        for line in f:
+            w = line.strip().lower()
+            if w:
                 words.add(w)
 
 # Add common contractions
@@ -121,8 +128,162 @@ tech_words = [
 for t in tech_words:
     words.add(t)
 
+# Comprehensive programming languages keywords
+programming_keywords = [
+    # Rust
+    "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum",
+    "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod",
+    "move", "mut", "pub", "ref", "return", "self", "static", "struct", "super", "trait",
+    "true", "type", "unsafe", "use", "where", "while", "yield", "abstract", "become",
+    "box", "do", "final", "macro", "override", "priv", "typeof", "unsized", "virtual", "try",
+    "bool", "char", "str", "usize", "isize", "u8", "u16", "u32", "u64", "u128",
+    "i8", "i16", "i32", "i64", "i128", "f32", "f64", "println", "eprintln", "panic",
+    "unreachable", "unimplemented", "todo", "dbg", "vec", "repr", "inline", "cfg", "derive",
+    "allow", "warn", "deny", "forbid", "refcell", "rwlock", "mutex", "atomic",
+    # Python
+    "false", "none", "true", "and", "as", "assert", "async", "await", "break", "class",
+    "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global",
+    "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise",
+    "return", "try", "while", "with", "yield", "match", "case", "len", "str", "int",
+    "float", "bool", "list", "dict", "set", "tuple", "bytes", "bytearray", "range",
+    "enumerate", "zip", "map", "filter", "iter", "next", "repr", "super", "print", "open",
+    "isinstance", "issubclass", "hasattr", "getattr", "setattr", "delattr", "callable",
+    "classmethod", "staticmethod", "property", "args", "kwargs", "self", "cls", "dunder",
+    "init", "enter", "exit", "getitem", "setitem", "delitem",
+    # JS / TS
+    "abstract", "arguments", "as", "async", "await", "boolean", "break", "byte", "case",
+    "catch", "char", "class", "const", "continue", "debugger", "default", "delete", "do",
+    "double", "else", "enum", "eval", "export", "extends", "false", "final", "finally",
+    "float", "for", "from", "function", "get", "goto", "if", "implements", "import", "in",
+    "instanceof", "int", "interface", "is", "keyof", "let", "long", "native", "new", "null",
+    "number", "of", "package", "private", "protected", "public", "readonly", "require",
+    "return", "set", "short", "static", "string", "super", "switch", "symbol", "synchronized",
+    "this", "throw", "throws", "transient", "true", "try", "type", "typeof", "undefined",
+    "unique", "unknown", "var", "void", "volatile", "while", "with", "yield", "any", "never",
+    "infer", "declare", "namespace", "module", "override", "satisfies", "bigint", "nan",
+    "prototype", "constructor", "promisify", "promiselike",
+    # Go
+    "break", "case", "chan", "const", "continue", "default", "defer", "else", "fallthrough",
+    "for", "func", "go", "goto", "if", "import", "interface", "map", "package", "range",
+    "return", "select", "struct", "switch", "type", "var", "true", "false", "iota", "nil",
+    "append", "cap", "close", "complex", "copy", "delete", "imag", "len", "make", "new",
+    "panic", "print", "println", "real", "recover", "clear", "min", "max", "bool", "byte",
+    "complex64", "complex128", "error", "float32", "float64", "int", "int8", "int16",
+    "int32", "int64", "rune", "string", "uint", "uint8", "uint16", "uint32", "uint64",
+    "uintptr", "goroutine", "comparable",
+    # C / C++
+    "alignas", "alignof", "and", "and_eq", "asm", "atomic_cancel", "atomic_commit",
+    "atomic_noexcept", "auto", "bitand", "bitor", "bool", "break", "case", "catch", "char",
+    "char8_t", "char16_t", "char32_t", "class", "compl", "concept", "const", "consteval",
+    "constexpr", "constinit", "const_cast", "continue", "co_await", "co_return", "co_yield",
+    "decltype", "default", "delete", "do", "double", "dynamic_cast", "else", "enum",
+    "explicit", "export", "extern", "false", "float", "for", "friend", "goto", "if", "inline",
+    "int", "long", "mutable", "namespace", "new", "noexcept", "not", "not_eq", "nullptr",
+    "operator", "or", "or_eq", "private", "protected", "public", "reflexpr", "register",
+    "reinterpret_cast", "requires", "restrict", "return", "short", "signed", "sizeof",
+    "static", "static_assert", "static_cast", "struct", "switch", "synchronized", "template",
+    "this", "thread_local", "throw", "true", "try", "typedef", "typeid", "typename", "union",
+    "unsigned", "using", "virtual", "void", "volatile", "wchar_t", "while", "xor", "xor_eq",
+    "size_t", "ssize_t", "ptrdiff_t", "intptr_t", "uintptr_t", "intmax_t", "uintmax_t",
+    "int8_t", "int16_t", "int32_t", "int64_t", "uint8_t", "uint16_t", "uint32_t", "uint64_t",
+    "printf", "fprintf", "sprintf", "snprintf", "scanf", "sscanf", "malloc", "calloc",
+    "realloc", "free", "memcpy", "memmove", "memset", "memcmp", "strlen", "strcpy",
+    "strncpy", "strcat", "strcmp", "strncmp", "strdup", "strchr", "strstr", "strtok",
+    "atoi", "atol", "atof", "strtol", "strtoul", "qsort", "bsearch", "abort", "exit",
+    "argc", "argv", "stdin", "stdout", "stderr", "pragma", "include", "define", "undef",
+    "ifdef", "ifndef", "endif", "cout", "cin", "cerr", "clog", "endl", "nullptr_t",
+    "std", "vector", "string", "map", "set", "unordered_map", "unordered_set", "deque",
+    "list", "array", "pair", "tuple", "unique_ptr", "shared_ptr", "weak_ptr", "make_shared",
+    "make_unique", "ssize", "ptrdiff", "intptr", "uintptr", "intmax", "uintmax", "reinterpret",
+    # Ruby
+    "alias", "and", "begin", "break", "case", "class", "def", "defined", "do", "else",
+    "elsif", "end", "ensure", "false", "for", "if", "in", "module", "next", "nil",
+    "not", "or", "redo", "rescue", "retry", "return", "self", "super", "then", "true",
+    "undef", "unless", "until", "when", "while", "yield", "attr_accessor", "attr_reader",
+    "attr_writer", "lambda", "proc", "puts", "raise", "include", "extend", "prepend",
+    # PHP
+    "echo", "print", "die", "exit", "isset", "unset", "empty", "eval", "include", "require",
+    "include_once", "require_once", "namespace", "use", "function", "fn", "class", "trait",
+    "interface", "extends", "implements", "public", "protected", "private", "static", "final",
+    "abstract", "global", "var", "const", "return", "try", "catch", "finally", "throw",
+    "if", "else", "elseif", "endif", "while", "endwhile", "do", "for", "endfor", "foreach",
+    "endforeach", "switch", "case", "default", "break", "continue", "match", "yield",
+    "declare", "goto", "clone", "instanceof", "readonly", "enum",
+    # Java & Kotlin
+    "abstract", "assert", "boolean", "break", "byte", "case", "catch", "char", "class",
+    "const", "continue", "default", "do", "double", "else", "enum", "extends", "final",
+    "finally", "float", "for", "goto", "if", "implements", "import", "instanceof", "int",
+    "interface", "long", "native", "new", "package", "private", "protected", "public",
+    "return", "short", "static", "strictfp", "super", "switch", "synchronized", "this",
+    "throw", "throws", "transient", "try", "void", "volatile", "while", "val", "var",
+    "fun", "when", "sealed", "data", "companion", "override", "open", "suspend", "coroutine",
+    "nullable", "nonnull", "record", "permits", "yield", "vararg", "inline", "noinline",
+    "crossinline", "reified", "it", "init",
+    # C#
+    "abstract", "as", "base", "bool", "break", "byte", "case", "catch", "char", "checked",
+    "class", "const", "continue", "decimal", "default", "delegate", "do", "double", "else",
+    "enum", "event", "explicit", "extern", "false", "finally", "fixed", "float", "for",
+    "foreach", "goto", "if", "implicit", "in", "int", "interface", "internal", "is", "lock",
+    "long", "namespace", "new", "null", "object", "operator", "out", "override", "params",
+    "private", "protected", "public", "readonly", "ref", "return", "sbyte", "sealed",
+    "short", "sizeof", "stackalloc", "static", "string", "struct", "switch", "this", "throw",
+    "true", "try", "typeof", "uint", "ulong", "unchecked", "unsafe", "ushort", "using",
+    "virtual", "void", "volatile", "while", "yield", "record", "init", "nint", "nuint",
+    "nameof", "when", "select", "where", "orderby", "group", "by", "into", "join", "equals",
+    # Swift
+    "associatedtype", "class", "deinit", "enum", "extension", "fileprivate", "func",
+    "import", "init", "inout", "internal", "let", "open", "operator", "private", "protocol",
+    "public", "rethrows", "static", "struct", "subscript", "typealias", "var", "break",
+    "case", "continue", "default", "defer", "do", "else", "fallthrough", "for", "guard",
+    "if", "in", "repeat", "return", "switch", "where", "while", "as", "any", "catch",
+    "false", "is", "nil", "super", "self", "throw", "throws", "true", "try", "async",
+    "await", "some", "mutating", "nonmutating", "convenience", "dynamic", "final",
+    "indirect", "lazy", "optional", "override", "required", "unowned", "weak",
+    # Shell & Bash
+    "echo", "cat", "grep", "sed", "awk", "chmod", "chown", "sudo", "curl", "wget", "which",
+    "export", "alias", "unalias", "source", "exec", "eval", "trap", "shift", "umask",
+    "set", "unset", "test", "expr", "read", "printf", "elif", "fi", "then", "else",
+    "esac", "case", "for", "while", "until", "do", "done", "in", "function", "select",
+    "time", "coproc", "local", "readonly", "typeset", "declare",
+    # SQL
+    "select", "from", "where", "insert", "update", "delete", "join", "inner", "left",
+    "right", "outer", "cross", "on", "group", "by", "order", "having", "limit", "offset",
+    "create", "table", "alter", "drop", "index", "primary", "foreign", "key", "unique",
+    "check", "cascade", "distinct", "count", "sum", "avg", "min", "max", "union",
+    "between", "like", "null", "is", "in", "exists", "case", "when", "then", "else",
+    "end", "cast", "as", "view", "trigger", "procedure", "transaction", "commit",
+    "rollback", "varchar", "nvarchar", "blob", "clob", "truncate", "coalesce", "rowid",
+    # Lua
+    "and", "break", "do", "else", "elseif", "end", "false", "for", "function", "goto",
+    "if", "in", "local", "nil", "not", "or", "repeat", "return", "then", "true", "until",
+    "while", "self", "ipairs", "pairs", "tostring", "tonumber", "pcall", "xpcall",
+    # Zig
+    "addrspace", "align", "allowzero", "and", "anyerror", "anyframe", "anytype", "asm",
+    "async", "await", "break", "callconv", "catch", "comptime", "const", "continue",
+    "defer", "else", "enum", "errdefer", "error", "export", "extern", "fn", "for",
+    "if", "inline", "noalias", "noinline", "nosuspend", "opaque", "or", "orelse",
+    "packed", "pub", "resume", "return", "linksection", "struct", "suspend", "switch",
+    "test", "threadlocal", "try", "union", "unreachable", "usingnamespace", "var",
+    "volatile", "while", "usize", "isize", "noreturn", "void",
+    # Web / CSS / HTML / SVG
+    "doctype", "html", "head", "body", "div", "span", "href", "src", "alt", "rel",
+    "stylesheet", "tbody", "thead", "tfoot", "rgba", "hsla", "px", "em", "rem", "vh",
+    "vw", "keyframes", "inherit", "initial", "unset", "none", "flex", "grid", "inline",
+    "block", "margin", "padding", "border", "background", "color", "cursor", "pointer",
+    "zindex", "opacity", "overflow", "justify", "align", "font", "sans", "serif",
+    "monospace", "svg", "path", "stroke", "fill", "viewbox", "xmlns",
+    # Dart / Scala / Elixir / Haskell
+    "mixin", "typedef", "factory", "covariant", "late", "required", "sync",
+    "defmodule", "defp", "defmacro", "defstruct", "defprotocol", "defimpl",
+    "newtype", "deriving", "infix", "infixl", "infixr", "forall"
+]
+for k in programming_keywords:
+    for sub in k.replace("-", "_").split("_"):
+        s = sub.strip().lower()
+        if s and s.isalpha():
+            words.add(s)
+
 sorted_words = sorted(list(words))
-out_file = script_dir / "words.txt"
 with open(out_file, "w", encoding="utf-8") as f:
     for w in sorted_words:
         f.write(w + "\n")

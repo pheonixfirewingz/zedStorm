@@ -20,12 +20,15 @@ impl Default for Dictionary {
 impl Dictionary {
     pub fn new() -> Self {
         DICTIONARY.get_or_init(|| {
-            let mut set = HashSet::with_capacity(25000);
+            let mut set = HashSet::with_capacity(30000);
             for line in WORDS_TXT.lines() {
                 let w = line.trim();
                 if !w.is_empty() {
                     set.insert(w);
                 }
+            }
+            for kw in PROGRAMMING_KEYWORDS {
+                set.insert(*kw);
             }
             set
         });
@@ -171,6 +174,32 @@ impl Dictionary {
                 ("visiblity", "visibility"),
                 ("wich", "which"),
                 ("yeild", "yield"),
+                ("defualt", "default"),
+                ("strcut", "struct"),
+                ("sturct", "struct"),
+                ("cosnt", "const"),
+                ("cosntexpr", "constexpr"),
+                ("nullprt", "nullptr"),
+                ("nullpter", "nullptr"),
+                ("retrun", "return"),
+                ("retun", "return"),
+                ("breka", "break"),
+                ("contunue", "continue"),
+                ("contineu", "continue"),
+                ("pubilc", "public"),
+                ("statci", "static"),
+                ("asyn", "async"),
+                ("awiat", "await"),
+                ("improt", "import"),
+                ("exprot", "export"),
+                ("tyepof", "typeof"),
+                ("isntanceof", "instanceof"),
+                ("eliff", "elif"),
+                ("deffer", "defer"),
+                ("deffered", "deferred"),
+                ("elsiff", "elsif"),
+                ("prntln", "println"),
+                ("printl", "println"),
             ];
             let mut map = HashMap::with_capacity(pairs.len());
             for (typo, fix) in pairs {
@@ -422,6 +451,67 @@ pub fn damerau_levenshtein(s1: &str, s2: &str) -> usize {
     d[n][m]
 }
 
+pub const PROGRAMMING_KEYWORDS: &[&str] = &[
+    "abort", "abstract", "accessor", "addrspace", "alias", "align", "alignas", "alignof",
+    "allow", "allowzero", "and", "any", "anyerror", "anyframe", "anytype", "append",
+    "argc", "args", "arguments", "argv", "array", "as", "asm", "assert", "associatedtype",
+    "async", "atomic", "atof", "atoi", "atol", "attr", "auto", "await", "awk", "base",
+    "become", "begin", "bigint", "bitand", "bitor", "blob", "bool", "boolean", "box",
+    "boxed", "break", "bsearch", "byte", "bytearray", "bytes", "callconv", "callable",
+    "calloc", "case", "cast", "catch", "cerr", "cfg", "chan", "channel", "char",
+    "checked", "chmod", "chown", "cin", "class", "classmethod", "clear", "clob", "clog",
+    "clone", "close", "cls", "coalesce", "companion", "comparable", "compl", "complex",
+    "comptime", "concept", "const", "consteval", "constexpr", "constinit", "constructor",
+    "continue", "convenience", "coproc", "coroutine", "cout", "covariant", "crate",
+    "crossinline", "data", "dbg", "decimal", "declare", "decltype", "defer", "defined",
+    "deinit", "del", "delattr", "delegate", "delete", "delitem", "deny", "deque", "derive",
+    "deriving", "dict", "die", "distinct", "div", "do", "doc", "doctype", "double",
+    "dunder", "dynamic", "dyn", "echo", "elif", "else", "elseif", "elsif", "empty",
+    "end", "endl", "endfor", "endforeach", "endif", "endwhile", "ensure", "enum",
+    "enumerate", "eprint", "eprintln", "errdefer", "error", "esac", "eval", "event",
+    "except", "exec", "exit", "explicit", "export", "expr", "extend", "extends", "extension",
+    "extern", "factory", "fallthrough", "false", "fileprivate", "filter", "final", "finally",
+    "fixed", "float", "fn", "for", "forbid", "foreach", "foreign", "format", "from",
+    "func", "function", "fun", "get", "getattr", "getitem", "global", "goto", "goroutine",
+    "guard", "hasattr", "having", "head", "href", "hsla", "html", "ifdef", "ifndef",
+    "imag", "implicit", "implements", "impl", "import", "in", "include", "indirect",
+    "infer", "infix", "infixl", "infixr", "inherit", "init", "initial", "inline", "inout",
+    "input", "insert", "instanceof", "int", "interface", "internal", "intmax", "intptr",
+    "iota", "ipairs", "is", "isinstance", "isize", "isset", "issubclass", "it", "iter",
+    "join", "keyframes", "keyof", "kwargs", "lambda", "late", "lazy", "len", "let",
+    "limit", "linksection", "list", "local", "lock", "long", "loop", "macro", "make",
+    "malloc", "map", "match", "max", "memcmp", "memcpy", "memmove", "memset", "min",
+    "mixin", "mod", "module", "monospace", "move", "mutable", "mutating", "mut", "nameof",
+    "namespace", "nan", "native", "never", "new", "newtype", "next", "nil", "nint",
+    "noalias", "noexcept", "noinline", "none", "nonlocal", "nonmutating", "nonnull",
+    "noreturn", "nosuspend", "not", "nuint", "null", "nullable", "nullptr",
+    "number", "nvarchar", "object", "offset", "open", "operator", "optional", "order",
+    "orelse", "out", "outer", "override", "package", "pair", "pairs", "panic", "params",
+    "pass", "pcall", "permits", "pkg", "pointer", "pragma", "prepend", "primary", "print",
+    "printf", "println", "priv", "proc", "procedure", "promiselike", "promisify", "property",
+    "protected", "protocol", "ptrdiff", "public", "pub", "puts", "qsort", "raise", "range",
+    "readonly", "real", "realloc", "receive", "record", "recover", "redo", "ref", "refcell",
+    "reflexpr", "reified", "reinterpret", "rel", "rem", "repeat", "repr", "require",
+    "rescue", "restrict", "rethrows", "retry", "return", "rgba", "rollback", "rowid",
+    "rune", "rwlock", "safe", "satisfies", "sbyte", "scanf", "sealed", "select", "self",
+    "set", "setattr", "setitem", "shift", "short", "show", "signed", "sizeof", "snprintf",
+    "some", "source", "sprintf", "sql", "sscanf", "ssize", "stackalloc", "static",
+    "staticmethod", "std", "stdin", "stdout", "stderr", "str", "strcat", "strchr",
+    "strcmp", "strcpy", "strdup", "stream", "strictfp", "string", "stringify", "strlen",
+    "strncat", "strncmp", "strncpy", "strstr", "strtok", "strtol", "strtoul", "struct",
+    "subscript", "sudo", "super", "suspend", "switch", "symbol", "sync", "synchronized",
+    "tbody", "template", "test", "text", "tfoot", "thead", "then", "this", "thread",
+    "threadlocal", "throw", "throws", "time", "todo", "tonumber", "tostring", "trait",
+    "transaction", "transient", "trap", "true", "truncate", "try", "type", "typealias",
+    "typedef", "typeid", "typename", "typeof", "typeset", "uint", "uintmax", "uintptr",
+    "ulong", "umask", "unalias", "unary", "unchecked", "undefined", "undef", "unimplemented",
+    "union", "unique", "unit", "unknown", "unowned", "unreachable", "unsafe", "unset",
+    "unsigned", "unsized", "until", "update", "use", "using", "usingnamespace", "usize",
+    "val", "var", "vararg", "varchar", "vec", "vector", "view", "viewbox", "virtual",
+    "void", "volatile", "warn", "wchar", "weak", "wget", "when", "where", "while",
+    "with", "writeln", "write", "xmlns", "xor", "xpcall", "yaml", "yield", "zig", "zindex",
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -438,6 +528,61 @@ mod tests {
     }
 
     #[test]
+    fn test_programming_keywords_are_valid() {
+        let dict = Dictionary::new();
+        // Rust
+        assert!(dict.is_valid("usize"));
+        assert!(dict.is_valid("isize"));
+        assert!(dict.is_valid("dyn"));
+        assert!(dict.is_valid("println"));
+        assert!(dict.is_valid("eprintln"));
+        assert!(dict.is_valid("dbg"));
+        assert!(dict.is_valid("unreachable"));
+        assert!(dict.is_valid("unimplemented"));
+
+        // Python
+        assert!(dict.is_valid("elif"));
+        assert!(dict.is_valid("nonlocal"));
+        assert!(dict.is_valid("kwargs"));
+        assert!(dict.is_valid("repr"));
+        assert!(dict.is_valid("isinstance"));
+        assert!(dict.is_valid("issubclass"));
+        assert!(dict.is_valid("hasattr"));
+        assert!(dict.is_valid("getattr"));
+
+        // C / C++
+        assert!(dict.is_valid("constexpr"));
+        assert!(dict.is_valid("nullptr"));
+        assert!(dict.is_valid("decltype"));
+        assert!(dict.is_valid("noexcept"));
+        assert!(dict.is_valid("typename"));
+        assert!(dict.is_valid("typeid"));
+        assert!(dict.is_valid("alignas"));
+        assert!(dict.is_valid("alignof"));
+        assert!(dict.is_valid("ptrdiff"));
+        assert!(dict.is_valid("uintptr"));
+
+        // Go
+        assert!(dict.is_valid("defer"));
+        assert!(dict.is_valid("fallthrough"));
+        assert!(dict.is_valid("iota"));
+        assert!(dict.is_valid("goroutine"));
+        assert!(dict.is_valid("rune"));
+
+        // JavaScript / TypeScript
+        assert!(dict.is_valid("typeof"));
+        assert!(dict.is_valid("instanceof"));
+        assert!(dict.is_valid("keyof"));
+        assert!(dict.is_valid("bigint"));
+
+        // Ruby / PHP / Shell
+        assert!(dict.is_valid("elsif"));
+        assert!(dict.is_valid("elseif"));
+        assert!(dict.is_valid("chmod"));
+        assert!(dict.is_valid("sudo"));
+    }
+
+    #[test]
     fn test_common_typos_and_suggestions() {
         let dict = Dictionary::new();
         assert!(!dict.is_valid("teh"));
@@ -449,5 +594,21 @@ mod tests {
 
         let sug_extention = dict.suggest("extention");
         assert_eq!(sug_extention.first().unwrap(), "extension");
+
+        // Keyword typo suggestions
+        let sug_constexpr = dict.suggest("cosntexpr");
+        assert_eq!(sug_constexpr.first().unwrap(), "constexpr");
+
+        let sug_nullptr = dict.suggest("nullprt");
+        assert_eq!(sug_nullptr.first().unwrap(), "nullptr");
+
+        let sug_elif = dict.suggest("eliff");
+        assert_eq!(sug_elif.first().unwrap(), "elif");
+
+        let sug_typeof = dict.suggest("tyepof");
+        assert_eq!(sug_typeof.first().unwrap(), "typeof");
+
+        let sug_defer = dict.suggest("deffer");
+        assert_eq!(sug_defer.first().unwrap(), "defer");
     }
 }

@@ -1,0 +1,20 @@
+id = "angular"
+name = "Angular"
+description = "WebStorm-like Angular language support, rich templates, live templates, and Language Server integration for ZedStorm."
+version = "0.1.0"
+schema_version = 1
+authors = ["ZedStorm contributors"]
+repository = "https://github.com/pheonixfirewingz/zedStorm"
+
+[language_servers.angular]
+name = "Angular Language Server"
+languages = ["Angular", "HTML", "TypeScript"]
+language_ids = { "Angular" = "angular", "HTML" = "html", "TypeScript" = "typescript" }
+
+[grammars.angular]
+repository = "https://github.com/dlvandenberg/tree-sitter-angular"
+commit = "f0d0685701b70883fa2dfe94ee7dc27965cab841"
+
+[slash_commands.angular]
+description = "Angular CLI & component helper (switch between component TS, HTML, CSS/SCSS, and spec)"
+requires_argument = false

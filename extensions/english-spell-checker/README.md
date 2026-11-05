@@ -9,16 +9,22 @@ Unlike CSpell (which requires Node.js/npm) or Typos (which requires downloading 
 - **No External Dependencies**: No npm, Node.js, Python runtime, `aspell`, or `hunspell` needed.
 - **Offline & Air-gapped Ready**: Embedded English vocabulary of 20,000+ words plus comprehensive software/technical terminology.
 - **Smart Morphological Rules**: Understands plurals (`-s`, `-es`, `-ies`), past tense (`-ed`), gerunds (`-ing`), adverbs (`-ly`), agent nouns (`-er`), and prefixes (`un-`, `re-`, `dis-`, etc.), effectively recognizing over 100,000 inflected English word forms.
-- **Fast Typo Detection & Quick Fixes**:
-  - Damerau-Levenshtein edit distance calculations (< 1ms per document)
-  - Curated fast-path for hundreds of frequent typing and code mistakes
-  - Contextual typo recognition (e.g. flagging "dose not" as a typo for "does not")
-  - Quick Fix code actions (`Ctrl+.` or `Cmd+.`) to replace misspelled words in one click
-- **Code-Aware Tokenizer**:
+- **WebStorm-style Inspection & GUI Flow**:
+  - Typo diagnostics formatted WebStorm-style: `Typo: In word '<word>'` with direct suggestion
+  - **Change to '<suggestion>'**: One-click quickfix to apply suggested spelling replacement
+  - **Save '<word>' to dictionary**: Instantly saves the word to `dictionary.txt` located directly in the companion binary's folder (`<binary_dir>/dictionary.txt`), automatically clearing underlines across all open documents
+  - **Save '<word>' to project**: Persists project-specific terminology into `.zed/dictionary.txt` within the project workspace root
+  - **Ignore '<word>'**: Suppresses spelling diagnostics for the word during the current session
+  - **Open dictionary...**: Opens the dictionary file in Zed for viewing or editing (via LSP `window/showDocument`)
+- **Settings & Dictionary File Support**:
+  - Automatically loads custom words from `dictionary.txt` placed alongside the binary on startup
+  - Supports custom word lists (`custom_words`) and dictionary file paths (`dictionary`) in Zed's `settings.json`
+- **Code-Aware Tokenizer & Keyword Respect**:
+  - Full dictionary recognition for programming languages' keywords (Rust, Python, Go, C, C++, JavaScript, TypeScript, Ruby, PHP, Java, Kotlin, C#, Swift, SQL, Shell, Lua, Zig, etc.)
   - Automatically splits `camelCase`, `PascalCase`, `snake_case`, and `kebab-case` identifiers
   - Ignores numbers, hex codes (`0x1a2b`, `#ffffff`), URLs, and common acronyms (`JSON`, `HTTP`, `WASM`, `HTML`, etc.)
   - Handles English apostrophes properly (`don't`, `it's`, `user's`)
-- **Broad Language Support**: Enabled across Markdown, Plain Text, Rust, Python, JavaScript, TypeScript, Go, HTML, CSS, JSON, TOML, YAML, C, C++, Ruby, and Git Commit messages.
+- **Broad Language Support**: Enabled across Markdown, Plain Text, Rust, Python, JavaScript, TypeScript, Go, HTML, CSS, JSON, TOML, YAML, C, C++, Ruby, Git Commit, PHP, Java, Kotlin, C#, Swift, SQL, Shell Script, Bash, Lua, and Zig.
 
 ## Structure
 
@@ -39,6 +45,7 @@ extensions/english-spell-checker/
         ├── dictionary.rs  # Embedded dictionary & typo suggestion engine
         ├── tokenizer.rs   # Code & prose word tokenizer
         ├── checker.rs     # Diagnostic & CodeAction generator
+        ├── storage.rs     # User & workspace dictionary persistence
         ├── lsp.rs         # JSON-RPC / LSP protocol types
         ├── main.rs        # Stdio event loop
         └── words.txt      # Curated word list

@@ -60,6 +60,15 @@ def install():
     if sys.platform != "win32":
         local_dest.chmod(0o755)
 
+    # Ensure dictionary.txt exists in binary location
+    dict_name = "dictionary.txt"
+    local_dict = local_bin / dict_name
+    if not local_dict.exists():
+        local_dict.write_text("# English Spell Checker Dictionary\n# Add custom words below (one per line).\n", encoding="utf-8")
+    installed_dict = bin_dest / dict_name
+    if not installed_dict.exists():
+        shutil.copy2(local_dict, installed_dict)
+
     print(f"Installed English spell checker companion to: {installed_binary}")
     print(f"Local dev extension binary ready at: {local_dest}")
 

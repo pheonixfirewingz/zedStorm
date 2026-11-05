@@ -7039,6 +7039,101 @@ async fn test_reveal_in_project_panel_fallback(cx: &mut gpui::TestAppContext) {
 }
 
 #[gpui::test]
+async fn test_find_active_tab_button(cx: &mut gpui::TestAppContext) {
+    init_test_with_editor(cx);
+
+    let fs = FakeFs::new(cx.background_executor.clone());
+    fs.insert_tree(
+        "/project",
+        json!({
+            "dir_1": {
+                "file_1.txt": "File 1 contents",
+            },
+            "dir_2": {
+                "file_2.txt": "File 2 contents",
+            }
+        }),
+    )
+    .await;
+
+    let project = Project::test(fs.clone(), ["/project".as_ref()], cx).await;
+    let window = cx.add_window(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+    let workspace = window
+        .read_with(cx, |mw, _| mw.workspace().clone())
+        .unwrap();
+    let cx = &mut VisualTestContext::from_window(window.into(), cx);
+
+    cx.update(|_, cx| {
+        let settings = *ProjectPanelSettings::get_global(cx);
+        ProjectPanelSettings::override_global(
+            ProjectPanelSettings {
+                auto_reveal_entries: false,
+                ..settings
+            },
+            cx,
+        );
+    });
+
+    let panel = workspace.update_in(cx, |workspace, window, cx| {
+        let panel = ProjectPanel::new(workspace, window, cx);
+        workspace.add_panel(panel.clone(), window, cx);
+        panel
+    });
+    cx.run_until_parked();
+
+    panel.update_in(cx, |panel, window, cx| {
+        panel.collapse_all_entries(&CollapseAllEntries, window, cx);
+    });
+    cx.executor().run_until_parked();
+
+    assert_eq!(
+        visible_entries_as_strings(&panel, 0..10, cx),
+        &["v project", "    > dir_1", "    > dir_2"]
+    );
+
+    let worktree = project.read_with(cx, |p, cx| p.visible_worktrees(cx).next().unwrap());
+    let worktree_id = worktree.read_with(cx, |w, _| w.id());
+    let project_path = ProjectPath {
+        worktree_id,
+        path: rel_path("dir_2/file_2.txt").into(),
+    };
+    workspace
+        .update_in(cx, |workspace, window, cx| {
+            workspace.open_path(project_path, None, true, window, cx)
+        })
+        .await
+        .unwrap();
+    cx.run_until_parked();
+
+    assert_eq!(
+        visible_entries_as_strings(&panel, 0..10, cx),
+        &["v project", "    > dir_1", "    > dir_2"]
+    );
+
+    panel.update_in(cx, |panel, window, cx| {
+        panel.reveal_active_tab(window, cx);
+    });
+    cx.executor().run_until_parked();
+
+    assert_eq!(
+        visible_entries_as_strings(&panel, 0..10, cx),
+        &[
+            "v project",
+            "    > dir_1",
+            "    v dir_2",
+            "          file_2.txt  <== selected  <== marked",
+        ]
+    );
+
+    panel.update_in(cx, |panel, window, cx| {
+        assert!(
+            panel.focus_handle(cx).is_focused(window),
+            "Project panel should be focused after clicking find active tab"
+        );
+    });
+}
+
+#[gpui::test]
 async fn test_creating_excluded_entries(cx: &mut gpui::TestAppContext) {
     init_test(cx);
     cx.update(|cx| {

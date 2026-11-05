@@ -1,0 +1,2 @@
+# English Spell Checker Dictionary
+# Add custom words below (one per line). Empty lines and comments starting with '#' are ignored.

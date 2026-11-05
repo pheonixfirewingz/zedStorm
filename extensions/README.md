@@ -29,7 +29,7 @@ Build an extension from the repository root by selecting its manifest:
 cargo build --manifest-path extensions/glsl/Cargo.toml --target wasm32-wasip2 --locked
 ```
 
-Use `extensions/html/Cargo.toml`, `extensions/proto/Cargo.toml`,
+Use `extensions/angular/Cargo.toml`, `extensions/html/Cargo.toml`, `extensions/proto/Cargo.toml`,
 `extensions/mermaid/Cargo.toml`, or `extensions/test-extension/Cargo.toml` for
 those extensions. The test extension uses the local extension SDK and remains
 available to the extension host's tests and compilation benchmark. The

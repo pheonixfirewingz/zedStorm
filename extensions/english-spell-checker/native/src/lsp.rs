@@ -37,6 +37,14 @@ pub struct WorkspaceEdit {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Command {
+    pub title: String,
+    pub command: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<Vec<serde_json::Value>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodeAction {
     pub title: String,
     pub kind: String,
@@ -44,6 +52,8 @@ pub struct CodeAction {
     pub is_preferred: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub edit: Option<WorkspaceEdit>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<Command>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,11 +63,18 @@ pub struct PublishDiagnosticsParams {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecuteCommandOptions {
+    pub commands: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerCapabilities {
     #[serde(rename = "textDocumentSync")]
     pub text_document_sync: u32, // 1: Full
     #[serde(rename = "codeActionProvider")]
     pub code_action_provider: bool,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "executeCommandProvider")]
+    pub execute_command_provider: Option<ExecuteCommandOptions>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
