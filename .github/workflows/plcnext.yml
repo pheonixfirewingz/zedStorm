@@ -79,39 +79,26 @@ jobs:
         run: |
           cargo build --release --manifest-path extensions/plcnext/native/Cargo.toml -p zed-plcnext-viewer
 
-      - name: Package Linux extension and binaries
+      - name: Package Linux extension
         if: runner.os == 'Linux'
         run: |
-          mkdir -p dist/plcnext-package
-          mkdir -p dist/plcnext-linux-package/bin
-          mkdir -p dist/plcnext-linux-binaries
+          mkdir -p dist/plcnext-package/bin
 
           # WASM and manifest
           cp extensions/plcnext/target/wasm32-wasip2/release/zed_plcnext.wasm dist/plcnext-package/extension.wasm
           cp extensions/plcnext/extension.toml dist/plcnext-package/extension.toml
 
-          cp extensions/plcnext/target/wasm32-wasip2/release/zed_plcnext.wasm dist/plcnext-linux-package/extension.wasm
-          cp extensions/plcnext/extension.toml dist/plcnext-linux-package/extension.toml
-
           if [ -d "extensions/plcnext/languages" ]; then
             cp -r extensions/plcnext/languages dist/plcnext-package/
-            cp -r extensions/plcnext/languages dist/plcnext-linux-package/
           fi
 
           # Linux companion binaries
-          cp extensions/plcnext/target/release/zed-plcnext-viewer dist/plcnext-linux-package/bin/zed-plcnext-viewer
-          chmod +x dist/plcnext-linux-package/bin/*
-
-          cp extensions/plcnext/target/release/zed-plcnext-viewer dist/plcnext-linux-binaries/zed-plcnext-viewer
-          chmod +x dist/plcnext-linux-binaries/*
-
-          # Direct binaries for root dist
-          cp dist/plcnext-linux-binaries/* dist/
+          cp extensions/plcnext/target/release/zed-plcnext-viewer dist/plcnext-package/bin/zed-plcnext-viewer
+          chmod +x dist/plcnext-package/bin/*
 
           # Archives
           tar -czf dist/plcnext.tar.gz -C dist/plcnext-package .
-          tar -czf dist/plcnext-linux-x86_64.tar.gz -C dist/plcnext-linux-package .
-          tar -czf dist/zed-plcnext-viewer-linux-x86_64.tar.gz -C dist/plcnext-linux-binaries .
+          tar -czf dist/plcnext-linux-x86_64.tar.gz -C dist/plcnext-package .
 
       - name: Build Windows native companion
         if: runner.os == 'Windows'
@@ -125,29 +112,26 @@ jobs:
           }
           cargo build --release --manifest-path extensions/plcnext/native/Cargo.toml -p zed-plcnext-viewer
 
-      - name: Package Windows extension and binaries
+      - name: Package Windows extension
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Path dist/plcnext-windows-package/bin -Force
-          New-Item -ItemType Directory -Path dist/plcnext-windows-binaries -Force
+          $pkgDir = "dist/plcnext-windows-package"
+          New-Item -ItemType Directory -Path "$pkgDir/bin" -Force
 
           # WASM and manifest
-          Copy-Item extensions/plcnext/target/wasm32-wasip2/release/zed_plcnext.wasm -Destination dist/plcnext-windows-package/extension.wasm
-          Copy-Item extensions/plcnext/extension.toml -Destination dist/plcnext-windows-package/extension.toml
+          Copy-Item extensions/plcnext/target/wasm32-wasip2/release/zed_plcnext.wasm -Destination "$pkgDir/extension.wasm"
+          Copy-Item extensions/plcnext/extension.toml -Destination "$pkgDir/extension.toml"
           if (Test-Path "extensions/plcnext/languages") {
-            Copy-Item -Recurse "extensions/plcnext/languages" -Destination dist/plcnext-windows-package/
+            Copy-Item -Recurse "extensions/plcnext/languages" -Destination "$pkgDir/"
           }
 
           # Windows companion binaries
-          Copy-Item extensions/plcnext/target/release/zed-plcnext-viewer.exe -Destination dist/plcnext-windows-package/bin/
-          Copy-Item extensions/plcnext/target/release/zed-plcnext-viewer.exe -Destination dist/plcnext-windows-binaries/
-          Copy-Item extensions/plcnext/target/release/zed-plcnext-viewer.exe -Destination dist/
+          Copy-Item extensions/plcnext/target/release/zed-plcnext-viewer.exe -Destination "$pkgDir/bin/"
 
-          # Archives
-          Compress-Archive -Path dist/plcnext-windows-package/* -DestinationPath dist/plcnext-windows-x86_64.zip -Force
-          Compress-Archive -Path dist/plcnext-windows-binaries/* -DestinationPath dist/zed-plcnext-viewer-windows-x86_64.zip -Force
+          # Archive
+          Compress-Archive -Path "$pkgDir/*" -DestinationPath dist/plcnext-windows-x86_64.zip -Force
 
       - name: Upload build archive
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -156,7 +140,6 @@ jobs:
           path: |
             dist/*.zip
             dist/*.tar.gz
-            dist/zed-plcnext-viewer*
           if-no-files-found: error
           compression-level: 0
           retention-days: 14

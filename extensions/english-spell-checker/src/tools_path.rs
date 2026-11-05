@@ -12,6 +12,10 @@ pub fn extension_directory(
             .filter(|path| !path.as_os_str().is_empty())
     };
 
+    if let Some(directory) = variable("EXTENSION_DIR") {
+        return Ok(directory);
+    }
+
     if let Some(directory) = variable("ZEDSTORM_TOOLS_DIR") {
         return Ok(directory.join("extensions/english-spell-checker"));
     }
@@ -35,7 +39,7 @@ pub fn extension_directory(
         }
     };
 
-    Ok(data.join("zedstorm-tools/extensions/english-spell-checker"))
+    Ok(data.join("extensions/installed/english-spell-checker"))
 }
 
 #[cfg(test)]
@@ -48,6 +52,16 @@ mod tests {
         assert_eq!(
             extension_directory("linux", &env).unwrap(),
             PathBuf::from("/tools/extensions/english-spell-checker")
+        );
+        let env = vec![("EXTENSION_DIR".to_string(), "/custom/ext".to_string())];
+        assert_eq!(
+            extension_directory("linux", &env).unwrap(),
+            PathBuf::from("/custom/ext")
+        );
+        let env = vec![("HOME".to_string(), "/home/test".to_string())];
+        assert_eq!(
+            extension_directory("linux", &env).unwrap(),
+            PathBuf::from("/home/test/.local/share/zed/extensions/installed/english-spell-checker")
         );
     }
 }

@@ -38,7 +38,7 @@ fn extension_benchmarks(c: &mut Criterion) {
             |wasm_bytes| {
                 let _extension = cx
                     .foreground_executor()
-                    .block_on(wasm_host.load_extension(wasm_bytes, &manifest, &cx.to_async()))
+                    .block_on(wasm_host.load_extension(wasm_bytes, &manifest, None, &cx.to_async()))
                     .unwrap();
             },
             BatchSize::SmallInput,

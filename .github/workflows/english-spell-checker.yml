@@ -73,34 +73,22 @@ jobs:
         run: |
           cargo build --release --manifest-path extensions/english-spell-checker/native/Cargo.toml
 
-      - name: Package Linux extension and binaries
+      - name: Package Linux extension
         if: runner.os == 'Linux'
         run: |
-          mkdir -p dist/english-spell-checker-package
-          mkdir -p dist/english-spell-checker-linux-package/bin
-          mkdir -p dist/english-spell-checker-linux-binaries
+          mkdir -p dist/english-spell-checker-package/bin
 
           # WASM and manifest
           cp extensions/english-spell-checker/target/wasm32-wasip2/release/zed_english_spell_checker.wasm dist/english-spell-checker-package/extension.wasm
           cp extensions/english-spell-checker/extension.toml dist/english-spell-checker-package/extension.toml
 
-          cp extensions/english-spell-checker/target/wasm32-wasip2/release/zed_english_spell_checker.wasm dist/english-spell-checker-linux-package/extension.wasm
-          cp extensions/english-spell-checker/extension.toml dist/english-spell-checker-linux-package/extension.toml
-
           # Linux companion binaries
-          cp extensions/english-spell-checker/target/release/english-spell-checker dist/english-spell-checker-linux-package/bin/english-spell-checker
-          chmod +x dist/english-spell-checker-linux-package/bin/*
-
-          cp extensions/english-spell-checker/target/release/english-spell-checker dist/english-spell-checker-linux-binaries/english-spell-checker
-          chmod +x dist/english-spell-checker-linux-binaries/*
-
-          # Direct binaries for root dist
-          cp dist/english-spell-checker-linux-binaries/* dist/
+          cp extensions/english-spell-checker/target/release/english-spell-checker dist/english-spell-checker-package/bin/english-spell-checker
+          chmod +x dist/english-spell-checker-package/bin/*
 
           # Archives
           tar -czf dist/english-spell-checker.tar.gz -C dist/english-spell-checker-package .
-          tar -czf dist/english-spell-checker-linux-x86_64.tar.gz -C dist/english-spell-checker-linux-package .
-          tar -czf dist/english-spell-checker-binary-linux-x86_64.tar.gz -C dist/english-spell-checker-linux-binaries .
+          tar -czf dist/english-spell-checker-linux-x86_64.tar.gz -C dist/english-spell-checker-package .
 
       - name: Build Windows native companion
         if: runner.os == 'Windows'
@@ -114,26 +102,23 @@ jobs:
           }
           cargo build --release --manifest-path extensions/english-spell-checker/native/Cargo.toml
 
-      - name: Package Windows extension and binaries
+      - name: Package Windows extension
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Path dist/english-spell-checker-windows-package/bin -Force
-          New-Item -ItemType Directory -Path dist/english-spell-checker-windows-binaries -Force
+          $pkgDir = "dist/english-spell-checker-windows-package"
+          New-Item -ItemType Directory -Path "$pkgDir/bin" -Force
 
           # WASM and manifest
-          Copy-Item extensions/english-spell-checker/target/wasm32-wasip2/release/zed_english_spell_checker.wasm -Destination dist/english-spell-checker-windows-package/extension.wasm
-          Copy-Item extensions/english-spell-checker/extension.toml -Destination dist/english-spell-checker-windows-package/extension.toml
+          Copy-Item extensions/english-spell-checker/target/wasm32-wasip2/release/zed_english_spell_checker.wasm -Destination "$pkgDir/extension.wasm"
+          Copy-Item extensions/english-spell-checker/extension.toml -Destination "$pkgDir/extension.toml"
 
           # Windows companion binaries
-          Copy-Item extensions/english-spell-checker/target/release/english-spell-checker.exe -Destination dist/english-spell-checker-windows-package/bin/
-          Copy-Item extensions/english-spell-checker/target/release/english-spell-checker.exe -Destination dist/english-spell-checker-windows-binaries/
-          Copy-Item extensions/english-spell-checker/target/release/english-spell-checker.exe -Destination dist/
+          Copy-Item extensions/english-spell-checker/target/release/english-spell-checker.exe -Destination "$pkgDir/bin/"
 
-          # Archives
-          Compress-Archive -Path dist/english-spell-checker-windows-package/* -DestinationPath dist/english-spell-checker-windows-x86_64.zip -Force
-          Compress-Archive -Path dist/english-spell-checker-windows-binaries/* -DestinationPath dist/english-spell-checker-binary-windows-x86_64.zip -Force
+          # Archive
+          Compress-Archive -Path "$pkgDir/*" -DestinationPath dist/english-spell-checker-windows-x86_64.zip -Force
 
       - name: Upload build archive
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -142,9 +127,7 @@ jobs:
           path: |
             dist/*.zip
             dist/*.tar.gz
-            dist/english-spell-checker
-            dist/english-spell-checker.exe
-          if-no-files-found: ignore
+          if-no-files-found: error
           compression-level: 0
           retention-days: 14
 

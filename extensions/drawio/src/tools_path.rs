@@ -11,6 +11,9 @@ pub fn extension_directory(
             .map(|(_, value)| PathBuf::from(value))
             .filter(|path| !path.as_os_str().is_empty())
     };
+    if let Some(directory) = variable("EXTENSION_DIR") {
+        return Ok(directory);
+    }
     if let Some(directory) = variable("ZEDSTORM_TOOLS_DIR") {
         return Ok(directory.join("extensions/drawio"));
     }
@@ -32,7 +35,7 @@ pub fn extension_directory(
             _ => return Err("Unsupported operating system".into()),
         }
     };
-    Ok(data.join("zedstorm-tools/extensions/drawio"))
+    Ok(data.join("extensions/installed/drawio"))
 }
 
 #[cfg(test)]
@@ -44,7 +47,12 @@ mod tests {
         let environment = vec![("HOME".into(), "/home/test".into())];
         assert_eq!(
             extension_directory("linux", &environment)?,
-            PathBuf::from("/home/test/.local/share/zed/zedstorm-tools/extensions/drawio")
+            PathBuf::from("/home/test/.local/share/zed/extensions/installed/drawio")
+        );
+        let environment = vec![("EXTENSION_DIR".into(), "/custom/ext".into())];
+        assert_eq!(
+            extension_directory("linux", &environment)?,
+            PathBuf::from("/custom/ext")
         );
         let environment = vec![("ZEDSTORM_TOOLS_DIR".into(), "/shared/tools".into())];
         assert_eq!(
@@ -54,7 +62,7 @@ mod tests {
         let environment = vec![("ZED_DATA_DIR".into(), "/custom/zed".into())];
         assert_eq!(
             extension_directory("linux", &environment)?,
-            PathBuf::from("/custom/zed/zedstorm-tools/extensions/drawio")
+            PathBuf::from("/custom/zed/extensions/installed/drawio")
         );
         Ok(())
     }

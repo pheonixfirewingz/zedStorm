@@ -238,8 +238,21 @@ pub trait Extension: Send + Sync + 'static {
     /// Returns the path to this extension's working directory.
     fn work_dir(&self) -> Arc<Path>;
 
-    /// Returns a path relative to this extension's working directory.
+    /// Returns the path to this extension's installed directory, if available.
+    fn extension_dir(&self) -> Option<Arc<Path>> {
+        None
+    }
+
+    /// Returns a path relative to this extension's working or installed directory.
     fn path_from_extension(&self, path: &Path) -> PathBuf {
+        if path.is_relative() {
+            if let Some(ext_dir) = self.extension_dir() {
+                let candidate = ext_dir.join(path);
+                if candidate.exists() {
+                    return path::normalize_path(&candidate);
+                }
+            }
+        }
         path::normalize_path(&self.work_dir().join(path))
     }
 

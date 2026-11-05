@@ -157,6 +157,8 @@ pub fn is_version_compatible(
 pub fn release_extension_download_url(extension_id: &str) -> Result<Url> {
     let archive = if cfg!(target_os = "windows") {
         format!("{extension_id}-windows-x86_64.zip")
+    } else if cfg!(target_os = "linux") {
+        format!("{extension_id}-linux-x86_64.tar.gz")
     } else {
         format!("{extension_id}.tar.gz")
     };
@@ -507,8 +509,6 @@ impl ExtensionStore {
 
         cx.spawn(async move |this, cx| {
             initial_index_load.await;
-            this.update(cx, |this, cx| this.auto_install_extensions(cx))
-                .ok();
             this.update(cx, |this, cx| this.check_for_updates(cx)).ok();
         })
         .detach();
@@ -787,36 +787,7 @@ impl ExtensionStore {
     ///
     /// This can be used to make certain functionality provided by extensions
     /// available out-of-the-box.
-    pub fn auto_install_extensions(&mut self, cx: &mut Context<Self>) {
-        if cfg!(test) {
-            return;
-        }
-
-        let extension_settings = ExtensionSettings::get_global(cx);
-
-        let extensions_to_install = extension_settings
-            .auto_install_extensions
-            .keys()
-            .filter(|extension_id| extension_settings.should_auto_install(extension_id))
-            .filter(|extension_id| {
-                let is_already_installed = self
-                    .extension_index
-                    .extensions
-                    .contains_key(extension_id.as_ref());
-                !is_already_installed && !SUPPRESSED_EXTENSIONS.contains(extension_id.as_ref())
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-
-        cx.spawn(async move |this, cx| {
-            for extension_id in extensions_to_install {
-                this.update(cx, |this, cx| {
-                    this.install_latest_extension(extension_id.clone(), cx);
-                })
-                .ok();
-            }
-        })
-        .detach();
+    pub fn auto_install_extensions(&mut self, _cx: &mut Context<Self>) {
     }
 
     pub fn check_for_updates(&mut self, cx: &mut Context<Self>) {

@@ -12,6 +12,10 @@ pub fn extension_directory(
             .filter(|path| !path.as_os_str().is_empty())
     };
 
+    if let Some(directory) = variable("EXTENSION_DIR") {
+        return Ok(directory);
+    }
+
     if let Some(directory) = variable("ZEDSTORM_TOOLS_DIR") {
         return Ok(directory.join("extensions/yaml"));
     }
@@ -35,5 +39,5 @@ pub fn extension_directory(
         }
     };
 
-    Ok(data.join("zedstorm-tools/extensions/yaml"))
+    Ok(data.join("extensions/installed/yaml"))
 }

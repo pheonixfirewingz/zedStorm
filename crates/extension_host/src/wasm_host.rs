@@ -63,6 +63,7 @@ pub struct WasmHost {
 pub struct WasmExtension {
     tx: UnboundedSender<ExtensionCall>,
     pub manifest: Arc<ExtensionManifest>,
+    pub extension_dir: Option<Arc<Path>>,
     pub work_dir: Arc<Path>,
     #[allow(unused)]
     pub zed_api_version: Version,
@@ -101,6 +102,8 @@ impl extension::Extension for WasmExtension {
         file_path: String,
         worktree: Arc<dyn WorktreeDelegate>,
     ) -> Result<extension::ExtensionTabRendererBackend> {
+        let work_dir = self.work_dir.clone();
+        let extension_dir = self.extension_dir.clone();
         self.call(move |extension, store| {
             async move {
                 let resource = store.data_mut().table.push(worktree)?;
@@ -110,9 +113,24 @@ impl extension::Extension for WasmExtension {
                     .map_err(|error| store.data().extension_error(error))?;
                 match backend {
                     wit::TabRendererBackend::Command(command) => {
+                        let command_path = Path::new(&command.command);
+                        let path = if command_path.is_relative() {
+                            if let Some(ext_dir) = &extension_dir {
+                                let candidate = ext_dir.join(command_path);
+                                if candidate.exists() {
+                                    util::normalize_path(&candidate)
+                                } else {
+                                    util::normalize_path(&work_dir.join(command_path))
+                                }
+                            } else {
+                                util::normalize_path(&work_dir.join(command_path))
+                            }
+                        } else {
+                            command_path.to_path_buf()
+                        };
                         Ok(extension::ExtensionTabRendererBackend::Command(
                             extension::ExtensionTabRendererCommand {
-                                path: PathBuf::from(command.command),
+                                path,
                                 args: command.args,
                                 env: command.env,
                             },
@@ -139,6 +157,10 @@ impl extension::Extension for WasmExtension {
 
     fn work_dir(&self) -> Arc<Path> {
         self.work_dir.clone()
+    }
+
+    fn extension_dir(&self) -> Option<Arc<Path>> {
+        self.extension_dir.clone()
     }
 
     async fn language_server_command(
@@ -700,11 +722,13 @@ impl WasmHost {
         self: &Arc<Self>,
         wasm_bytes: Vec<u8>,
         manifest: &Arc<ExtensionManifest>,
+        extension_dir: Option<PathBuf>,
         cx: &AsyncApp,
     ) -> Task<Result<WasmExtension>> {
         let this = self.clone();
         let manifest = manifest.clone();
         let executor = cx.background_executor().clone();
+        let extension_dir = extension_dir.clone();
 
         // Parse version and compile component on gpui's background executor.
         // These are cpu-bound operations that don't require a tokio runtime.
@@ -722,8 +746,11 @@ impl WasmHost {
             })
         };
 
-        let load_extension = |zed_api_version: Version, component| async move {
-            let wasi_ctx = this.build_wasi_ctx(&manifest).await?;
+        let ext_dir_for_wasi = extension_dir.clone();
+        let load_extension = move |zed_api_version: Version, component| {
+            let ext_dir = ext_dir_for_wasi.clone();
+            async move {
+                let wasi_ctx = this.build_wasi_ctx(&manifest, ext_dir.as_deref()).await?;
             let mut store = wasmtime::Store::new(
                 &this.engine,
                 WasmState {
@@ -771,7 +798,8 @@ impl WasmHost {
                 tx,
                 zed_api_version,
             ))
-        };
+        }
+    };
 
         cx.spawn(async move |cx| {
             let (zed_api_version, component) = compile_task.await?;
@@ -787,6 +815,7 @@ impl WasmHost {
 
             Ok(WasmExtension {
                 manifest,
+                extension_dir: extension_dir.map(Into::into),
                 work_dir,
                 tx,
                 zed_api_version,
@@ -795,7 +824,11 @@ impl WasmHost {
         })
     }
 
-    async fn build_wasi_ctx(&self, manifest: &Arc<ExtensionManifest>) -> Result<WasiCtx> {
+    async fn build_wasi_ctx(
+        &self,
+        manifest: &Arc<ExtensionManifest>,
+        extension_dir: Option<&Path>,
+    ) -> Result<WasiCtx> {
         let extension_work_dir = self.work_dir.join(manifest.id.as_ref());
         self.fs
             .create_dir(&extension_work_dir)
@@ -816,6 +849,14 @@ impl WasmHost {
                 "ZEDSTORM_TOOLS_DIR",
                 paths::zedstorm_tools_dir().to_string_lossy().replace('\\', "/"),
             );
+
+        if let Some(ext_dir) = extension_dir {
+            let ext_path = SanitizedPath::new(ext_dir).to_string();
+            #[cfg(target_os = "windows")]
+            let ext_path = ext_path.replace('\\', "/");
+            ctx.env("EXTENSION_DIR", &ext_path);
+            let _ = ctx.preopened_dir(ext_dir, &ext_path, permissions);
+        }
 
         ctx.preopened_dir(&path, ".", permissions)?;
         ctx.preopened_dir(&path, &path, permissions)?;
@@ -937,7 +978,7 @@ impl WasmExtension {
             .context(format!("reading wasm file, path: {path:?}"))?;
 
         wasm_host
-            .load_extension(wasm_bytes, manifest, cx)
+            .load_extension(wasm_bytes, manifest, Some(extension_dir.to_path_buf()), cx)
             .await
             .with_context(|| format!("loading wasm extension: {}", manifest.id))
     }

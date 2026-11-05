@@ -83,36 +83,23 @@ jobs:
         run: |
           cargo build --release --manifest-path extensions/drawio/Cargo.toml -p zed-diagrams
 
-      - name: Package Linux extension and binaries
+      - name: Package Linux extension
         if: runner.os == 'Linux'
         run: |
-          mkdir -p dist/drawio-package
-          mkdir -p dist/drawio-linux-package/bin
-          mkdir -p dist/drawio-linux-binaries
+          mkdir -p dist/drawio-package/bin
 
           # WASM and manifest
           cp extensions/drawio/target/wasm32-wasip2/release/zed_drawio.wasm dist/drawio-package/extension.wasm
           cp extensions/drawio/extension.toml dist/drawio-package/extension.toml
 
-          cp extensions/drawio/target/wasm32-wasip2/release/zed_drawio.wasm dist/drawio-linux-package/extension.wasm
-          cp extensions/drawio/extension.toml dist/drawio-linux-package/extension.toml
-
           # Linux companion binaries
-          cp extensions/drawio/target/release/zed-diagrams dist/drawio-linux-package/bin/zed-diagrams
-          cp extensions/drawio/target/release/zed-diagrams-webview dist/drawio-linux-package/bin/zed-diagrams-webview
-          chmod +x dist/drawio-linux-package/bin/*
-
-          cp extensions/drawio/target/release/zed-diagrams dist/drawio-linux-binaries/zed-diagrams
-          cp extensions/drawio/target/release/zed-diagrams-webview dist/drawio-linux-binaries/zed-diagrams-webview
-          chmod +x dist/drawio-linux-binaries/*
-
-          # Direct binaries for root dist
-          cp dist/drawio-linux-binaries/* dist/
+          cp extensions/drawio/target/release/zed-diagrams dist/drawio-package/bin/zed-diagrams
+          cp extensions/drawio/target/release/zed-diagrams-webview dist/drawio-package/bin/zed-diagrams-webview
+          chmod +x dist/drawio-package/bin/*
 
           # Archives
           tar -czf dist/drawio.tar.gz -C dist/drawio-package .
-          tar -czf dist/drawio-linux-x86_64.tar.gz -C dist/drawio-linux-package .
-          tar -czf dist/zed-diagrams-linux-x86_64.tar.gz -C dist/drawio-linux-binaries .
+          tar -czf dist/drawio-linux-x86_64.tar.gz -C dist/drawio-package .
 
       - name: Build Windows native companion
         if: runner.os == 'Windows'
@@ -126,32 +113,24 @@ jobs:
           }
           cargo build --release --manifest-path extensions/drawio/Cargo.toml -p zed-diagrams
 
-      - name: Package Windows extension and binaries
+      - name: Package Windows extension
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory -Path dist/drawio-windows-package/bin -Force
-          New-Item -ItemType Directory -Path dist/drawio-windows-binaries -Force
+          $pkgDir = "dist/drawio-windows-package"
+          New-Item -ItemType Directory -Path "$pkgDir/bin" -Force
 
           # WASM and manifest
-          Copy-Item extensions/drawio/target/wasm32-wasip2/release/zed_drawio.wasm -Destination dist/drawio-windows-package/extension.wasm
-          Copy-Item extensions/drawio/extension.toml -Destination dist/drawio-windows-package/extension.toml
+          Copy-Item extensions/drawio/target/wasm32-wasip2/release/zed_drawio.wasm -Destination "$pkgDir/extension.wasm"
+          Copy-Item extensions/drawio/extension.toml -Destination "$pkgDir/extension.toml"
 
           # Windows companion binaries
-          Copy-Item extensions/drawio/target/release/zed-diagrams.exe -Destination dist/drawio-windows-package/bin/
-          Copy-Item extensions/drawio/target/release/zed-diagrams-webview.exe -Destination dist/drawio-windows-package/bin/
+          Copy-Item extensions/drawio/target/release/zed-diagrams.exe -Destination "$pkgDir/bin/"
+          Copy-Item extensions/drawio/target/release/zed-diagrams-webview.exe -Destination "$pkgDir/bin/"
 
-          Copy-Item extensions/drawio/target/release/zed-diagrams.exe -Destination dist/drawio-windows-binaries/
-          Copy-Item extensions/drawio/target/release/zed-diagrams-webview.exe -Destination dist/drawio-windows-binaries/
-
-          # Direct binaries for root dist
-          Copy-Item extensions/drawio/target/release/zed-diagrams.exe -Destination dist/
-          Copy-Item extensions/drawio/target/release/zed-diagrams-webview.exe -Destination dist/
-
-          # Archives
-          Compress-Archive -Path dist/drawio-windows-package/* -DestinationPath dist/drawio-windows-x86_64.zip
-          Compress-Archive -Path dist/drawio-windows-binaries/* -DestinationPath dist/zed-diagrams-windows-x86_64.zip
+          # Archive
+          Compress-Archive -Path "$pkgDir/*" -DestinationPath dist/drawio-windows-x86_64.zip -Force
 
       - name: Upload build archive
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -160,7 +139,6 @@ jobs:
           path: |
             dist/*.zip
             dist/*.tar.gz
-            dist/zed-diagrams*
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
