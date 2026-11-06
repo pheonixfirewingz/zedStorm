@@ -113,21 +113,11 @@ impl extension::Extension for WasmExtension {
                     .map_err(|error| store.data().extension_error(error))?;
                 match backend {
                     wit::TabRendererBackend::Command(command) => {
-                        let command_path = Path::new(&command.command);
-                        let path = if command_path.is_relative() {
-                            if let Some(ext_dir) = &extension_dir {
-                                let candidate = ext_dir.join(command_path);
-                                if candidate.exists() {
-                                    util::normalize_path(&candidate)
-                                } else {
-                                    util::normalize_path(&work_dir.join(command_path))
-                                }
-                            } else {
-                                util::normalize_path(&work_dir.join(command_path))
-                            }
-                        } else {
-                            command_path.to_path_buf()
-                        };
+                        let path = extension::resolve_extension_path(
+                            Path::new(&command.command),
+                            extension_dir.as_deref(),
+                            &work_dir,
+                        );
                         Ok(extension::ExtensionTabRendererBackend::Command(
                             extension::ExtensionTabRendererCommand {
                                 path,

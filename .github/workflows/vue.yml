@@ -6,11 +6,13 @@ on:
     paths:
       - 'extensions/vue/**'
       - '.github/workflows/vue.yml'
+      - 'script/build-extension-grammars.py'
   pull_request:
     branches: [custom]
     paths:
       - 'extensions/vue/**'
       - '.github/workflows/vue.yml'
+      - 'script/build-extension-grammars.py'
   workflow_dispatch:
 
 permissions:
@@ -68,12 +70,48 @@ jobs:
         run: |
           cargo build --release --target wasm32-wasip2 --manifest-path extensions/vue/Cargo.toml
 
+      - name: Cache wasi-sdk
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/wasi-sdk
+          key: wasi-sdk-34.0-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install wasi-sdk
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS" in
+            Linux) platform=x86_64-linux ;;
+            Windows) platform=x86_64-windows ;;
+            *) echo "::error::Unsupported runner $RUNNER_OS" >&2; exit 1 ;;
+          esac
+          temp_directory="$RUNNER_TEMP"
+          if command -v cygpath >/dev/null; then
+            temp_directory="$(cygpath -u "$RUNNER_TEMP")"
+          fi
+          sdk_directory="$temp_directory/wasi-sdk"
+          if [ ! -d "$sdk_directory/bin" ]; then
+            curl -sSfL -o "$temp_directory/wasi-sdk.tar.gz" \
+              "https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-$platform.tar.gz"
+            mkdir -p "$sdk_directory"
+            tar -xzf "$temp_directory/wasi-sdk.tar.gz" -C "$sdk_directory" --strip-components=1
+            rm "$temp_directory/wasi-sdk.tar.gz"
+          fi
+          echo "WASI_SDK_PATH=$RUNNER_TEMP/wasi-sdk" >> "$GITHUB_ENV"
+
+      - name: Build grammars
+        run: |
+          set -euo pipefail
+          python_command="$(command -v python3 || command -v python)"
+          "$python_command" script/build-extension-grammars.py extensions/vue
+
       - name: Package Linux extension
         if: runner.os == 'Linux'
         run: |
           mkdir -p "dist/vue-package"
           cp "extensions/vue/target/wasm32-wasip2/release/zed_vue.wasm" "dist/vue-package/extension.wasm"
           cp "extensions/vue/extension.toml" "dist/vue-package/extension.toml"
+          mkdir -p "dist/vue-package/grammars"
+          cp extensions/vue/grammars/*.wasm "dist/vue-package/grammars/"
           if [ -d "extensions/vue/languages" ]; then
             cp -r "extensions/vue/languages" "dist/vue-package/"
           fi
@@ -89,6 +127,8 @@ jobs:
           New-Item -ItemType Directory -Path $pkgDir -Force
           Copy-Item "extensions/vue/target/wasm32-wasip2/release/zed_vue.wasm" -Destination "$pkgDir/extension.wasm"
           Copy-Item "extensions/vue/extension.toml" -Destination "$pkgDir/extension.toml"
+          New-Item -ItemType Directory -Path "$pkgDir/grammars" -Force | Out-Null
+          Copy-Item "extensions/vue/grammars/*.wasm" -Destination "$pkgDir/grammars/"
           if (Test-Path "extensions/vue/languages") {
             Copy-Item -Recurse "extensions/vue/languages" -Destination "$pkgDir/"
           }
@@ -154,37 +194,42 @@ jobs:
             echo "Lock is held by another deployment. Waiting 10s... (${waited}s / ${max_wait}s)"
             sleep 10
             waited=$((waited + 10))
-            if [ $waited -ge $max_wait ]; then
-              echo "Timed out waiting for lock. Breaking stale lock..."
+            if [ "$waited" -ge "$max_wait" ]; then
+              echo "Timed out waiting for lock. Breaking stale lock once..."
               gh api --method DELETE "repos/$GH_REPO/git/$LOCK_REF" 2>/dev/null || true
+              waited=0
               sleep 2
             fi
           done
           echo "Lock acquired successfully."
 
+          retry() {
+            local attempt succeeded=0
+            for attempt in 1 2 3; do
+              if "$@"; then
+                succeeded=1
+                break
+              fi
+              sleep 3
+            done
+            if [ "$succeeded" -ne 1 ]; then
+              echo "::error::Command failed after 3 attempts: $*" >&2
+              return 1
+            fi
+          }
+
           release_id=$(gh api "repos/$GH_REPO/releases/tags/$TAG_NAME" --jq .id 2>/dev/null || true)
           tag_reference=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG_NAME" --jq .ref 2>/dev/null || true)
           if [ -n "$tag_reference" ]; then
-            for i in {1..3}; do
-              gh api --method PATCH "repos/$GH_REPO/git/refs/tags/$TAG_NAME" -f sha="$BUILD_COMMIT" -F force=true && break || sleep 2
-            done
+            retry gh api --method PATCH "repos/$GH_REPO/git/refs/tags/$TAG_NAME" -f sha="$BUILD_COMMIT" -F force=true
           else
-            for i in {1..3}; do
-              gh api --method POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG_NAME" -f sha="$BUILD_COMMIT" && break || sleep 2
-            done
+            retry gh api --method POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG_NAME" -f sha="$BUILD_COMMIT"
           fi
 
           notes="Latest extensions build from the custom branch. Commit: $BUILD_COMMIT. Build: $RUN_URL"
           if [ -n "$release_id" ]; then
-            for i in {1..3}; do
-              gh release upload "$TAG_NAME" release-assets/* --clobber && break || sleep 3
-            done
-            for i in {1..3}; do
-              gh release edit "$TAG_NAME" --title 'Latest Extensions Build' --notes "$notes" && break || sleep 2
-            done
+            retry gh release upload "$TAG_NAME" release-assets/* --clobber
+            retry gh release edit "$TAG_NAME" --title 'Latest Extensions Build' --notes "$notes"
           else
-            for i in {1..3}; do
-              gh release create "$TAG_NAME" release-assets/* \
-                --verify-tag --title 'Latest Extensions Build' --notes "$notes" && break || sleep 3
-            done
+            retry gh release create "$TAG_NAME" release-assets/* --verify-tag --title 'Latest Extensions Build' --notes "$notes"
           fi

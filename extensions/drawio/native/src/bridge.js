@@ -77,7 +77,13 @@
         send({ action: "dialog", title: "Could not save diagram", message: message.message, button: "OK", modified: true });
         break;
       case "close": close(); break;
-      case "requestSave": send({ action: "invokeAction", actionName: "save" }); break;
+      case "requestSave":
+        if (!initialized) {
+          native({ event: "saveFailed", message: "The diagram editor has not loaded yet" });
+        } else {
+          send({ action: "invokeAction", actionName: "save" });
+        }
+        break;
     }
   };
   setTimeout(() => {

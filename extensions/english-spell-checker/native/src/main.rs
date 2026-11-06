@@ -11,6 +11,96 @@ use checker::SpellChecker;
 use lsp::*;
 use serde::Serialize;
 
+/// Messages larger than this are skipped rather than buffered, so a malformed header cannot
+/// make the server allocate unbounded memory.
+const MAX_MESSAGE_BYTES: usize = 64 * 1024 * 1024;
+
+/// Header lines longer than this are discarded, so a stream without newlines cannot grow the
+/// line buffer without bound.
+const MAX_HEADER_LINE_BYTES: u64 = 8 * 1024;
+
+enum HeaderLine {
+    EndOfInput,
+    Complete,
+    Oversized,
+}
+
+fn read_header_line<R: BufRead>(reader: &mut R, line: &mut Vec<u8>) -> io::Result<HeaderLine> {
+    line.clear();
+    let read = reader
+        .by_ref()
+        .take(MAX_HEADER_LINE_BYTES)
+        .read_until(b'\n', line)?;
+    if read == 0 {
+        return Ok(HeaderLine::EndOfInput);
+    }
+    if line.ends_with(b"\n") || (read as u64) < MAX_HEADER_LINE_BYTES {
+        return Ok(HeaderLine::Complete);
+    }
+    loop {
+        line.clear();
+        let read = reader
+            .by_ref()
+            .take(MAX_HEADER_LINE_BYTES)
+            .read_until(b'\n', line)?;
+        if read == 0 || line.ends_with(b"\n") {
+            line.clear();
+            return Ok(HeaderLine::Oversized);
+        }
+    }
+}
+
+/// Restores saved words from the per-user backup into the binary dictionary.
+///
+/// An extension upgrade replaces the whole installed directory, including `dictionary.txt`, so
+/// words are also written to a backup outside the install directory and replayed here.
+fn restore_saved_words() {
+    let Some(backup_path) = storage::dictionary_backup_path() else {
+        return;
+    };
+    let binary_dictionary = storage::binary_dictionary_path();
+    match storage::restore_dictionary_from_backup(&binary_dictionary, &backup_path) {
+        Ok(0) => {}
+        Ok(restored) => eprintln!(
+            "restored {restored} saved spell-check words from {}",
+            backup_path.display()
+        ),
+        // Startup must still succeed with the words that are available.
+        Err(error) => eprintln!(
+            "could not restore saved spell-check words from {}: {error}",
+            backup_path.display()
+        ),
+    }
+}
+
+/// Saves `word` to the binary dictionary and to its per-user backup.
+fn save_word_to_dictionary<W: Write>(word: &str, writer: &mut W) -> io::Result<()> {
+    let binary_dictionary = storage::binary_dictionary_path();
+    if let Err(error) = storage::append_word_to_file(&binary_dictionary, word) {
+        send_show_message(
+            &format!(
+                "Could not save '{word}' to {}: {error}",
+                binary_dictionary.display()
+            ),
+            writer,
+        )?;
+    }
+
+    let Some(backup_path) = storage::dictionary_backup_path() else {
+        return Ok(());
+    };
+    if let Err(error) = storage::append_word_to_file(&backup_path, word) {
+        send_show_message(
+            &format!(
+                "Could not back up '{word}' to {}: {error}",
+                backup_path.display()
+            ),
+            writer,
+        )?;
+    }
+    Ok(())
+}
+
 fn main() -> io::Result<()> {
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -18,6 +108,7 @@ fn main() -> io::Result<()> {
     let mut writer = stdout.lock();
 
     let mut checker = SpellChecker::new();
+    restore_saved_words();
     let bin_dict = storage::binary_dictionary_path();
     for w in storage::load_words_from_file(&bin_dict) {
         checker.add_custom_word(&w);
@@ -28,19 +119,21 @@ fn main() -> io::Result<()> {
         }
     }
 
+    let mut line_buf = Vec::new();
+    let mut payload = Vec::new();
     loop {
         // Read headers (e.g. Content-Length: 123\r\n\r\n)
         let mut content_length: Option<usize> = None;
-        let mut line_buf = String::new();
 
         loop {
-            line_buf.clear();
-            if reader.read_line(&mut line_buf)? == 0 {
-                // EOF reached
-                return Ok(());
+            match read_header_line(&mut reader, &mut line_buf)? {
+                HeaderLine::EndOfInput => return Ok(()),
+                HeaderLine::Oversized => continue,
+                HeaderLine::Complete => {}
             }
 
-            let trimmed = line_buf.trim();
+            let line_text = String::from_utf8_lossy(&line_buf);
+            let trimmed = line_text.trim();
             if trimmed.is_empty() {
                 // Header section ended
                 break;
@@ -57,8 +150,14 @@ fn main() -> io::Result<()> {
             continue;
         };
 
-        // Read payload of length bytes
-        let mut payload = vec![0u8; length];
+        if length > MAX_MESSAGE_BYTES {
+            io::copy(&mut (&mut reader).take(length as u64), &mut io::sink())?;
+            continue;
+        }
+
+        // The buffer is reused across messages; documents are resent in full on every edit.
+        payload.clear();
+        payload.resize(length, 0);
         reader.read_exact(&mut payload)?;
 
         let Ok(req) = serde_json::from_slice::<RpcRequest>(&payload) else {
@@ -114,9 +213,7 @@ fn handle_request<W: Write>(
                     let text = td.get("text").and_then(|t| t.as_str()).unwrap_or_default();
 
                     if let Some(ws_dict) = storage::workspace_dictionary_path(uri) {
-                        for w in storage::load_words_from_file(&ws_dict) {
-                            checker.add_custom_word(&w);
-                        }
+                        checker.load_dictionary_once(ws_dict);
                     }
 
                     let diagnostics = checker.check_document(uri, text);
@@ -193,13 +290,22 @@ fn handle_request<W: Write>(
                 let command = params.get("command").and_then(|c| c.as_str()).unwrap_or_default();
                 let args = params.get("arguments").and_then(|a| a.as_array());
 
+                let changes_words = matches!(
+                    command,
+                    "english-spell-checker.saveToDictionary"
+                        | "english-spell-checker.addToUserDictionary"
+                        | "english-spell-checker.addWord"
+                        | "english-spell-checker.saveToProject"
+                        | "english-spell-checker.addToWorkspaceDictionary"
+                        | "english-spell-checker.ignoreWord"
+                );
+
                 match command {
                     "english-spell-checker.saveToDictionary"
                     | "english-spell-checker.addToUserDictionary"
                     | "english-spell-checker.addWord" => {
                         if let Some(word) = args.and_then(|a| a.first()).and_then(|w| w.as_str()) {
-                            let bin_dict = storage::binary_dictionary_path();
-                            let _ = storage::append_word_to_file(&bin_dict, word);
+                            save_word_to_dictionary(word, writer)?;
                             checker.add_custom_word(word);
                         }
                     }
@@ -207,8 +313,13 @@ fn handle_request<W: Write>(
                     | "english-spell-checker.addToWorkspaceDictionary" => {
                         if let Some(word) = args.and_then(|a| a.first()).and_then(|w| w.as_str()) {
                             let uri = args.and_then(|a| a.get(1)).and_then(|u| u.as_str()).unwrap_or_default();
-                            if let Some(ws_dict) = storage::workspace_dictionary_path(uri) {
-                                let _ = storage::append_word_to_file(&ws_dict, word);
+                            if let Some(ws_dict) = storage::workspace_dictionary_path(uri)
+                                && let Err(error) = storage::append_word_to_file(&ws_dict, word)
+                            {
+                                send_show_message(
+                                    &format!("Could not save '{word}' to {}: {error}", ws_dict.display()),
+                                    writer,
+                                )?;
                             }
                             checker.add_custom_word(word);
                         }
@@ -220,14 +331,19 @@ fn handle_request<W: Write>(
                     }
                     "english-spell-checker.openDictionary" => {
                         let bin_dict = storage::binary_dictionary_path();
-                        if !bin_dict.exists() {
-                            let _ = storage::append_word_to_file(
+                        if !bin_dict.exists()
+                            && let Err(error) = storage::append_word_to_file(
                                 &bin_dict,
                                 "# English Spell Checker Dictionary - Add custom words (one per line)",
-                            );
+                            )
+                        {
+                            send_show_message(
+                                &format!("Could not create {}: {error}", bin_dict.display()),
+                                writer,
+                            )?;
                         }
                         let uri = storage::path_to_uri(&bin_dict);
-                        let _ = send_show_document_request(&uri, writer);
+                        send_show_document_request(&uri, writer)?;
                     }
                     _ => {}
                 }
@@ -236,16 +352,17 @@ fn handle_request<W: Write>(
                     send_response(id.clone(), serde_json::Value::Null, writer)?;
                 }
 
-                // Re-check all open documents and publish updated diagnostics
-                for (doc_uri, diagnostics) in checker.recheck_all_documents() {
-                    send_notification(
-                        "textDocument/publishDiagnostics",
-                        PublishDiagnosticsParams {
-                            uri: doc_uri,
-                            diagnostics,
-                        },
-                        writer,
-                    )?;
+                if changes_words {
+                    for (doc_uri, diagnostics) in checker.recheck_all_documents() {
+                        send_notification(
+                            "textDocument/publishDiagnostics",
+                            PublishDiagnosticsParams {
+                                uri: doc_uri,
+                                diagnostics,
+                            },
+                            writer,
+                        )?;
+                    }
                 }
             }
         }
@@ -337,6 +454,14 @@ fn send_notification<T: Serialize, W: Write>(
     write!(writer, "Content-Length: {}\r\n\r\n", json_bytes.len())?;
     writer.write_all(&json_bytes)?;
     writer.flush()
+}
+
+fn send_show_message<W: Write>(message: &str, writer: &mut W) -> io::Result<()> {
+    send_notification(
+        "window/showMessage",
+        serde_json::json!({ "type": 1, "message": message }),
+        writer,
+    )
 }
 
 fn send_show_document_request<W: Write>(uri: &str, writer: &mut W) -> io::Result<()> {

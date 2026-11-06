@@ -3,7 +3,7 @@
     {
       "id": "angular",
       "name": "Angular",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "WebStorm-like Angular language support, rich templates, live templates, and Language Server integration for ZedStorm.",
       "authors": [
         "ZedStorm contributors"
@@ -18,7 +18,7 @@
     {
       "id": "css",
       "name": "CSS",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "CSS support using vscode-css-language-server.",
       "authors": [
         "ZedStorm contributors"
@@ -33,7 +33,7 @@
     {
       "id": "drawio",
       "name": "diagrams.net",
-      "version": "0.1.0",
+      "version": "0.1.2",
       "description": "Edit Draw.io diagrams in an embedded ZedStorm tab using the system webview.",
       "authors": [
         "ZedStorm contributors"
@@ -48,7 +48,7 @@
     {
       "id": "english-spell-checker",
       "name": "English Spell Checker",
-      "version": "0.1.0",
+      "version": "0.1.2",
       "description": "Fast, self-contained English spell checker that requires no external tools or downloads.",
       "authors": [
         "ZedStorm contributors"
@@ -63,7 +63,7 @@
     {
       "id": "glsl",
       "name": "GLSL",
-      "version": "0.2.5",
+      "version": "0.2.6",
       "description": "GLSL support.",
       "authors": [
         "Mikayla Maki <mikayla@zed.dev>"
@@ -78,7 +78,7 @@
     {
       "id": "go",
       "name": "Go",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "Go, Go module, and Go work support.",
       "authors": [
         "ZedStorm contributors"
@@ -93,7 +93,7 @@
     {
       "id": "html",
       "name": "HTML",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "description": "HTML support.",
       "authors": [
         "Isaac Clayton <slightknack@gmail.com>"
@@ -108,7 +108,7 @@
     {
       "id": "jupyter",
       "name": "Jupyter",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "Jupyter notebook and REPL support.",
       "authors": [
         "ZedStorm contributors"
@@ -123,7 +123,7 @@
     {
       "id": "mermaid",
       "name": "Mermaid",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "Render Mermaid diagrams in Markdown previews and chat.",
       "authors": [
         "ZedStorm contributors"
@@ -138,7 +138,7 @@
     {
       "id": "plcnext",
       "name": "PLCnext Engineer",
-      "version": "0.1.0",
+      "version": "0.1.2",
       "description": "Read-only viewer and explorer for Phoenix Contact PLCnext Engineer projects (.pcwex, .pcweax, .pcwlx, .pcwef).",
       "authors": [
         "ZedStorm contributors"
@@ -153,7 +153,7 @@
     {
       "id": "proto",
       "name": "Proto",
-      "version": "0.3.4",
+      "version": "0.3.5",
       "description": "Protocol Buffers support.",
       "authors": [
         "ZedStorm contributors"
@@ -168,7 +168,7 @@
     {
       "id": "yaml",
       "name": "YAML",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "YAML support.",
       "authors": [
         "ZedStorm contributors"
@@ -183,7 +183,7 @@
     {
       "id": "tailwindcss",
       "name": "Tailwind CSS",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "Tailwind CSS support.",
       "authors": [
         "ZedStorm contributors"
@@ -198,7 +198,7 @@
     {
       "id": "vue",
       "name": "Vue",
-      "version": "0.4.1",
+      "version": "0.4.2",
       "description": "Vue support.",
       "authors": [
         "ZedStorm contributors"

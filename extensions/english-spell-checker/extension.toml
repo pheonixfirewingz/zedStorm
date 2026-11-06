@@ -1,7 +1,7 @@
 id = "english-spell-checker"
 name = "English Spell Checker"
 description = "Fast, self-contained English spell checker that requires no external tools or downloads."
-version = "0.1.0"
+version = "0.1.2"
 schema_version = 1
 authors = ["ZedStorm contributors"]
 repository = "https://github.com/pheonixfirewingz/zedStorm"

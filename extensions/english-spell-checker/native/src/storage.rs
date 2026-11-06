@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -14,12 +15,17 @@ pub fn binary_dictionary_path() -> PathBuf {
 
 /// Converts a local filesystem path to an LSP `file://` URI.
 pub fn path_to_uri(path: &Path) -> String {
-    let s = path.to_string_lossy().replace('\\', "/");
-    if s.starts_with('/') {
-        format!("file://{}", s)
-    } else {
-        format!("file:///{}", s)
+    let path = path.to_string_lossy().replace('\\', "/");
+    let mut uri = String::with_capacity(path.len() + 8);
+    uri.push_str(if path.starts_with('/') { "file://" } else { "file:///" });
+    for byte in path.bytes() {
+        if byte.is_ascii_alphanumeric() || b"/-._~:".contains(&byte) {
+            uri.push(byte as char);
+        } else {
+            uri.push_str(&format!("%{byte:02X}"));
+        }
     }
+    uri
 }
 
 /// Returns the path to the user's global custom dictionary file.
@@ -65,41 +71,54 @@ pub fn user_dictionary_path() -> Option<PathBuf> {
     None
 }
 
+/// Returns the path to the per-user backup of the binary dictionary.
+///
+/// The binary dictionary lives inside the extension's installed directory, which an upgrade
+/// replaces wholesale, so the backup keeps the user's saved words recoverable.
+pub fn dictionary_backup_path() -> Option<PathBuf> {
+    let dictionary_directory = user_dictionary_path()?.parent()?.to_path_buf();
+    Some(
+        dictionary_directory
+            .join("english-spell-checker")
+            .join("dictionary-backup.txt"),
+    )
+}
+
 /// Converts a `file://` URI to a local file path.
 pub fn uri_to_path(uri: &str) -> Option<PathBuf> {
-    let path_str = uri.strip_prefix("file://")?;
+    let encoded = uri.strip_prefix("file://")?;
+    // Decode first: clients may percent-encode the drive colon (`/c%3A/...`).
+    let decoded = percent_decode(encoded);
 
     #[cfg(windows)]
-    let path_str = if path_str.starts_with('/') && path_str.len() > 3 && path_str.as_bytes()[2] == b':' {
-        &path_str[1..]
-    } else {
-        path_str
+    let decoded = match decoded.as_bytes() {
+        [b'/', drive, b':', ..] if drive.is_ascii_alphabetic() => decoded[1..].to_string(),
+        _ => decoded,
     };
 
-    let decoded = url_decode(path_str);
     Some(PathBuf::from(decoded))
 }
 
-fn url_decode(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut bytes = s.bytes();
-    while let Some(b) = bytes.next() {
-        if b == b'%' {
-            let h1 = bytes.next();
-            let h2 = bytes.next();
-            if let (Some(h1), Some(h2)) = (h1, h2) {
-                if let Ok(hex_val) = u8::from_str_radix(&format!("{}{}", h1 as char, h2 as char), 16) {
-                    result.push(hex_val as char);
-                    continue;
-                }
-            }
-        } else if b == b'+' {
-            result.push(' ');
-            continue;
+/// Decodes `%XX` escapes as UTF-8. `+` is literal in URI paths, unlike in form data.
+fn percent_decode(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%'
+            && let Some(value) = bytes
+                .get(index + 1..index + 3)
+                .and_then(|hex| std::str::from_utf8(hex).ok())
+                .and_then(|hex| u8::from_str_radix(hex, 16).ok())
+        {
+            decoded.push(value);
+            index += 3;
+        } else {
+            decoded.push(bytes[index]);
+            index += 1;
         }
-        result.push(b as char);
     }
-    result
+    String::from_utf8_lossy(&decoded).into_owned()
 }
 
 /// Finds the root directory of a project/workspace given a file path.
@@ -141,6 +160,8 @@ pub fn load_words_from_file(path: &Path) -> Vec<String> {
     };
 
     content
+        .strip_prefix('\u{feff}')
+        .unwrap_or(&content)
         .lines()
         .map(|l| l.trim().to_string())
         .filter(|w| !w.is_empty() && !w.starts_with('#'))
@@ -169,13 +190,68 @@ pub fn append_word_to_file(path: &Path, word: &str) -> io::Result<()> {
         .append(true)
         .open(path)?;
 
+    // A hand-edited file may lack a final newline, which would glue the word onto the last line.
+    let needs_separator = fs::read(path)
+        .map(|content| !content.is_empty() && !content.ends_with(b"\n"))
+        .unwrap_or(false);
+    if needs_separator {
+        writeln!(file)?;
+    }
     writeln!(file, "{}", trimmed)?;
     Ok(())
+}
+
+/// Appends every word from `backup_path` that `dictionary_path` is missing, returning how many
+/// words were restored. A missing or unreadable backup yields zero words.
+pub fn restore_dictionary_from_backup(
+    dictionary_path: &Path,
+    backup_path: &Path,
+) -> io::Result<usize> {
+    let backup_words = load_words_from_file(backup_path);
+    if backup_words.is_empty() {
+        return Ok(0);
+    }
+
+    let existing_words: HashSet<String> = load_words_from_file(dictionary_path)
+        .into_iter()
+        .map(|word| word.to_lowercase())
+        .collect();
+
+    let mut restored = 0;
+    for word in backup_words {
+        if existing_words.contains(&word.to_lowercase()) {
+            continue;
+        }
+        // `append_word_to_file` also skips words the file already has, so a stale backup cannot
+        // duplicate entries.
+        append_word_to_file(dictionary_path, &word)?;
+        restored += 1;
+    }
+    Ok(restored)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_load_words_strips_bom() {
+        let path = std::env::temp_dir().join(format!("spell-bom-{}.txt", std::process::id()));
+        fs::write(&path, "\u{feff}first\nsecond\n").unwrap();
+        let words = load_words_from_file(&path);
+        fs::remove_file(&path).unwrap();
+        assert_eq!(words, vec!["first", "second"]);
+    }
+
+    #[test]
+    fn test_append_adds_separator_after_unterminated_line() {
+        let path = std::env::temp_dir().join(format!("spell-append-{}.txt", std::process::id()));
+        fs::write(&path, "first").unwrap();
+        append_word_to_file(&path, "second").unwrap();
+        let words = load_words_from_file(&path);
+        fs::remove_file(&path).unwrap();
+        assert_eq!(words, vec!["first", "second"]);
+    }
 
     #[test]
     fn test_uri_to_path() {
@@ -189,6 +265,22 @@ mod tests {
             let p = uri_to_path("file:///home/user/project/main.rs").unwrap();
             assert_eq!(p, PathBuf::from("/home/user/project/main.rs"));
         }
+    }
+
+    #[test]
+    fn test_uri_round_trip_preserves_special_characters() {
+        #[cfg(windows)]
+        let path = PathBuf::from("C:/Users/José/C++ notes/a#b.md");
+        #[cfg(not(windows))]
+        let path = PathBuf::from("/home/José/C++ notes/a#b.md");
+        let uri = path_to_uri(&path);
+        assert!(!uri.contains(' ') && !uri.contains('#'), "{uri}");
+        assert_eq!(uri_to_path(&uri), Some(path));
+        #[cfg(windows)]
+        assert_eq!(
+            uri_to_path("file:///c%3A/a+b/x.md"),
+            Some(PathBuf::from("c:/a+b/x.md"))
+        );
     }
 
     #[test]
@@ -206,5 +298,47 @@ mod tests {
         assert_eq!(loaded, vec!["customword1".to_string(), "customword2".to_string()]);
 
         let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_restore_dictionary_from_backup() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "spell-restore-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_nanos())
+                .unwrap_or_default()
+        ));
+        let dictionary = temp_dir.join("bin").join("dictionary.txt");
+        let backup = temp_dir.join("user").join("dictionary-backup.txt");
+
+        fs::create_dir_all(temp_dir.join("bin")).unwrap();
+        fs::create_dir_all(temp_dir.join("user")).unwrap();
+        fs::write(&dictionary, "already\n").unwrap();
+        fs::write(&backup, "already\nrestored\nAlsoRestored\n").unwrap();
+
+        let restored = restore_dictionary_from_backup(&dictionary, &backup).unwrap();
+        assert_eq!(restored, 2);
+        let words = load_words_from_file(&dictionary);
+        assert_eq!(words, vec!["already", "restored", "AlsoRestored"]);
+
+        // Running again must not duplicate the restored words, and an absent dictionary must be
+        // recreated from the backup alone.
+        assert_eq!(
+            restore_dictionary_from_backup(&dictionary, &backup).unwrap(),
+            0
+        );
+        fs::remove_file(&dictionary).unwrap();
+        assert_eq!(
+            restore_dictionary_from_backup(&dictionary, &backup).unwrap(),
+            3
+        );
+        assert_eq!(
+            load_words_from_file(&dictionary),
+            vec!["already", "restored", "AlsoRestored"]
+        );
+
+        fs::remove_dir_all(&temp_dir).unwrap();
     }
 }

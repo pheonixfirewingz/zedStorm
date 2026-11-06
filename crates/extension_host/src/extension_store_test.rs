@@ -7,7 +7,8 @@ use crate::{
         ExtensionVersion, HeadlessExtensionStore, LoadedExtension, STALE_UPLOAD_TTL,
         hash_directory_contents, remove_stale_uploads,
     },
-    load_plugin_queries, remote_sync_retry_delay,
+    clean_leftover_trash_dirs, load_plugin_queries, remote_sync_retry_delay,
+    remove_extension_dir,
 };
 use async_compression::futures::bufread::GzipEncoder;
 use async_trait::async_trait;
@@ -4304,3 +4305,72 @@ impl extension::ExtensionThemeProxy for DummyThemeProxy {
     fn load_icon_theme(&self, _: std::path::PathBuf, _: std::path::PathBuf, _: std::sync::Arc<dyn Fs>) -> gpui::Task<anyhow::Result<()>> { gpui::Task::ready(Ok(())) }
     fn reload_current_icon_theme(&self, _: &mut gpui::App) {}
 }
+
+#[gpui::test]
+async fn test_remove_extension_dir(cx: &mut gpui::TestAppContext) {
+    let fs = FakeFs::new(cx.executor());
+    let staging_directory = Path::new("/extensions/staging");
+    let extension_directory = Path::new("/extensions/installed/test-extension");
+
+    // Directory does not exist -> returns Ok(())
+    remove_extension_dir(fs.as_ref(), extension_directory, staging_directory)
+        .await
+        .unwrap();
+
+    // Directory exists with nested directories and files -> removed successfully
+    fs.insert_tree(
+        "/extensions/installed/test-extension",
+        json!({
+            "extension.toml": "id = \"test-extension\"\nversion = \"1.0.0\"\n",
+            "bin": {
+                "companion.exe": "binary content",
+            }
+        }),
+    )
+    .await;
+
+    assert!(fs.is_dir(extension_directory).await);
+    assert!(fs.is_file(&extension_directory.join("extension.toml")).await);
+    assert!(fs.is_file(&extension_directory.join("bin").join("companion.exe")).await);
+
+    remove_extension_dir(fs.as_ref(), extension_directory, staging_directory)
+        .await
+        .unwrap();
+
+    assert!(!fs.is_dir(extension_directory).await);
+    assert!(!fs.is_file(&extension_directory.join("extension.toml")).await);
+    assert!(!fs.is_file(&extension_directory.join("bin").join("companion.exe")).await);
+
+    // Leftover trash directories in staging are cleaned up
+    fs.insert_tree(
+        "/extensions/staging/trash-old-run",
+        json!({
+            "stale.exe": "stale content",
+        }),
+    )
+    .await;
+    let leftover_trash = staging_directory.join("trash-old-run");
+    assert!(fs.is_dir(&leftover_trash).await);
+
+    clean_leftover_trash_dirs(fs.as_ref(), staging_directory).await;
+    assert!(!fs.is_dir(&leftover_trash).await);
+
+    // A dev extension symlink is removed without touching the source tree it points to.
+    fs.insert_tree(
+        "/source/dev-extension",
+        json!({
+            "extension.toml": "id = \"dev-extension\"\nversion = \"1.0.0\"\n",
+        }),
+    )
+    .await;
+    let dev_extension_directory = Path::new("/extensions/installed/dev-extension");
+    fs.create_symlink(dev_extension_directory, PathBuf::from("/source/dev-extension"))
+        .await
+        .unwrap();
+    remove_extension_dir(fs.as_ref(), dev_extension_directory, staging_directory)
+        .await
+        .unwrap();
+    assert!(fs.metadata(dev_extension_directory).await.unwrap().is_none());
+    assert!(fs.is_file(Path::new("/source/dev-extension/extension.toml")).await);
+}
+

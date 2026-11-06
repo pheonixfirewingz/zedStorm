@@ -68,3 +68,10 @@ test("keeps edits made during saving and blocks closing while saving", () => {
   assert.equal(editor.messages.at(-1).modified, true);
   assert.equal(editor.calls.findLast((call) => call.event === "saved").modified, true);
 });
+
+test("fails save when requesting save before initialization", () => {
+  const editor = session();
+  editor.native({ action: "requestSave" });
+  assert.equal(editor.calls.at(-1).event, "saveFailed");
+  assert.equal(editor.calls.at(-1).message, "The diagram editor has not loaded yet");
+});

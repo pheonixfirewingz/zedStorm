@@ -31,8 +31,8 @@ use futures::{
     select_biased,
 };
 use gpui::{
-    App, AppContext as _, AsyncApp, Context, Entity, EntityId, EventEmitter, Global, Subscription,
-    Task, TaskExt, UpdateGlobal as _, WeakEntity, actions,
+    App, AppContext as _, AsyncApp, BackgroundExecutor, Context, Entity, EntityId, EventEmitter,
+    Global, Subscription, Task, TaskExt, UpdateGlobal as _, WeakEntity, actions,
 };
 use http_client::{AsyncBody, HttpClient, HttpClientWithUrl};
 use language::{
@@ -154,6 +154,19 @@ pub fn is_version_compatible(
     true
 }
 
+/// Returns whether `extension` provides at least one of `requested_provides`.
+///
+/// The `provides` query parameter is a comma-joined list, so it must be compared
+/// entry by entry: a substring test would treat "icon-themes" as a request for "themes".
+fn provides_any(extension: &ExtensionMetadata, requested_provides: &[&str]) -> bool {
+    extension.manifest.provides.iter().any(|provides| {
+        let provides = provides.to_string();
+        requested_provides
+            .iter()
+            .any(|requested| *requested == provides)
+    })
+}
+
 pub fn release_extension_download_url(extension_id: &str) -> Result<Url> {
     let archive = if cfg!(target_os = "windows") {
         format!("{extension_id}-windows-x86_64.zip")
@@ -166,6 +179,132 @@ pub fn release_extension_download_url(extension_id: &str) -> Result<Url> {
         "https://github.com/pheonixfirewingz/zedStorm/releases/download/latest-extensions-build/{archive}"
     ))
     .map_err(Into::into)
+}
+
+const REMOTE_CATALOG_URL: &str =
+    "https://raw.githubusercontent.com/pheonixfirewingz/zedStorm/custom/extensions/extensions.json";
+const REMOTE_CATALOG_TTL: Duration = Duration::from_secs(15 * 60);
+const REMOTE_CATALOG_FAILURE_TTL: Duration = Duration::from_secs(60);
+const REMOTE_CATALOG_TIMEOUT: Duration = Duration::from_secs(10);
+const REMOTE_CATALOG_MAX_BYTES: u64 = 4 * 1024 * 1024;
+
+struct CachedCatalog {
+    fetched_at: Instant,
+    time_to_live: Duration,
+    catalog: Arc<Vec<ExtensionMetadata>>,
+}
+
+// An async mutex, held across the fetch, so concurrent callers wait for one request instead of
+// each issuing their own.
+static REMOTE_CATALOG: LazyLock<futures::lock::Mutex<Option<CachedCatalog>>> =
+    LazyLock::new(|| futures::lock::Mutex::new(None));
+
+/// Fetches the repository catalog of ZedStorm extensions.
+///
+/// Every extension search and update check consults this catalog, so the result is cached to
+/// avoid a network round trip per query. A failed fetch yields an empty catalog that is cached
+/// only briefly so the next query retries soon.
+async fn remote_custom_catalog(
+    http_client: &HttpClientWithUrl,
+    executor: BackgroundExecutor,
+) -> Arc<Vec<ExtensionMetadata>> {
+    let mut cache = REMOTE_CATALOG.lock().await;
+    if let Some(cached) = cache.as_ref()
+        && cached.fetched_at.elapsed() < cached.time_to_live
+    {
+        return cached.catalog.clone();
+    }
+
+    let fetch = async {
+        let mut response = http_client
+            .get(REMOTE_CATALOG_URL, AsyncBody::empty(), true)
+            .await?;
+        if !response.status().is_success() {
+            bail!("HTTP {}", response.status());
+        }
+        let mut body = Vec::new();
+        response
+            .body_mut()
+            .take(REMOTE_CATALOG_MAX_BYTES)
+            .read_to_end(&mut body)
+            .await?;
+        Ok(serde_json::from_slice::<GetExtensionsResponse>(&body)?.data)
+    };
+
+    let timer = executor.timer(REMOTE_CATALOG_TIMEOUT).fuse();
+    let fetch = fetch.fuse();
+    futures::pin_mut!(timer, fetch);
+
+    let result: Result<Vec<ExtensionMetadata>> = select_biased! {
+        result = fetch => result,
+        _ = timer => Err(anyhow!("timed out fetching the ZedStorm extension catalog after {REMOTE_CATALOG_TIMEOUT:?}")),
+    };
+    let (catalog, time_to_live) = match result {
+        Ok(catalog) => (catalog, REMOTE_CATALOG_TTL),
+        Err(error) => {
+            log::warn!("failed to fetch the ZedStorm extension catalog: {error:#}");
+            (Vec::new(), REMOTE_CATALOG_FAILURE_TTL)
+        }
+    };
+    let catalog = Arc::new(catalog);
+    *cache = Some(CachedCatalog {
+        fetched_at: Instant::now(),
+        time_to_live,
+        catalog: catalog.clone(),
+    });
+    catalog
+}
+
+/// Returns whether `candidate` is a strictly newer version than `installed`. Versions that do
+/// not parse are never considered newer.
+fn is_newer_version(candidate: &str, installed: &str) -> bool {
+    match (Version::from_str(candidate), Version::from_str(installed)) {
+        (Ok(candidate), Ok(installed)) => candidate > installed,
+        _ => false,
+    }
+}
+
+/// Returns whether a reinstall must be skipped because it would not upgrade the installed copy.
+///
+/// ZedStorm downloads its own extensions from a rolling `latest-extensions-build` release and
+/// falls back to that release whenever the versioned download fails. Either download can hand
+/// back a build that is the same as, or older than, the installed one, so the unpacked manifest
+/// version decides whether the installed directory may be replaced.
+fn should_skip_reinstall(
+    operation: ExtensionOperation,
+    is_custom: bool,
+    downloaded_from_fallback: bool,
+    downloaded_version: Option<&str>,
+    installed_version: &str,
+) -> bool {
+    let may_downgrade =
+        (matches!(operation, ExtensionOperation::Upgrade) && is_custom) || downloaded_from_fallback;
+    if !may_downgrade {
+        return false;
+    }
+
+    match downloaded_version {
+        Some(downloaded_version) => !is_newer_version(downloaded_version, installed_version),
+        // Without a readable manifest version the download cannot be judged, so keep the current
+        // behaviour of installing it rather than leaving the extension untouched forever.
+        None => false,
+    }
+}
+
+/// Adds `entry` to `extensions`, replacing an existing entry with the same id only when the
+/// existing one is not newer, so a stale catalog cannot downgrade a newer bundled entry.
+fn merge_newest_extension(extensions: &mut Vec<ExtensionMetadata>, entry: ExtensionMetadata) {
+    match extensions
+        .iter_mut()
+        .find(|existing| existing.id == entry.id)
+    {
+        Some(existing) => {
+            if !is_newer_version(&existing.manifest.version, &entry.manifest.version) {
+                *existing = entry;
+            }
+        }
+        None => extensions.push(entry),
+    }
 }
 
 pub static BUNDLED_EXTENSIONS: LazyLock<Vec<ExtensionMetadata>> = LazyLock::new(|| {
@@ -198,6 +337,218 @@ pub fn is_custom_manifest(manifest: &ExtensionManifest) -> bool {
             .iter()
             .any(|a| a.to_lowercase().contains("zedstorm"))
         || is_custom_extension(manifest.id.as_ref())
+}
+
+static TRASH_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn unique_trash_name(prefix: &str) -> String {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let counter = TRASH_COUNTER.fetch_add(1, AtomicOrdering::Relaxed);
+    format!("{prefix}-{timestamp}-{counter}")
+}
+
+pub(crate) async fn remove_extension_dir(
+    fs: &dyn Fs,
+    directory: &Path,
+    staging_directory: &Path,
+) -> Result<()> {
+    let metadata_result = fs.metadata(directory).await;
+    match metadata_result {
+        // Dev extensions are installed as symlinks to their source tree. Only the link may be
+        // removed; walking through it would move the developer's source files into the trash.
+        Ok(Some(metadata)) if metadata.is_symlink => {
+            fs.remove_file(
+                directory,
+                RemoveOptions {
+                    recursive: false,
+                    ignore_if_not_exists: true,
+                },
+            )
+            .await?;
+            return Ok(());
+        }
+        Ok(Some(metadata)) if metadata.is_dir => {}
+        Ok(Some(_)) => {
+            fs.remove_file(
+                directory,
+                RemoveOptions {
+                    recursive: false,
+                    ignore_if_not_exists: true,
+                },
+            )
+            .await?;
+            return Ok(());
+        }
+        Ok(None) | Err(_) => return Ok(()),
+    }
+
+    match fs.create_dir(staging_directory).await {
+        Ok(()) => {}
+        Err(error) => {
+            log::debug!(
+                "staging directory {staging_directory:?} could not be created (it may already exist): {error:#}"
+            );
+        }
+    }
+
+    let trash_directory = staging_directory.join(unique_trash_name("trash"));
+    let rename_result = fs
+        .rename(
+            directory,
+            &trash_directory,
+            RenameOptions {
+                overwrite: true,
+                ignore_if_exists: true,
+                create_parents: true,
+            },
+        )
+        .await;
+
+    if rename_result.is_ok() {
+        if let Err(error) = fs
+            .remove_dir(
+                &trash_directory,
+                RemoveOptions {
+                    recursive: true,
+                    ignore_if_not_exists: true,
+                },
+            )
+            .await
+        {
+            log::warn!("failed to remove trash directory {trash_directory:?}: {error:#}");
+        }
+        return Ok(());
+    }
+
+    fs.create_dir(&trash_directory).await?;
+
+    let mut subdirectories = Vec::new();
+    let mut regular_files = Vec::new();
+    let mut pending_directories = vec![directory.to_path_buf()];
+
+    while let Some(current_directory) = pending_directories.pop() {
+        let mut entries = match fs.read_dir(&current_directory).await {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+
+        while let Some(entry_result) = entries.next().await {
+            let entry_path = entry_result?;
+            let Some(entry_metadata) = fs.metadata(&entry_path).await? else {
+                continue;
+            };
+            // Symlinks are moved as links so their targets outside the extension stay untouched.
+            if entry_metadata.is_dir && !entry_metadata.is_symlink {
+                subdirectories.push(entry_path.clone());
+                pending_directories.push(entry_path);
+            } else {
+                regular_files.push(entry_path);
+            }
+        }
+    }
+
+    for (file_index, file_path) in regular_files.into_iter().enumerate() {
+        let file_name = file_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("file");
+        let flat_file_name = format!("{file_index}-{file_name}");
+        let destination_path = trash_directory.join(flat_file_name);
+        fs.rename(
+            &file_path,
+            &destination_path,
+            RenameOptions {
+                overwrite: true,
+                ignore_if_exists: true,
+                create_parents: false,
+            },
+        )
+        .await?;
+    }
+
+    subdirectories.sort_by_key(|subdirectory| std::cmp::Reverse(subdirectory.as_os_str().len()));
+    for subdirectory in subdirectories {
+        match fs
+            .remove_dir(
+                &subdirectory,
+                RemoveOptions {
+                    recursive: false,
+                    ignore_if_not_exists: true,
+                },
+            )
+            .await
+        {
+            Ok(()) => {}
+            Err(error) => {
+                log::debug!("could not remove emptied subdirectory {subdirectory:?}: {error:#}");
+            }
+        }
+    }
+
+    fs.remove_dir(
+        directory,
+        RemoveOptions {
+            recursive: true,
+            ignore_if_not_exists: true,
+        },
+    )
+    .await?;
+
+    if let Err(error) = fs
+        .remove_dir(
+            &trash_directory,
+            RemoveOptions {
+                recursive: true,
+                ignore_if_not_exists: true,
+            },
+        )
+        .await
+    {
+        log::warn!("failed to remove trash directory {trash_directory:?}: {error:#}");
+    }
+
+    Ok(())
+}
+
+pub(crate) async fn clean_leftover_trash_dirs(fs: &dyn Fs, staging_directory: &Path) {
+    let mut entries = match fs.read_dir(staging_directory).await {
+        Ok(entries) => entries,
+        Err(_) => return,
+    };
+
+    while let Some(entry_result) = entries.next().await {
+        let Ok(entry_path) = entry_result else {
+            continue;
+        };
+        let is_trash = entry_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("trash-"));
+
+        if is_trash {
+            if let Ok(Some(metadata)) = fs.metadata(&entry_path).await {
+                if metadata.is_dir {
+                    if let Err(error) = fs
+                        .remove_dir(
+                            &entry_path,
+                            RemoveOptions {
+                                recursive: true,
+                                ignore_if_not_exists: true,
+                            },
+                        )
+                        .await
+                    {
+                        log::warn!(
+                            "failed to remove leftover trash directory {entry_path:?}: {error:#}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 }
 
 pub struct ExtensionStore {
@@ -513,6 +864,14 @@ impl ExtensionStore {
         })
         .detach();
 
+        let cleanup_fs = this.fs.clone();
+        let cleanup_staging_directory = this.staging_dir.clone();
+        cx.background_executor()
+            .spawn(async move {
+                clean_leftover_trash_dirs(cleanup_fs.as_ref(), &cleanup_staging_directory).await;
+            })
+            .detach();
+
         // Perform all extension loading in a single task to ensure that we
         // never attempt to simultaneously load/unload extensions from multiple
         // parallel tasks.
@@ -766,8 +1125,11 @@ impl ExtensionStore {
                         this.extension_index
                             .extensions
                             .get(&extension.id)
-                            .is_none_or(|installed_extension| {
-                                installed_extension.manifest.version != extension.manifest.version
+                            .is_some_and(|installed_extension| {
+                                is_newer_version(
+                                    &extension.manifest.version,
+                                    &installed_extension.manifest.version,
+                                )
                             })
                     })
                     .collect()
@@ -833,52 +1195,15 @@ impl ExtensionStore {
     ) -> Task<Result<Vec<ExtensionMetadata>>> {
         let url = self.http_client.build_zed_api_url(path, query);
         let http_client = self.http_client.clone();
+        let release_channel = ReleaseChannel::global(cx);
         let path = path.to_string();
         let query_owned: Vec<(String, String)> =
             query.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-        cx.spawn(async move |_, _| {
-            // Start with bundled custom extensions as base catalog
-            let mut custom_extensions = BUNDLED_EXTENSIONS.clone();
-
-            // Dynamically merge extensions from the repository catalog if available
-            if let Ok(catalog_url) = Url::parse(
-                "https://raw.githubusercontent.com/pheonixfirewingz/zedStorm/custom/extensions/extensions.json",
-            ) {
-                if let Ok(mut cat_resp) =
-                    http_client.get(catalog_url.as_ref(), AsyncBody::empty(), true).await
-                {
-                    if cat_resp.status().is_success() {
-                        let mut cat_body = Vec::new();
-                        if cat_resp.body_mut().read_to_end(&mut cat_body).await.is_ok() {
-                            if let Ok(catalog_data) =
-                                serde_json::from_slice::<GetExtensionsResponse>(&cat_body)
-                            {
-                                for ext in catalog_data.data {
-                                    if let Some(pos) =
-                                        custom_extensions.iter().position(|e| e.id == ext.id)
-                                    {
-                                        custom_extensions[pos] = ext;
-                                    } else {
-                                        custom_extensions.push(ext);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if path.starts_with("/extensions/")
+        cx.spawn(async move |_, cx| {
+            let is_single_lookup = path.starts_with("/extensions/")
                 && path != "/extensions"
-                && path != "/extensions/updates"
-            {
-                let extension_id = path.trim_start_matches("/extensions/");
-                if let Some(ext) = custom_extensions.iter().find(|e| e.id.as_ref() == extension_id) {
-                    return Ok(vec![ext.clone()]);
-                }
-            }
-
-            let api_result: Result<Vec<ExtensionMetadata>> = async {
+                && path != "/extensions/updates";
+            let api_request = async {
                 let mut response = http_client
                     .get(url?.as_ref(), AsyncBody::empty(), true)
                     .await?;
@@ -904,9 +1229,34 @@ impl ExtensionStore {
                     .data
                     .retain(|extension| !SUPPRESSED_EXTENSIONS.contains(extension.id.as_ref()));
 
-                Ok(response.data)
-            }
-            .await;
+                anyhow::Ok(response.data)
+            };
+
+            let mut custom_extensions = BUNDLED_EXTENSIONS.clone();
+            let api_result = if is_single_lookup {
+                let catalog =
+                    remote_custom_catalog(&http_client, cx.background_executor().clone()).await;
+                for catalog_entry in catalog.iter() {
+                    merge_newest_extension(&mut custom_extensions, catalog_entry.clone());
+                }
+                let extension_id = path.trim_start_matches("/extensions/");
+                if let Some(extension) = custom_extensions
+                    .iter()
+                    .find(|extension| extension.id.as_ref() == extension_id)
+                {
+                    return Ok(vec![extension.clone()]);
+                }
+                api_request.await
+            } else {
+                let (catalog, api_result) = futures::join!(
+                    remote_custom_catalog(&http_client, cx.background_executor().clone()),
+                    api_request
+                );
+                for catalog_entry in catalog.iter() {
+                    merge_newest_extension(&mut custom_extensions, catalog_entry.clone());
+                }
+                api_result
+            };
 
             let filter_query = query_owned
                 .iter()
@@ -915,9 +1265,30 @@ impl ExtensionStore {
             let provides_query = query_owned
                 .iter()
                 .find(|(k, _)| k == "provides")
-                .map(|(_, v)| v.as_str());
+                .map(|(_, v)| v.split(',').map(str::trim).collect::<Vec<_>>());
+
+            // The updates endpoint is only asked about installed extensions, so catalog
+            // entries that were not requested must not be returned; otherwise they would
+            // be installed by the startup update check.
+            let requested_ids = (path == "/extensions/updates").then(|| {
+                query_owned
+                    .iter()
+                    .find(|(k, _)| k == "ids")
+                    .map(|(_, v)| v.split(',').map(str::to_string).collect::<Vec<_>>())
+                    .unwrap_or_default()
+            });
 
             custom_extensions.retain(|ext| {
+                // Zed API results are filtered server-side by schema and wasm API version, but
+                // bundled and catalog entries are not.
+                if !is_version_compatible(release_channel, ext) {
+                    return false;
+                }
+                if let Some(requested_ids) = &requested_ids
+                    && !requested_ids.iter().any(|id| id.as_str() == ext.id.as_ref())
+                {
+                    return false;
+                }
                 if let Some(filter) = filter_query {
                     let filter_lower = filter.to_lowercase();
                     let matches_id = ext.id.to_lowercase().contains(&filter_lower);
@@ -936,28 +1307,23 @@ impl ExtensionStore {
                         return false;
                     }
                 }
-                if let Some(provides) = provides_query {
-                    if !ext
-                        .manifest
-                        .provides
-                        .iter()
-                        .any(|p| provides.contains(&p.to_string()))
-                    {
-                        return false;
-                    }
+                if let Some(requested_provides) = &provides_query
+                    && !provides_any(ext, requested_provides)
+                {
+                    return false;
                 }
                 true
             });
 
             match api_result {
                 Ok(mut remote_data) => {
-                    for ext in custom_extensions {
-                        if let Some(idx) =
-                            remote_data.iter().position(|existing| existing.id == ext.id)
+                    for custom_extension in custom_extensions {
+                        match remote_data
+                            .iter_mut()
+                            .find(|existing| existing.id == custom_extension.id)
                         {
-                            remote_data[idx] = ext;
-                        } else {
-                            remote_data.push(ext);
+                            Some(existing) => *existing = custom_extension,
+                            None => remote_data.push(custom_extension),
                         }
                     }
                     Ok(remote_data)
@@ -989,6 +1355,10 @@ impl ExtensionStore {
         let staging_dir = self.staging_dir.clone();
         let http_client = self.http_client.clone();
         let fs = self.fs.clone();
+        let is_custom = is_custom_extension(extension_id.as_ref());
+        let installed_version = self
+            .extension_manifest_for_id(&extension_id)
+            .map(|manifest| manifest.version.clone());
 
         match self.outstanding_operations.entry(extension_id.clone()) {
             btree_map::Entry::Occupied(_) => return Task::ready(Ok(())),
@@ -1006,13 +1376,13 @@ impl ExtensionStore {
             });
 
             let download_extension_id = extension_id.clone();
-            cx.background_spawn(async move {
+            let replaced = cx.background_spawn(async move {
                 let initial_resp = http_client
                     .get(url.as_ref(), Default::default(), true)
                     .await;
 
-                let (mut response, final_url) = match initial_resp {
-                    Ok(resp) if resp.status().is_success() => (resp, url),
+                let (mut response, final_url, downloaded_from_fallback) = match initial_resp {
+                    Ok(resp) if resp.status().is_success() => (resp, url, false),
                     failed_resp => {
                         if let Ok(gh_url) = release_extension_download_url(&download_extension_id) {
                             if gh_url != url {
@@ -1023,7 +1393,7 @@ impl ExtensionStore {
                                     .get(gh_url.as_ref(), Default::default(), true)
                                     .await;
                                 if let Ok(resp) = gh_resp && resp.status().is_success() {
-                                    (resp, gh_url)
+                                    (resp, gh_url, true)
                                 } else {
                                     let resp = failed_resp.context("downloading extension")?;
                                     bail!(
@@ -1083,15 +1453,7 @@ impl ExtensionStore {
                     }
                 };
 
-                let remove_dir = || {
-                    fs.remove_dir(
-                        &extension_dir,
-                        RemoveOptions {
-                            recursive: true,
-                            ignore_if_not_exists: true,
-                        },
-                    )
-                };
+                let remove_dir = || remove_extension_dir(fs.as_ref(), &extension_dir, &staging_dir);
 
                 let temp_dir = fs
                     .create_dir(&staging_dir)
@@ -1100,7 +1462,38 @@ impl ExtensionStore {
 
                 match temp_dir {
                     Ok(temp_dir) => {
-                        unpack(temp_dir.path().to_path_buf()).await?;
+                        let unpacked_dir = temp_dir.path().to_path_buf();
+                        unpack(unpacked_dir.clone()).await?;
+
+                        let downloaded_manifest_version =
+                            match ExtensionManifest::load(fs.clone(), &unpacked_dir).await {
+                                Ok(manifest) => Some(manifest.version),
+                                Err(error) => {
+                                    log::warn!(
+                                        "could not read the downloaded manifest for extension \
+                                         {download_extension_id}: {error:#}"
+                                    );
+                                    None
+                                }
+                            };
+
+                        if let Some(installed_version) = installed_version.as_deref()
+                            && should_skip_reinstall(
+                                operation,
+                                is_custom,
+                                downloaded_from_fallback,
+                                downloaded_manifest_version.as_deref(),
+                                installed_version,
+                            )
+                        {
+                            log::warn!(
+                                "downloaded extension {download_extension_id} version {downloaded_manifest_version:?} \
+                                 is not newer than the installed version {installed_version}; \
+                                 keeping the installed version"
+                            );
+                            return Ok(false);
+                        }
+
                         remove_dir().await?;
                         fs.rename(
                             temp_dir.path(),
@@ -1111,15 +1504,21 @@ impl ExtensionStore {
                                 create_parents: true,
                             },
                         )
-                        .await
+                        .await?;
+                        Ok(true)
                     }
                     Err(_) => {
                         remove_dir().await?;
-                        unpack(extension_dir).await
+                        unpack(extension_dir).await?;
+                        Ok(true)
                     }
                 }
             })
             .await?;
+
+            if !replaced {
+                return anyhow::Ok(());
+            }
 
             this.update(cx, |this, cx| this.reload(Some(extension_id.clone()), cx))?
                 .await;
@@ -1225,6 +1624,7 @@ impl ExtensionStore {
         cx: &mut Context<Self>,
     ) -> Task<Result<()>> {
         let extension_dir = self.installed_dir.join(extension_id.as_ref());
+        let staging_dir = self.staging_dir.clone();
         let work_dir = self.wasm_host.work_dir.join(extension_id.as_ref());
         let fs = self.fs.clone();
 
@@ -1244,15 +1644,9 @@ impl ExtensionStore {
                 }
             });
 
-            fs.remove_dir(
-                &extension_dir,
-                RemoveOptions {
-                    recursive: true,
-                    ignore_if_not_exists: true,
-                },
-            )
-            .await
-            .with_context(|| format!("Removing extension dir {extension_dir:?}"))?;
+            remove_extension_dir(fs.as_ref(), &extension_dir, &staging_dir)
+                .await
+                .with_context(|| format!("Removing extension dir {extension_dir:?}"))?;
 
             extension_store
                 .update(cx, |extension_store, cx| extension_store.reload(None, cx))?
@@ -2646,5 +3040,95 @@ mod custom_extension_tests {
         assert!(download_url.as_str().starts_with(
             "https://github.com/pheonixfirewingz/zedStorm/releases/download/latest-extensions-build/"
         ));
+    }
+}
+
+#[cfg(test)]
+mod download_guard_tests {
+    use super::*;
+
+    #[test]
+    fn test_should_skip_reinstall() {
+        // A custom extension upgrade must not replace the installed copy with the same or an
+        // older build from the rolling release.
+        assert!(should_skip_reinstall(
+            ExtensionOperation::Upgrade,
+            true,
+            false,
+            Some("0.1.0"),
+            "0.1.0"
+        ));
+        assert!(should_skip_reinstall(
+            ExtensionOperation::Upgrade,
+            true,
+            false,
+            Some("0.0.9"),
+            "0.1.0"
+        ));
+        assert!(!should_skip_reinstall(
+            ExtensionOperation::Upgrade,
+            true,
+            false,
+            Some("0.1.1"),
+            "0.1.0"
+        ));
+
+        // A GitHub fallback download is guarded even when the operation is a plain install.
+        assert!(should_skip_reinstall(
+            ExtensionOperation::Install,
+            false,
+            true,
+            Some("1.2.0"),
+            "1.2.0"
+        ));
+        assert!(!should_skip_reinstall(
+            ExtensionOperation::Install,
+            false,
+            true,
+            Some("1.3.0"),
+            "1.2.0"
+        ));
+
+        // A versioned API download for a non-custom extension is trusted.
+        assert!(!should_skip_reinstall(
+            ExtensionOperation::Upgrade,
+            false,
+            false,
+            Some("1.0.0"),
+            "2.0.0"
+        ));
+
+        // An unreadable downloaded manifest keeps the previous behaviour.
+        assert!(!should_skip_reinstall(
+            ExtensionOperation::Upgrade,
+            true,
+            false,
+            None,
+            "0.1.0"
+        ));
+    }
+
+    #[test]
+    fn test_provides_any_matches_exact_entries() {
+        let extension: ExtensionMetadata = serde_json::from_str(
+            r#"{
+                "id": "demo",
+                "name": "Demo",
+                "version": "1.0.0",
+                "authors": [],
+                "repository": "https://example.com/demo",
+                "schema_version": 1,
+                "provides": ["themes"],
+                "published_at": "2024-01-01T00:00:00Z",
+                "download_count": 0
+            }"#,
+        )
+        .expect("valid extension metadata");
+
+        assert!(provides_any(&extension, &["themes"]));
+        assert!(provides_any(&extension, &["languages", "themes"]));
+        assert!(!provides_any(&extension, &["icon-themes"]));
+        assert!(!provides_any(&extension, &["theme"]));
+        assert!(!provides_any(&extension, &[]));
     }
 }

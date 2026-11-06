@@ -1,109 +1,253 @@
-; HTML tags and structure
+; Generic identifiers first: later patterns take precedence in Zed.
+(identifier) @variable
+
+; HTML structure
+
 (tag_name) @tag
-(erroneous_end_tag_name) @keyword
-(doctype) @constant
-(entity) @constant
-(comment) @comment
-(attribute_name) @attribute
-(attribute_value) @string
-(quoted_attribute_value) @string
 
-; Angular custom components (kebab-case tags like <app-header>)
+; Custom elements and components (<app-header>, <mat-card>) read as types, as in WebStorm.
 ((tag_name) @type
-  (#match? @type "^[a-z0-9]+(-[a-z0-9]+)+$"))
+  (#match? @type "^[a-z][a-z0-9]*(-[a-z0-9]+)+$"))
 
-; Angular structural directives (*ngIf, *ngFor, *ngSwitchCase, etc.)
-(structural_directive
-  (identifier) @property.special)
+; Angular's own structural elements.
+((tag_name) @tag.builtin
+  (#match? @tag.builtin "^(ng-container|ng-template|ng-content|router-outlet)$"))
 
-((attribute_name) @property.special
-  (#match? @property.special "^\\*"))
+(erroneous_end_tag_name) @tag
 
-; Angular property bindings: [property]="value"
-(property_binding
-  "[" @punctuation.bracket
-  (binding_name) @property
-  "]" @punctuation.bracket)
+(doctype) @tag.doctype
 
-; Angular event bindings: (click)="handleClick()"
-(event_binding
-  "(" @punctuation.bracket
-  (binding_name) @function.method
-  ")" @punctuation.bracket)
+(attribute_name) @attribute
 
-; Angular two-way banana-in-a-box bindings: [(ngModel)]="value"
-(two_way_binding
-  "[(" @punctuation.bracket
-  (binding_name) @property.special
-  ")]" @punctuation.bracket)
+[
+  (attribute_value)
+  (quoted_attribute_value)
+] @string
 
-; Template reference variables: #myRef or #myRef="exportAs"
-(template_reference
-  "#" @punctuation.special
-  (identifier) @variable)
+(comment) @comment
 
-; Pipe handling: value | pipeName:arg1:arg2
-(pipe_sequence
-  (pipe_operator) @operator
-  (pipe_call name: (identifier) @function))
+(entity) @string.special
 
-; Angular interpolation: {{ expression }}
-(interpolation
-  "{{" @punctuation.special
-  "}}" @punctuation.special)
+(text) @text
 
-; Angular 17+ Modern Control Flow blocks
-(control_keyword) @keyword.control
-(special_keyword) @keyword.special
-(let_statement (control_keyword) @keyword.control)
-
-; @if, @else if, @else
-((control_keyword) @keyword.control
-  (#match? @keyword.control "^@(if|else(\\s+if)?)$"))
-
-; @for, @empty
-((control_keyword) @keyword.control
-  (#match? @keyword.control "^@(for|empty)$"))
-
-; @switch, @case, @default
-((control_keyword) @keyword.control
-  (#match? @keyword.control "^@(switch|case|default)$"))
-
-; @defer, @placeholder, @loading, @error
-((control_keyword) @keyword.control
-  (#match? @keyword.control "^@(defer|placeholder|loading|error)$"))
-
-; @let statement
-((control_keyword) @keyword.control
-  (#match? @keyword.control "^@let$"))
-
-; Expressions inside interpolations and bindings
-(call_expression
-  function: (identifier) @function)
-
-(call_expression
-  arguments: (arguments) @parameter)
-
-(member_expression
-  property: (identifier) @property)
-
-(expression
-  (identifier) @variable)
-
-; Punctuation and brackets
 [
   "<"
   ">"
-  "<!""
+  "<!"
   "</"
   "/>"
 ] @punctuation.bracket
 
-"=" @operator
-"@" @keyword.special
-"*" @property.special
-"|" @operator
+"=" @punctuation.delimiter
 
-; Script & Style embedded blocks
-(script_element (raw_text) @embedded)
-(style_element (raw_text) @embedded)
+; Expressions
+
+(call_expression
+  function: (identifier) @function)
+
+(member_expression
+  property: (identifier) @property)
+
+(member_expression
+  call: (call_expression
+    function: (identifier) @function.method))
+
+(pair
+  key: (identifier) @property)
+
+(pipe_sequence
+  (pipe_operator) @operator)
+
+(pipe_call
+  name: (identifier) @function.special)
+
+(string) @string
+
+(template_string) @string
+
+(template_chars) @string
+
+(regular_expression) @string.regex
+
+(number) @number
+
+[
+  (unit)
+  (style_unit)
+] @type
+
+[
+  (unary_operator)
+  (ternary_operator)
+  (conditional_operator)
+  (coalescing_operator)
+] @operator
+
+(binary_expression
+  operator: _ @operator)
+
+(template_substitution
+  [
+    "${"
+    "}"
+  ] @punctuation.special)
+
+[
+  ","
+  ";"
+  ":"
+  "."
+  "?."
+] @punctuation.delimiter
+
+; Bindings: [property], (event), [(twoWay)], [@animation], *structural
+
+(property_binding
+  [
+    "["
+    "]"
+  ] @punctuation.bracket)
+
+(property_binding
+  (binding_name
+    (identifier) @property))
+
+(property_binding
+  (binding_name
+    (member_expression
+      property: (identifier) @property)))
+
+(class_binding
+  (identifier) @keyword)
+
+(class_binding
+  (class_name) @property)
+
+(event_binding
+  [
+    "("
+    ")"
+  ] @punctuation.bracket)
+
+(event_binding
+  (binding_name
+    (identifier) @function))
+
+(event_binding
+  (binding_name
+    (member_expression
+      property: (identifier) @function)))
+
+(two_way_binding
+  [
+    "[("
+    ")]"
+  ] @punctuation.bracket)
+
+(two_way_binding
+  (binding_name
+    (identifier) @property))
+
+(animation_binding
+  [
+    "[@"
+    "]"
+  ] @punctuation.bracket)
+
+(animation_binding
+  (binding_name
+    (identifier) @function.special))
+
+(structural_directive
+  "*" @keyword.directive
+  (identifier) @keyword.directive)
+
+; Interpolation {{ ... }}
+
+(interpolation
+  [
+    "{{"
+    "}}"
+  ] @punctuation.special)
+
+; Control flow: @if, @else, @for, @empty, @switch, @case, @default, @defer, @placeholder,
+; @loading, @error, @let
+
+(control_keyword) @keyword.control
+
+(if_statement
+  "@" @keyword.control)
+
+(else_if_statement
+  "@" @keyword.control)
+
+(else_statement
+  "@" @keyword.control)
+
+(for_statement
+  "@" @keyword.control)
+
+(empty_statement
+  "@" @keyword.control)
+
+(switch_statement
+  "@" @keyword.control)
+
+(case_statement
+  "@" @keyword.control)
+
+(default_statement
+  "@" @keyword.control)
+
+(defer_statement
+  "@" @keyword.control)
+
+(placeholder_statement
+  "@" @keyword.control)
+
+(loading_statement
+  "@" @keyword.control)
+
+(error_statement
+  "@" @keyword.control)
+
+(let_statement
+  "@" @keyword.control)
+
+; `of`, `track`, `as`, `on`, `when`, `after`, `minimum`, `let` inside control flow and directives.
+(special_keyword) @keyword
+
+(prefetch_keyword) @keyword
+
+(icu_clause) @keyword
+
+(icu_category) @constant
+
+(for_declaration
+  name: (identifier) @variable)
+
+(if_reference
+  (identifier) @variable)
+
+(let_statement
+  (assignment_expression
+    name: (identifier) @variable))
+
+(statement_block
+  [
+    "{"
+    "}"
+  ] @punctuation.bracket)
+
+(switch_body
+  [
+    "{"
+    "}"
+  ] @punctuation.bracket)
+
+; Embedded script and style
+(script_element
+  (raw_text) @embedded)
+
+(style_element
+  (raw_text) @embedded)

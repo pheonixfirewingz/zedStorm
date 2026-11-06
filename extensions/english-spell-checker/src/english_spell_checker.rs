@@ -31,19 +31,7 @@ impl zed::Extension for EnglishSpellCheckerExtension {
             BINARY_NAME.to_string()
         };
 
-        // 1. Check local extension bin/ directory
-        if let Ok(current_dir) = env::current_dir() {
-            let local_bin = current_dir.join("bin").join(&binary_file_name);
-            if local_bin.is_file() {
-                return Ok(Command {
-                    command: local_bin.to_string_lossy().to_string(),
-                    args: Vec::new(),
-                    env: worktree.shell_env(),
-                });
-            }
-        }
-
-        // 2. Check managed tools directory (zedstorm-tools)
+        // The installed extension directory holds the companion binary shipped in the release.
         let env_vars: Vec<(String, String)> = env::vars().collect();
         if let Ok(tools_dir) = tools_path::extension_directory(os, &env_vars) {
             let companion = tools_dir.join("bin").join(&binary_file_name);
@@ -56,7 +44,6 @@ impl zed::Extension for EnglishSpellCheckerExtension {
             }
         }
 
-        // 3. Check system PATH
         if let Some(path) = worktree.which(BINARY_NAME) {
             return Ok(Command {
                 command: path,
@@ -65,7 +52,7 @@ impl zed::Extension for EnglishSpellCheckerExtension {
             });
         }
 
-        // Fallback: relative bin path in the extension directory
+        // The host resolves relative commands against the installed extension directory.
         Ok(Command {
             command: format!("bin/{binary_file_name}"),
             args: Vec::new(),

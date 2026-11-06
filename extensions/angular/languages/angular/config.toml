@@ -1,8 +1,12 @@
 name = "Angular"
 grammar = "angular"
 path_suffixes = ["component.html", "ng.html"]
-block_comment = ["<!-- ", " -->"]
+block_comment = { start = "<!--", prefix = "", end = "-->", tab_size = 0 }
+wrap_characters = { start_prefix = "<", start_suffix = ">", end_prefix = "</", end_suffix = ">" }
 autoclose_before = ";:.,=}])>\"'"
+# `@` and `*` let control-flow and structural-directive snippets (`@if`, `*ngFor`) match as typed.
+completion_query_characters = ["-", "@", "*"]
+word_characters = ["-"]
 prettier_parser_name = "angular"
 
 scope_opt_in_language_servers = ["tailwindcss-language-server"]
@@ -17,11 +21,21 @@ brackets = [
     ] },
     { start = "\"", end = "\"", close = true, newline = false, not_in = [
         "string",
+        "comment",
     ] },
     { start = "'", end = "'", close = true, newline = false, not_in = [
         "string",
+        "comment",
     ] },
     { start = "`", end = "`", close = true, newline = false, not_in = [
         "string",
+        "comment",
+    ] },
+    { start = "!--", end = " --", close = true, newline = false, not_in = [
+        "string",
+        "comment",
     ] },
 ]
+
+[overrides.default]
+linked_edit_characters = ["-"]

@@ -1,5 +1,5 @@
 use std::ops::Range;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
@@ -188,32 +188,7 @@ impl DynLspInstaller for ExtensionLspAdapter {
                     )
                     .await?;
 
-                // on windows, extensions might produce weird paths
-                // that start with a leading slash due to WASI
-                // requiring that for PWD and friends so account for
-                // that here and try to transform those paths back
-                // to windows paths
-                //
-                // if we don't do this, std will interpret the path as relative,
-                // which changes join behavior
-                let command_path: &Path = if cfg!(windows)
-                    && let Some(command) = command.command.to_str()
-                {
-                    let mut chars = command.chars();
-                    if chars.next().is_some_and(|c| c == '/')
-                        && chars.next().is_some_and(|c| c.is_ascii_alphabetic())
-                        && chars.next().is_some_and(|c| c == ':')
-                        && chars.next().is_some_and(|c| c == '\\' || c == '/')
-                    {
-                        // looks like a windows path with a leading slash, so strip it
-                        command.strip_prefix('/').unwrap().as_ref()
-                    } else {
-                        command.as_ref()
-                    }
-                } else {
-                    command.command.as_ref()
-                };
-                let path = self.extension.path_from_extension(command_path);
+                let path = self.extension.path_from_extension(&command.command);
 
                 Ok(LanguageServerBinary {
                     path,
@@ -227,17 +202,7 @@ impl DynLspInstaller for ExtensionLspAdapter {
                             // that here and try to transform those paths back
                             // to windows paths
                             if cfg!(windows) {
-                                let mut chars = arg.chars();
-                                if chars.next().is_some_and(|c| c == '/')
-                                    && chars.next().is_some_and(|c| c.is_ascii_alphabetic())
-                                    && chars.next().is_some_and(|c| c == ':')
-                                    && chars.next().is_some_and(|c| c == '\\' || c == '/')
-                                {
-                                    // looks like a windows path with a leading slash, so strip it
-                                    arg.strip_prefix('/').unwrap().into()
-                                } else {
-                                    arg.into()
-                                }
+                                extension::strip_wasi_drive_prefix(&arg).into()
                             } else {
                                 arg.into()
                             }

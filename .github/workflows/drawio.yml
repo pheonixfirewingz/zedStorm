@@ -192,37 +192,42 @@ jobs:
             echo "Lock is held by another deployment. Waiting 10s... (${waited}s / ${max_wait}s)"
             sleep 10
             waited=$((waited + 10))
-            if [ $waited -ge $max_wait ]; then
-              echo "Timed out waiting for lock. Breaking stale lock..."
+            if [ "$waited" -ge "$max_wait" ]; then
+              echo "Timed out waiting for lock. Breaking stale lock once..."
               gh api --method DELETE "repos/$GH_REPO/git/$LOCK_REF" 2>/dev/null || true
+              waited=0
               sleep 2
             fi
           done
           echo "Lock acquired successfully."
 
+          retry() {
+            local attempt succeeded=0
+            for attempt in 1 2 3; do
+              if "$@"; then
+                succeeded=1
+                break
+              fi
+              sleep 3
+            done
+            if [ "$succeeded" -ne 1 ]; then
+              echo "::error::Command failed after 3 attempts: $*" >&2
+              return 1
+            fi
+          }
+
           release_id=$(gh api "repos/$GH_REPO/releases/tags/$TAG_NAME" --jq .id 2>/dev/null || true)
           tag_reference=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG_NAME" --jq .ref 2>/dev/null || true)
           if [ -n "$tag_reference" ]; then
-            for i in {1..3}; do
-              gh api --method PATCH "repos/$GH_REPO/git/refs/tags/$TAG_NAME" -f sha="$BUILD_COMMIT" -F force=true && break || sleep 2
-            done
+            retry gh api --method PATCH "repos/$GH_REPO/git/refs/tags/$TAG_NAME" -f sha="$BUILD_COMMIT" -F force=true
           else
-            for i in {1..3}; do
-              gh api --method POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG_NAME" -f sha="$BUILD_COMMIT" && break || sleep 2
-            done
+            retry gh api --method POST "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG_NAME" -f sha="$BUILD_COMMIT"
           fi
 
           notes="Latest extensions build from the custom branch. Commit: $BUILD_COMMIT. Build: $RUN_URL"
           if [ -n "$release_id" ]; then
-            for i in {1..3}; do
-              gh release upload "$TAG_NAME" release-assets/* --clobber && break || sleep 3
-            done
-            for i in {1..3}; do
-              gh release edit "$TAG_NAME" --title 'Latest Extensions Build' --notes "$notes" && break || sleep 2
-            done
+            retry gh release upload "$TAG_NAME" release-assets/* --clobber
+            retry gh release edit "$TAG_NAME" --title 'Latest Extensions Build' --notes "$notes"
           else
-            for i in {1..3}; do
-              gh release create "$TAG_NAME" release-assets/* \
-                --verify-tag --title 'Latest Extensions Build' --notes "$notes" && break || sleep 3
-            done
+            retry gh release create "$TAG_NAME" release-assets/* --verify-tag --title 'Latest Extensions Build' --notes "$notes"
           fi

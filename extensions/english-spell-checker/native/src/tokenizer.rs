@@ -10,90 +10,100 @@ pub struct WordToken {
 pub fn tokenize_document(text: &str) -> Vec<WordToken> {
     let mut tokens = Vec::new();
 
-    for (line_idx, line) in text.lines().enumerate() {
-        let line_num = line_idx as u32;
+    for (line_index, line) in text.lines().enumerate() {
+        let line_num = line_index as u32;
         tokenize_line(line, line_num, &mut tokens);
+    }
+
+    // Contextual typos like "dose not" -> "does not"
+    for index in 1..tokens.len() {
+        if tokens[index - 1].text.eq_ignore_ascii_case("dose")
+            && ["not", "exist", "matter", "have"]
+                .iter()
+                .any(|next| tokens[index].text.eq_ignore_ascii_case(next))
+        {
+            tokens[index - 1].is_forced_typo = true;
+        }
     }
 
     tokens
 }
 
 pub fn tokenize_line(line: &str, line_num: u32, out: &mut Vec<WordToken>) {
-    let chars: Vec<(usize, char)> = line.char_indices().collect();
-    let len = chars.len();
-    let mut i = 0;
+    // Tokens are ASCII, and every byte of a multi-byte UTF-8 character is >= 0x80, so scanning
+    // bytes never matches inside one and avoids a per-character index allocation.
+    let bytes = line.as_bytes();
+    let len = bytes.len();
+    let mut index = 0;
+    // UTF-16 column of `counted_byte`, advanced incrementally so long lines stay linear.
+    let mut counted_byte = 0;
+    let mut utf16_column = 0u32;
 
-    while i < len {
-        // Skip URLs
-        if let Some(remaining) = line.get(chars[i].0..) {
-            if remaining.starts_with("http://") || remaining.starts_with("https://") || remaining.starts_with("file://") {
-                // skip until whitespace
-                while i < len && !chars[i].1.is_whitespace() {
-                    i += 1;
-                }
+    while index < len {
+        if bytes[index] == b'h' || bytes[index] == b'f' {
+            let remaining = &line[index..];
+            if remaining.starts_with("http://")
+                || remaining.starts_with("https://")
+                || remaining.starts_with("file://")
+            {
+                index += remaining
+                    .find(char::is_whitespace)
+                    .unwrap_or(remaining.len());
                 continue;
             }
         }
 
-        let ch = chars[i].1;
-
-        // Start of a potential word token (ASCII alphabetic)
-        if ch.is_ascii_alphabetic() {
-            let start_byte = chars[i].0;
-
-            // Consume characters belonging to this identifier/word
+        if bytes[index].is_ascii_alphabetic() {
+            let start_byte = index;
             let mut has_digit = false;
             let mut has_underscore = false;
             let mut has_hyphen = false;
 
-            while i < len {
-                let c = chars[i].1;
-                if c.is_ascii_alphabetic() {
-                    i += 1;
-                } else if c == '\'' {
+            while index < len {
+                let byte = bytes[index];
+                if byte.is_ascii_alphabetic() {
+                    index += 1;
+                } else if byte == b'\'' {
                     // Internal apostrophe (e.g. don't, user's)
-                    if i + 1 < len && chars[i + 1].1.is_ascii_alphabetic() {
-                        i += 2;
+                    if bytes.get(index + 1).is_some_and(u8::is_ascii_alphabetic) {
+                        index += 2;
                     } else {
                         break;
                     }
-                } else if c == '_' {
+                } else if byte == b'_' {
                     has_underscore = true;
                     break;
-                } else if c == '-' {
+                } else if byte == b'-' {
                     has_hyphen = true;
                     break;
-                } else if c.is_ascii_digit() {
+                } else if byte.is_ascii_digit() {
                     has_digit = true;
-                    i += 1;
+                    index += 1;
                 } else {
                     break;
                 }
             }
 
-            let end_byte = if i < len { chars[i].0 } else { line.len() };
-            let raw_word = &line[start_byte..end_byte];
+            let raw_word = &line[start_byte..index];
 
             // If token has digits (like sha256, utf8, v2, x86_64), skip
             if !has_digit && !raw_word.is_empty() {
-                split_and_add_tokens(raw_word, line_num, utf16_col(line, start_byte), out);
+                for &byte in &bytes[counted_byte..start_byte] {
+                    utf16_column += match byte {
+                        0x80..=0xBF => 0,
+                        0xF0..=0xFF => 2,
+                        _ => 1,
+                    };
+                }
+                counted_byte = start_byte;
+                split_and_add_tokens(raw_word, line_num, utf16_column, out);
             }
 
             if has_underscore || has_hyphen {
-                i += 1; // skip the separator and continue next token
+                index += 1;
             }
         } else {
-            i += 1;
-        }
-    }
-
-    // Check contextual typos like "dose not" -> "does not"
-    for idx in 0..out.len().saturating_sub(1) {
-        if out[idx].text.to_ascii_lowercase() == "dose" {
-            let next_word = out[idx + 1].text.to_ascii_lowercase();
-            if next_word == "not" || next_word == "exist" || next_word == "matter" || next_word == "have" {
-                out[idx].is_forced_typo = true;
-            }
+            index += 1;
         }
     }
 }
@@ -111,7 +121,7 @@ fn split_and_add_tokens(raw: &str, line_num: u32, base_utf16_col: u32, out: &mut
                 text: raw.to_string(),
                 line: line_num,
                 start_col: base_utf16_col,
-                end_col: base_utf16_col + raw.encode_utf16().count() as u32,
+                end_col: base_utf16_col + raw.len() as u32,
                 is_forced_typo: false,
             });
         }
@@ -131,20 +141,19 @@ fn split_and_add_tokens(raw: &str, line_num: u32, base_utf16_col: u32, out: &mut
 
         if is_split {
             let sub = &raw[chars[word_start].0..chars[k].0];
-            push_word_if_eligible(sub, line_num, base_utf16_col, raw, chars[word_start].0, out);
+            push_word_if_eligible(sub, line_num, base_utf16_col, chars[word_start].0, out);
             word_start = k;
         }
     }
 
     let last_sub = &raw[chars[word_start].0..];
-    push_word_if_eligible(last_sub, line_num, base_utf16_col, raw, chars[word_start].0, out);
+    push_word_if_eligible(last_sub, line_num, base_utf16_col, chars[word_start].0, out);
 }
 
 fn push_word_if_eligible(
     word: &str,
     line_num: u32,
     base_utf16_col: u32,
-    parent_raw: &str,
     byte_offset_in_parent: usize,
     out: &mut Vec<WordToken>,
 ) {
@@ -155,8 +164,9 @@ fn push_word_if_eligible(
         return;
     }
 
-    let start_col = base_utf16_col + parent_raw[..byte_offset_in_parent].encode_utf16().count() as u32;
-    let end_col = start_col + word.encode_utf16().count() as u32;
+    // Tokens only contain ASCII, so byte offsets equal UTF-16 offsets.
+    let start_col = base_utf16_col + byte_offset_in_parent as u32;
+    let end_col = start_col + word.len() as u32;
 
     out.push(WordToken {
         text: word.to_string(),
@@ -165,10 +175,6 @@ fn push_word_if_eligible(
         end_col,
         is_forced_typo: false,
     });
-}
-
-fn utf16_col(line: &str, byte_idx: usize) -> u32 {
-    line[..byte_idx].encode_utf16().count() as u32
 }
 
 #[cfg(test)]

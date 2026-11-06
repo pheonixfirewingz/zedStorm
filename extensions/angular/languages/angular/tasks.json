@@ -1,0 +1,113 @@
+[
+  {
+    "label": "ng serve",
+    "command": "npx",
+    "args": ["--no-install", "ng", "serve"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "use_new_terminal": false,
+    "allow_concurrent_runs": false,
+    "tags": ["angular"]
+  },
+  {
+    "label": "ng build",
+    "command": "npx",
+    "args": ["--no-install", "ng", "build"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "tags": ["angular"]
+  },
+  {
+    "label": "ng test",
+    "command": "npx",
+    "args": ["--no-install", "ng", "test", "--watch=false"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "tags": ["angular"]
+  },
+  {
+    "label": "ng test $ZED_STEM",
+    "command": "npx",
+    "args": [
+      "--no-install",
+      "ng",
+      "test",
+      "--watch=false",
+      "--include",
+      "$ZED_RELATIVE_DIR/$ZED_STEM.spec.ts"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "tags": ["angular"]
+  },
+  {
+    "label": "ng lint",
+    "command": "npx",
+    "args": ["--no-install", "ng", "lint"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "tags": ["angular"]
+  },
+  {
+    "label": "ng generate component $ZED_SELECTED_TEXT",
+    "command": "npx",
+    "args": [
+      "--no-install",
+      "ng",
+      "generate",
+      "component",
+      "$ZED_SELECTED_TEXT",
+      "--path",
+      "$ZED_RELATIVE_DIR"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "tags": ["angular"]
+  },
+  {
+    "label": "ng generate service $ZED_SELECTED_TEXT",
+    "command": "npx",
+    "args": [
+      "--no-install",
+      "ng",
+      "generate",
+      "service",
+      "$ZED_SELECTED_TEXT",
+      "--path",
+      "$ZED_RELATIVE_DIR"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "tags": ["angular"]
+  },
+  {
+    "label": "ng generate directive $ZED_SELECTED_TEXT",
+    "command": "npx",
+    "args": [
+      "--no-install",
+      "ng",
+      "generate",
+      "directive",
+      "$ZED_SELECTED_TEXT",
+      "--path",
+      "$ZED_RELATIVE_DIR"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "tags": ["angular"]
+  },
+  {
+    "label": "ng generate pipe $ZED_SELECTED_TEXT",
+    "command": "npx",
+    "args": [
+      "--no-install",
+      "ng",
+      "generate",
+      "pipe",
+      "$ZED_SELECTED_TEXT",
+      "--path",
+      "$ZED_RELATIVE_DIR"
+    ],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "tags": ["angular"]
+  },
+  {
+    "label": "ng update",
+    "command": "npx",
+    "args": ["--no-install", "ng", "update"],
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "tags": ["angular"]
+  }
+]

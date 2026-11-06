@@ -12,7 +12,7 @@ use gpui::{
 };
 use project::{Project, ProjectEntryId, ProjectPath};
 use serde_json::{Value, json};
-use std::{path::PathBuf, process::Stdio, sync::Arc};
+use std::{path::PathBuf, process::Stdio, sync::Arc, time::Duration};
 use ui::prelude::*;
 use util::ResultExt;
 use workspace::{
@@ -86,6 +86,7 @@ pub(super) struct TabRendererView {
     focus: FocusHandle,
     frame: Option<Arc<RenderImage>>,
     bounds: Option<Bounds<Pixels>>,
+    last_physical_size: Option<(u32, u32)>,
     commands: Sender<Value>,
     error: Option<SharedString>,
     active: bool,
@@ -110,6 +111,7 @@ impl TabRendererView {
                 focus: cx.focus_handle(),
                 frame: None,
                 bounds: None,
+                last_physical_size: None,
                 commands,
                 error: Some("No tab renderer registered for this file type".into()),
                 active: false,
@@ -197,6 +199,7 @@ impl TabRendererView {
             focus: cx.focus_handle(),
             frame: None,
             bounds: None,
+            last_physical_size: None,
             commands,
             error: None,
             active: false,
@@ -347,11 +350,18 @@ impl Item for TabRendererView {
             Ok(()) => self.save_waiters.push(sender),
             Err(error) => return Task::ready(Err(anyhow!("Could not save tab content: {error}"))),
         }
+        let timer = cx.background_executor().timer(Duration::from_secs(30));
         cx.background_spawn(async move {
-            receiver
-                .await
-                .context("Tab renderer editor closed before saving")?
-                .map_err(anyhow::Error::msg)
+            futures::select_biased! {
+                result = receiver.fuse() => {
+                    result
+                        .context("Tab renderer editor closed before saving")?
+                        .map_err(anyhow::Error::msg)
+                }
+                _ = timer.fuse() => {
+                    anyhow::bail!("Saving timed out after 30 seconds")
+                }
+            }
         })
     }
 
@@ -437,10 +447,18 @@ impl Render for TabRendererView {
                 view.pointer(event.position, event.button, true, event.click_count, event.modifiers, false, cx);
                 cx.stop_propagation();
             }))
+            .on_mouse_down(MouseButton::Middle, cx.listener(|view, event: &gpui::MouseDownEvent, window, cx| {
+                view.focus.focus(window, cx);
+                view.pointer(event.position, event.button, true, event.click_count, event.modifiers, false, cx);
+                cx.stop_propagation();
+            }))
             .on_mouse_up(MouseButton::Left, cx.listener(|view, event: &gpui::MouseUpEvent, _, cx| {
                 view.pointer(event.position, event.button, false, 1, event.modifiers, false, cx);
             }))
             .on_mouse_up(MouseButton::Right, cx.listener(|view, event: &gpui::MouseUpEvent, _, cx| {
+                view.pointer(event.position, event.button, false, 1, event.modifiers, false, cx);
+            }))
+            .on_mouse_up(MouseButton::Middle, cx.listener(|view, event: &gpui::MouseUpEvent, _, cx| {
                 view.pointer(event.position, event.button, false, 1, event.modifiers, false, cx);
             }))
             .on_mouse_move(cx.listener(|view, event: &gpui::MouseMoveEvent, _, cx| {
@@ -475,12 +493,16 @@ impl Render for TabRendererView {
                                 view.active = true;
                                 view.send(json!({ "action": "active", "active": true }), cx);
                             }
-                            if view.bounds.is_none_or(|previous| previous.size != bounds.size) {
+                            let physical_width = (f32::from(bounds.size.width) * window.scale_factor()).round() as u32;
+                            let physical_height = (f32::from(bounds.size.height) * window.scale_factor()).round() as u32;
+                            let physical_size = (physical_width, physical_height);
+                            if view.last_physical_size != Some(physical_size) {
+                                view.last_physical_size = Some(physical_size);
                                 view.send(
                                     json!({
                                         "action": "resize",
-                                        "width": (f32::from(bounds.size.width) * window.scale_factor()).round() as u32,
-                                        "height": (f32::from(bounds.size.height) * window.scale_factor()).round() as u32,
+                                        "width": physical_width,
+                                        "height": physical_height,
                                         "scale": window.scale_factor()
                                     }),
                                     cx,

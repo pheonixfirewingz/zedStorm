@@ -6,6 +6,14 @@ const WORDS_TXT: &str = include_str!("words.txt");
 static DICTIONARY: OnceLock<HashSet<&'static str>> = OnceLock::new();
 static COMMON_TYPOS: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
 
+/// Real words that are only typos in context (see the tokenizer), so they stay valid on their own.
+const CONTEXTUAL_FIXES: &[(&str, &str)] = &[("dose", "does")];
+
+/// Longest word considered for suggestions; dictionary words are far shorter, and the edit
+/// distance rows live on the stack.
+const MAX_SUGGESTION_WORD_LEN: usize = 48;
+const MAX_SUGGESTION_DISTANCE: usize = 2;
+
 pub struct Dictionary {
     custom_words: HashSet<String>,
     ignored_words: HashSet<String>,
@@ -35,7 +43,6 @@ impl Dictionary {
 
         COMMON_TYPOS.get_or_init(|| {
             let pairs: &[(&'static str, &'static str)] = &[
-                ("dose", "does"),
                 ("teh", "the"),
                 ("recieve", "receive"),
                 ("recieved", "received"),
@@ -224,6 +231,12 @@ impl Dictionary {
         self.ignored_words.insert(word.to_ascii_lowercase());
     }
 
+    /// Whether the user added or ignored this word, which overrides every built-in rule.
+    pub fn is_user_word(&self, word: &str) -> bool {
+        let lower = word.to_ascii_lowercase();
+        self.custom_words.contains(&lower) || self.ignored_words.contains(&lower)
+    }
+
     pub fn is_valid(&self, word: &str) -> bool {
         let lower = word.to_ascii_lowercase();
         if self.custom_words.contains(&lower) || self.ignored_words.contains(&lower) {
@@ -237,8 +250,9 @@ impl Dictionary {
             }
         }
 
-        // Check base dictionary
-        let dict = DICTIONARY.get().unwrap();
+        let Some(dict) = DICTIONARY.get() else {
+            return false;
+        };
         if dict.contains(lower.as_str()) {
             return true;
         }
@@ -356,6 +370,22 @@ impl Dictionary {
         false
     }
 
+    /// Returns the known fix for `word` without searching the dictionary.
+    pub fn known_fix(&self, word: &str) -> Option<String> {
+        let lower = word.to_ascii_lowercase();
+        let is_capitalized = word.chars().next().is_some_and(|c| c.is_uppercase());
+        COMMON_TYPOS
+            .get()
+            .and_then(|typos| typos.get(lower.as_str()).copied())
+            .or_else(|| {
+                CONTEXTUAL_FIXES
+                    .iter()
+                    .find(|(typo, _)| *typo == lower)
+                    .map(|(_, fix)| *fix)
+            })
+            .map(|fix| apply_casing(fix, is_capitalized))
+    }
+
     pub fn suggest(&self, word: &str) -> Vec<String> {
         let lower = word.to_ascii_lowercase();
         let is_capitalized = word.chars().next().is_some_and(|c| c.is_uppercase());
@@ -368,33 +398,51 @@ impl Dictionary {
             }
         }
 
-        // 2. Search base dictionary using Damerau-Levenshtein distance <= 2
-        let dict = DICTIONARY.get().unwrap();
-        let mut candidates: Vec<(&'static str, usize)> = Vec::new();
-
-        for candidate in dict.iter() {
-            let diff = candidate.len().abs_diff(lower.len());
-            if diff > 2 {
-                continue;
-            }
-
-            let share_first = candidate.as_bytes().first() == lower.as_bytes().first();
-            let dist = damerau_levenshtein(&lower, candidate);
-            if dist <= 2 {
-                let score = dist * 2 + if share_first { 0 } else { 1 };
-                candidates.push((candidate, score));
+        if let Some((_, fix)) = CONTEXTUAL_FIXES.iter().find(|(typo, _)| *typo == lower) {
+            let fix = apply_casing(fix, is_capitalized);
+            if !results.contains(&fix) {
+                results.push(fix);
             }
         }
 
-        candidates.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.len().abs_diff(lower.len()).cmp(&b.0.len().abs_diff(lower.len()))));
+        let (Some(dict), Some(typos)) = (DICTIONARY.get(), COMMON_TYPOS.get()) else {
+            return results;
+        };
+        if lower.len() > MAX_SUGGESTION_WORD_LEN {
+            return results;
+        }
 
-        for (cand, _) in candidates {
-            let formatted = apply_casing(cand, is_capitalized);
+        let mut candidates: Vec<(usize, &'static str)> = Vec::new();
+        for &candidate in dict {
+            if candidate.len().abs_diff(lower.len()) > MAX_SUGGESTION_DISTANCE
+                || candidate == lower
+                // The word list contains common misspellings that the typo map overrides.
+                || typos.contains_key(candidate)
+            {
+                continue;
+            }
+            if let Some(distance) =
+                damerau_levenshtein_within(lower.as_bytes(), candidate.as_bytes(), MAX_SUGGESTION_DISTANCE)
+            {
+                let share_first = candidate.as_bytes().first() == lower.as_bytes().first();
+                candidates.push((distance * 2 + usize::from(!share_first), candidate));
+            }
+        }
+
+        // Hash set iteration order is random, so break ties by text to keep suggestions stable.
+        candidates.sort_unstable_by(|left, right| {
+            left.0.cmp(&right.0)
+                .then_with(|| left.1.len().abs_diff(lower.len()).cmp(&right.1.len().abs_diff(lower.len())))
+                .then_with(|| left.1.cmp(right.1))
+        });
+
+        for (_, candidate) in candidates {
+            if results.len() >= 5 {
+                break;
+            }
+            let formatted = apply_casing(candidate, is_capitalized);
             if !results.contains(&formatted) {
                 results.push(formatted);
-                if results.len() >= 5 {
-                    break;
-                }
             }
         }
 
@@ -413,42 +461,42 @@ fn apply_casing(word: &str, capitalize: bool) -> String {
     }
 }
 
-pub fn damerau_levenshtein(s1: &str, s2: &str) -> usize {
-    let b1 = s1.as_bytes();
-    let b2 = s2.as_bytes();
-    let n = b1.len();
-    let m = b2.len();
-
-    if n == 0 {
-        return m;
+/// Optimal string alignment distance between `left` and `right`, or `None` if it exceeds `max`.
+///
+/// Both inputs must be at most `MAX_SUGGESTION_WORD_LEN` bytes long.
+fn damerau_levenshtein_within(left: &[u8], right: &[u8], max: usize) -> Option<usize> {
+    const ROW: usize = MAX_SUGGESTION_WORD_LEN + 1;
+    let (left_length, right_length) = (left.len(), right.len());
+    if left_length >= ROW || right_length >= ROW || left_length.abs_diff(right_length) > max {
+        return None;
     }
-    if m == 0 {
-        return n;
+    let mut before_previous = [0usize; ROW];
+    let mut previous = [0usize; ROW];
+    let mut current = [0usize; ROW];
+    for (column, cell) in previous.iter_mut().enumerate().take(right_length + 1) {
+        *cell = column;
     }
-
-    let mut d = vec![vec![0usize; m + 1]; n + 1];
-
-    for i in 0..=n {
-        d[i][0] = i;
-    }
-    for j in 0..=m {
-        d[0][j] = j;
-    }
-
-    for i in 1..=n {
-        for j in 1..=m {
-            let cost = if b1[i - 1] == b2[j - 1] { 0 } else { 1 };
-            d[i][j] = (d[i - 1][j] + 1)
-                .min(d[i][j - 1] + 1)
-                .min(d[i - 1][j - 1] + cost);
-
-            if i > 1 && j > 1 && b1[i - 1] == b2[j - 2] && b1[i - 2] == b2[j - 1] {
-                d[i][j] = d[i][j].min(d[i - 2][j - 2] + 1);
+    for row in 1..=left_length {
+        current[0] = row;
+        let mut row_min = current[0];
+        for column in 1..=right_length {
+            let cost = usize::from(left[row - 1] != right[column - 1]);
+            let mut value = (previous[column] + 1)
+                .min(current[column - 1] + 1)
+                .min(previous[column - 1] + cost);
+            if row > 1 && column > 1 && left[row - 1] == right[column - 2] && left[row - 2] == right[column - 1] {
+                value = value.min(before_previous[column - 2] + 1);
             }
+            current[column] = value;
+            row_min = row_min.min(value);
         }
+        if row_min > max {
+            return None;
+        }
+        before_previous = previous;
+        previous = current;
     }
-
-    d[n][m]
+    (previous[right_length] <= max).then_some(previous[right_length])
 }
 
 pub const PROGRAMMING_KEYWORDS: &[&str] = &[
@@ -580,6 +628,23 @@ mod tests {
         assert!(dict.is_valid("elseif"));
         assert!(dict.is_valid("chmod"));
         assert!(dict.is_valid("sudo"));
+    }
+
+    #[test]
+    fn test_bounded_edit_distance() {
+        assert_eq!(damerau_levenshtein_within(b"teh", b"the", 2), Some(1));
+        assert_eq!(damerau_levenshtein_within(b"kitten", b"sitting", 2), None);
+        assert_eq!(damerau_levenshtein_within(b"kitten", b"sitten", 2), Some(1));
+        assert_eq!(damerau_levenshtein_within(b"", b"ab", 2), Some(2));
+        assert_eq!(damerau_levenshtein_within(b"abcdef", b"badcfe", 2), None);
+    }
+
+    #[test]
+    fn test_contextual_typos_are_valid_words() {
+        let dict = Dictionary::new();
+        assert!(dict.is_valid("dose"));
+        assert_eq!(dict.known_fix("Dose").as_deref(), Some("Does"));
+        assert_eq!(dict.suggest("dose").first().map(String::as_str), Some("does"));
     }
 
     #[test]

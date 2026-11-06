@@ -1,7 +1,7 @@
 id = "plcnext"
 name = "PLCnext Engineer"
 description = "Read-only viewer and explorer for Phoenix Contact PLCnext Engineer projects (.pcwex, .pcweax, .pcwlx, .pcwef)."
-version = "0.1.0"
+version = "0.1.2"
 schema_version = 1
 authors = ["ZedStorm contributors"]
 repository = "https://github.com/pheonixfirewingz/zedStorm"

@@ -3,6 +3,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use image::ImageEncoder as _;
 use serde_json::{Value, json};
 use std::{
+    hash::{DefaultHasher, Hash as _, Hasher as _},
     cell::Cell,
     ffi::c_void,
     io::{BufRead, Write},
@@ -13,7 +14,7 @@ use std::{
     time::Duration,
 };
 use tao::{
-    dpi::{LogicalSize, PhysicalPosition},
+    dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder},
     platform::windows::WindowExtWindows,
@@ -29,6 +30,16 @@ use zed_diagrams::Document;
 // Windows keeps an off-screen window composited, unlike a hidden one, which is
 // what lets `PrintWindow` see the WebView2 surface.
 const OFFSCREEN_POSITION: i32 = -32_000;
+
+// Mouse message key-state flags (`MK_*` in WinUser.h); defined here to avoid another
+// windows-sys feature.
+const MK_LBUTTON: usize = 0x0001;
+const MK_RBUTTON: usize = 0x0002;
+const MK_SHIFT: usize = 0x0004;
+const MK_CONTROL: usize = 0x0008;
+const MK_MBUTTON: usize = 0x0010;
+const WM_MOUSEHWHEEL: u32 = 0x020E;
+const WHEEL_UNITS_PER_LINE: f64 = 40.0;
 
 enum CustomEvent {
     Input,
@@ -136,7 +147,12 @@ pub fn run(path: PathBuf) -> Result<()> {
         let frame_height = frame_height.clone();
         let capture_hwnd = hwnd as usize;
         move || {
-            let mut last_frame = None::<Vec<u8>>;
+            // Frames are compared by hash before PNG encoding so an idle diagram costs one
+            // capture per tick instead of an encode, a base64 copy and a host-side decode, while
+            // only one pixel buffer is kept.
+            let mut pixels = Vec::new();
+            let mut last_sent = None::<(u32, u32, u64)>;
+            let mut png = Vec::new();
             let mut reported_failure = false;
             loop {
                 std::thread::sleep(Duration::from_millis(60));
@@ -145,27 +161,35 @@ pub fn run(path: PathBuf) -> Result<()> {
                 }
                 let width = frame_width.load(Ordering::Relaxed);
                 let height = frame_height.load(Ordering::Relaxed);
-                let bytes = match capture_window(capture_hwnd as *mut c_void, width, height) {
-                    Ok(bytes) => {
-                        reported_failure = false;
-                        bytes
+                if let Err(error) =
+                    capture_window(capture_hwnd as *mut c_void, width, height, &mut pixels)
+                {
+                    if !reported_failure {
+                        reported_failure = true;
+                        eprintln!("Could not capture the embedded webview: {error}");
                     }
-                    Err(error) => {
-                        if !reported_failure {
-                            reported_failure = true;
-                            eprintln!("Could not capture the embedded webview: {error}");
-                        }
-                        continue;
-                    }
-                };
-                if last_frame.as_ref() == Some(&bytes) {
+                    continue;
+                }
+                reported_failure = false;
+                let frame_key = (width, height, frame_hash(&pixels));
+                if last_sent == Some(frame_key) {
+                    continue;
+                }
+                png.clear();
+                if let Err(error) = image::codecs::png::PngEncoder::new(&mut png).write_image(
+                    &pixels,
+                    width,
+                    height,
+                    image::ExtendedColorType::Rgba8,
+                ) {
+                    eprintln!("Could not encode the embedded webview frame: {error}");
                     continue;
                 }
                 if output
-                    .try_send(json!({"event": "frame", "png": STANDARD.encode(&bytes)}))
+                    .try_send(json!({"event": "frame", "png": STANDARD.encode(&png)}))
                     .is_ok()
                 {
-                    last_frame = Some(bytes);
+                    last_sent = Some(frame_key);
                 }
             }
         }
@@ -186,7 +210,9 @@ pub fn run(path: PathBuf) -> Result<()> {
                             let height = message["height"].as_u64().unwrap_or(700).clamp(200, 4096) as u32;
                             frame_width.store(width, Ordering::Relaxed);
                             frame_height.store(height, Ordering::Relaxed);
-                            window.set_inner_size(LogicalSize::new(width as f64, height as f64));
+                            // The host sends physical pixels and capture reads physical pixels, so a
+                            // logical size would be scaled again on high-DPI displays.
+                            window.set_inner_size(PhysicalSize::new(width, height));
                             Ok(())
                         }
                         Some("active") => {
@@ -262,6 +288,13 @@ pub fn run(path: PathBuf) -> Result<()> {
                         emit(&output, json!({"event": "saved", "modified": message["modified"]}));
                         None
                     }
+                    Some("saveFailed") => {
+                        emit(
+                            &output,
+                            json!({"event": "saveError", "message": message["message"]}),
+                        );
+                        None
+                    }
                     Some("exit") => {
                         emit(&output, json!({"event": "exit"}));
                         None
@@ -321,10 +354,22 @@ fn dispatch_windows_input(
         "pointer" => {
             let x = message["x"].as_f64().unwrap_or(0.0).round() as i32;
             let y = message["y"].as_f64().unwrap_or(0.0).round() as i32;
-            let lparam = ((y as u16 as u32) << 16) | (x as u16 as u32);
             let pressed = message["pressed"].as_bool().unwrap_or(false);
             let button = message["button"].as_u64().unwrap_or(1);
             let kind = message["kind"].as_str().unwrap_or("");
+            let mut key_state = mouse_key_state(message["modifiers"].as_u64().unwrap_or(0));
+            if kind != "move" {
+                let flag = match button {
+                    2 => MK_MBUTTON,
+                    3 => MK_RBUTTON,
+                    _ => MK_LBUTTON,
+                };
+                if pressed {
+                    key_state |= flag;
+                } else {
+                    key_state &= !flag;
+                }
+            }
             let msg = if kind == "move" {
                 WM_MOUSEMOVE
             } else if pressed {
@@ -345,10 +390,11 @@ fn dispatch_windows_input(
             // The webview renders into child windows, so posting to the outer
             // window would leave the click with a window procedure that never
             // forwards it. Aim at the child under the pointer instead.
-            let target = webview_window(hwnd, x, y);
+            let (target, local) = webview_window(hwnd, x, y);
             input_target.set(target);
+            let lparam = ((local.y as u16 as u32) << 16) | (local.x as u16 as u32);
             unsafe {
-                PostMessageW(target, msg, 0, lparam as _);
+                PostMessageW(target, msg, key_state, lparam as _);
             }
         }
         "scroll" => {
@@ -359,15 +405,21 @@ fn dispatch_windows_input(
             let screen_x = OFFSCREEN_POSITION + x;
             let screen_y = OFFSCREEN_POSITION + y;
             let lparam = ((screen_y as u16 as u32) << 16) | (screen_x as u16 as u32);
-            let delta_y = (message["delta_y"].as_f64().unwrap_or(0.0) * 120.0).round() as i16;
-            let wparam = (delta_y as u16 as u32) << 16;
+            // The host sends lines in GDK orientation (positive scrolls down, right), and Windows
+            // gives three lines per 120-unit notch with positive wheel deltas scrolling up.
+            let delta_y = (-message["delta_y"].as_f64().unwrap_or(0.0) * WHEEL_UNITS_PER_LINE).round() as i16;
+            let key_state = mouse_key_state(message["modifiers"].as_u64().unwrap_or(0));
+            let target_window = webview_window(hwnd, x, y).0;
+            let wparam = ((delta_y as u16 as usize) << 16) | key_state;
             unsafe {
-                PostMessageW(
-                    webview_window(hwnd, x, y),
-                    WM_MOUSEWHEEL,
-                    wparam as _,
-                    lparam as _,
-                );
+                PostMessageW(target_window, WM_MOUSEWHEEL, wparam, lparam as _);
+            }
+            let delta_x = (message["delta_x"].as_f64().unwrap_or(0.0) * WHEEL_UNITS_PER_LINE).round() as i16;
+            if delta_x != 0 {
+                let horizontal_wparam = ((delta_x as u16 as usize) << 16) | key_state;
+                unsafe {
+                    PostMessageW(target_window, WM_MOUSEHWHEEL, horizontal_wparam, lparam as _);
+                }
             }
         }
         "key" => dispatch_key(input_target.get(), message),
@@ -376,15 +428,46 @@ fn dispatch_windows_input(
     Ok(())
 }
 
-fn webview_window(hwnd: *mut c_void, x: i32, y: i32) -> *mut c_void {
+fn frame_hash(pixels: &[u8]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    pixels.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Converts the host's modifier mask (GDK layout) into `MK_*` flags for mouse messages.
+fn mouse_key_state(modifiers: u64) -> usize {
+    let mut state = 0;
+    for (mask, flag) in [
+        (1 << 0, MK_SHIFT),
+        (1 << 2, MK_CONTROL),
+        (1 << 8, MK_LBUTTON),
+        (1 << 9, MK_MBUTTON),
+        (1 << 10, MK_RBUTTON),
+    ] {
+        if modifiers & mask != 0 {
+            state |= flag;
+        }
+    }
+    state
+}
+
+/// Returns the deepest child window under a point in `hwnd`'s client area, with the point in
+/// that child's client coordinates.
+fn webview_window(hwnd: *mut c_void, x: i32, y: i32) -> (*mut c_void, POINT) {
     let mut target = hwnd;
-    loop {
-        let child = unsafe { RealChildWindowFromPoint(target, POINT { x, y }) };
+    let mut point = POINT { x, y };
+    // Window trees are shallow; the bound only guards against a cycle in a broken hierarchy.
+    for _ in 0..32 {
+        let child = unsafe { RealChildWindowFromPoint(target, point) };
         if child.is_null() || child == target {
-            return target;
+            break;
+        }
+        unsafe {
+            MapWindowPoints(target, child, &mut point, 1);
         }
         target = child;
     }
+    (target, point)
 }
 
 fn dispatch_key(target: *mut c_void, message: &Value) {
@@ -402,14 +485,34 @@ fn dispatch_key(target: *mut c_void, message: &Value) {
         }
         return;
     }
+    let modifiers = message["modifiers"].as_u64().unwrap_or(0);
+    const CONTROL_MASK: u64 = 1 << 2;
+    const ALT_MASK: u64 = 1 << 3;
+    const PLATFORM_MASK: u64 = 1 << 26;
+    if (modifiers & (CONTROL_MASK | ALT_MASK | PLATFORM_MASK)) != 0 {
+        let key_bytes = key.as_bytes();
+        if key_bytes.len() == 1 && key_bytes[0].is_ascii_alphanumeric() {
+            let virtual_key = key_bytes[0].to_ascii_uppercase() as usize;
+            let key_up: usize = if pressed { 0 } else { (1 << 30) | (1 << 31) };
+            let lparam: usize = 1 | key_up;
+            let msg = if pressed { WM_KEYDOWN } else { WM_KEYUP };
+            unsafe {
+                PostMessageW(target, msg, virtual_key, lparam as _);
+            }
+            return;
+        }
+    }
     // The host resolves layout and modifiers before sending the key, so a
     // single character can go straight in as text.
     let mut characters = key.chars();
     if pressed
         && let (Some(character), None) = (characters.next(), characters.next())
     {
-        unsafe {
-            PostMessageW(target, WM_CHAR, character as usize, 0);
+        let mut units = [0u16; 2];
+        for unit in character.encode_utf16(&mut units) {
+            unsafe {
+                PostMessageW(target, WM_CHAR, usize::from(*unit), 0);
+            }
         }
     }
 }
@@ -441,7 +544,7 @@ fn virtual_key(key: &str) -> Option<u16> {
     })
 }
 
-fn capture_window(hwnd: *mut c_void, width: u32, height: u32) -> Result<Vec<u8>> {
+fn capture_window(hwnd: *mut c_void, width: u32, height: u32, pixels: &mut Vec<u8>) -> Result<()> {
     if width == 0 || height == 0 {
         bail!("Invalid window dimensions");
     }
@@ -464,14 +567,7 @@ fn capture_window(hwnd: *mut c_void, width: u32, height: u32) -> Result<Vec<u8>>
         }
         let old_bm = SelectObject(hdc_mem, hbm);
 
-        // PW_RENDERFULLCONTENT = 2
-        if PrintWindow(hwnd, hdc_mem, PW_RENDERFULLCONTENT) == 0 {
-            SelectObject(hdc_mem, old_bm);
-            DeleteObject(hbm);
-            DeleteDC(hdc_mem);
-            ReleaseDC(hwnd, hdc_screen);
-            bail!("Could not capture the embedded webview window");
-        }
+        let printed = PrintWindow(hwnd, hdc_mem, PW_RENDERFULLCONTENT) != 0;
 
         let mut bmi: BITMAPINFO = std::mem::zeroed();
         bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
@@ -481,35 +577,37 @@ fn capture_window(hwnd: *mut c_void, width: u32, height: u32) -> Result<Vec<u8>>
         bmi.bmiHeader.biBitCount = 32;
         bmi.bmiHeader.biCompression = BI_RGB;
 
-        let mut buffer = vec![0u8; (width * height * 4) as usize];
-        GetDIBits(
-            hdc_mem,
-            hbm,
-            0,
-            height,
-            buffer.as_mut_ptr() as _,
-            &mut bmi,
-            DIB_RGB_COLORS,
-        );
-
+        pixels.clear();
+        pixels.resize(width as usize * height as usize * 4, 0);
+        // The bitmap must not be selected into a DC while GetDIBits reads it.
         SelectObject(hdc_mem, old_bm);
+        let copied = printed
+            && GetDIBits(
+                hdc_mem,
+                hbm,
+                0,
+                height,
+                pixels.as_mut_ptr() as _,
+                &mut bmi,
+                DIB_RGB_COLORS,
+            ) == height as i32;
+
         DeleteObject(hbm);
         DeleteDC(hdc_mem);
         ReleaseDC(hwnd, hdc_screen);
 
-        // Convert BGRA to RGBA
-        for chunk in buffer.chunks_exact_mut(4) {
-            chunk.swap(0, 2);
+        if !printed {
+            bail!("Could not capture the embedded webview window");
         }
-
-        let mut png_bytes = Vec::new();
-        image::codecs::png::PngEncoder::new(&mut png_bytes).write_image(
-            &buffer,
-            width,
-            height,
-            image::ExtendedColorType::Rgba8,
-        )?;
-
-        Ok(png_bytes)
+        if !copied {
+            bail!("Could not read the captured webview pixels");
+        }
     }
+
+    // GDI leaves the alpha byte undefined (usually zero), which would make the frame transparent.
+    for chunk in pixels.chunks_exact_mut(4) {
+        chunk.swap(0, 2);
+        chunk[3] = 0xFF;
+    }
+    Ok(())
 }

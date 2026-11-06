@@ -125,36 +125,47 @@ impl AngularExtension {
             return Ok(ngserver_bin);
         }
 
-        // 4. Fallback to extension's managed node_modules
+        // 4. Extension-managed install, checked for updates once per session (the cached path
+        //    above short-circuits later starts). An existing install is kept when the registry
+        //    is unreachable so the server still starts offline.
         let ext_dir = extension_install_dir();
         let bundled_path = format!("{ext_dir}/{SERVER_REL_PATH}");
-        if Self::file_exists(&bundled_path) {
-            self.cached_server_path = Some(bundled_path.clone());
-            return Ok(bundled_path);
-        }
+        let has_bundled_install = Self::file_exists(&bundled_path);
 
-        // 5. Automatically install @angular/language-server and typescript
         zed::set_language_server_installation_status(
             language_server_id,
             &zed::LanguageServerInstallationStatus::CheckingForUpdate,
         );
-
-        let latest_version = zed::npm_package_latest_version(SERVER_PACKAGE)?;
+        let latest_version = match zed::npm_package_latest_version(SERVER_PACKAGE) {
+            Ok(version) => version,
+            Err(error) if has_bundled_install => {
+                eprintln!("Could not check for Angular language server updates: {error}");
+                self.cached_server_path = Some(bundled_path.clone());
+                return Ok(bundled_path);
+            }
+            Err(error) => return Err(error),
+        };
         let installed_version = zed::npm_package_installed_version(SERVER_PACKAGE)?;
 
-        if !Self::file_exists(&bundled_path) || installed_version.as_ref() != Some(&latest_version)
-        {
+        if !has_bundled_install || installed_version.as_ref() != Some(&latest_version) {
             zed::set_language_server_installation_status(
                 language_server_id,
                 &zed::LanguageServerInstallationStatus::Downloading,
             );
 
-            // Install @angular/language-server
-            zed::npm_install_package(SERVER_PACKAGE, &latest_version)?;
-
-            // Install matching @angular/language-service and compatible typescript
-            let _ = zed::npm_install_package(LANGUAGE_SERVICE_PACKAGE, &latest_version);
-            let _ = zed::npm_install_package(TYPESCRIPT_PACKAGE, BUNDLED_TYPESCRIPT_VERSION);
+            // The TypeScript plugin registered in .ts files loads @angular/language-service from
+            // this directory, so it must install alongside the server rather than fail silently.
+            let install_result = zed::npm_install_package(SERVER_PACKAGE, &latest_version)
+                .and_then(|()| zed::npm_install_package(LANGUAGE_SERVICE_PACKAGE, &latest_version))
+                .and_then(|()| {
+                    zed::npm_install_package(TYPESCRIPT_PACKAGE, BUNDLED_TYPESCRIPT_VERSION)
+                });
+            if let Err(error) = install_result {
+                if !Self::file_exists(&bundled_path) {
+                    return Err(error);
+                }
+                eprintln!("Could not update the Angular language server, using the installed one: {error}");
+            }
 
             if !Self::file_exists(&bundled_path) {
                 return Err(format!(
@@ -165,6 +176,24 @@ impl AngularExtension {
 
         self.cached_server_path = Some(bundled_path.clone());
         Ok(bundled_path)
+    }
+
+    /// Whether the worktree is an Angular workspace. Like WebStorm, Angular support only switches
+    /// on when Angular is a dependency, so plain HTML and TypeScript projects do not start a
+    /// language server process for nothing.
+    fn is_angular_workspace(worktree: &Worktree) -> bool {
+        if worktree.read_text_file("angular.json").is_ok() {
+            return true;
+        }
+        worktree
+            .read_text_file("package.json")
+            .ok()
+            .and_then(|contents| serde_json::from_str::<serde_json::Value>(&contents).ok())
+            .is_some_and(|package| {
+                ["dependencies", "devDependencies", "peerDependencies"]
+                    .iter()
+                    .any(|section| package[section].get("@angular/core").is_some())
+            })
     }
 
     /// Compute probe directories for TypeScript and Angular Language Service.
@@ -256,6 +285,16 @@ impl zed::Extension for AngularExtension {
                 .transpose()
                 .map_err(|e| format!("Failed to parse `lsp.angular.initialization_options`: {e}"))?
                 .unwrap_or_default();
+
+        // An explicit server path is an opt-in for projects the detection does not recognise.
+        if settings.angular_language_server_path.is_none() && !Self::is_angular_workspace(worktree)
+        {
+            return Err(
+                "Not an Angular workspace (no angular.json or @angular/core dependency); \
+                 the Angular language server was not started"
+                    .to_string(),
+            );
+        }
 
         let server_script = self.resolve_server_script(
             language_server_id,

@@ -1,0 +1,331 @@
+{
+  "Angular Control Flow @if": {
+    "prefix": [
+      "@if",
+      "a-if"
+    ],
+    "body": [
+      "@if (${1:condition}) {",
+      "  $0",
+      "}"
+    ],
+    "description": "Angular control flow @if statement"
+  },
+  "Angular Control Flow @if @else": {
+    "prefix": [
+      "@if-else",
+      "a-if-else"
+    ],
+    "body": [
+      "@if (${1:condition}) {",
+      "  $2",
+      "} @else {",
+      "  $0",
+      "}"
+    ],
+    "description": "Angular control flow @if @else block"
+  },
+  "Angular Control Flow @for": {
+    "prefix": [
+      "@for",
+      "a-for"
+    ],
+    "body": [
+      "@for (${1:item} of ${2:items()}; track ${3:item.id}) {",
+      "  $0",
+      "} @empty {",
+      "  <p>${4:No items found.}</p>",
+      "}"
+    ],
+    "description": "Angular control flow @for loop with tracking and @empty fallback"
+  },
+  "Angular Control Flow @switch": {
+    "prefix": [
+      "@switch",
+      "a-switch"
+    ],
+    "body": [
+      "@switch (${1:expression}) {",
+      "  @case (${2:'case1'}) {",
+      "    $3",
+      "  }",
+      "  @default {",
+      "    $0",
+      "  }",
+      "}"
+    ],
+    "description": "Angular control flow @switch statement"
+  },
+  "Angular Control Flow @defer": {
+    "prefix": [
+      "@defer",
+      "a-defer"
+    ],
+    "body": [
+      "@defer (${1:on viewport}) {",
+      "  $0",
+      "} @placeholder {",
+      "  <div class=\"skeleton\">${2:Loading placeholder...}</div>",
+      "} @loading (minimum 500ms) {",
+      "  <loading-spinner />",
+      "} @error {",
+      "  <p>${3:Failed to load content.}</p>",
+      "}"
+    ],
+    "description": "Angular control flow @defer block for deferred template loading"
+  },
+  "Angular Template Variable @let": {
+    "prefix": [
+      "@let",
+      "a-let"
+    ],
+    "body": [
+      "@let ${1:variableName} = ${2:expression};$0"
+    ],
+    "description": "Angular 18+ template variable @let statement"
+  },
+  "Angular *ngIf": {
+    "prefix": [
+      "*ngIf",
+      "a-ngIf"
+    ],
+    "body": [
+      "*ngIf=\"${1:condition}\"$0"
+    ],
+    "description": "Angular *ngIf structural directive"
+  },
+  "Angular *ngFor": {
+    "prefix": [
+      "*ngFor",
+      "a-ngFor"
+    ],
+    "body": [
+      "*ngFor=\"let ${1:item} of ${2:items}; trackBy: ${3:trackById}\"$0"
+    ],
+    "description": "Angular *ngFor structural directive"
+  },
+  "Angular [(ngModel)]": {
+    "prefix": [
+      "[(ngModel)]",
+      "a-ngModel"
+    ],
+    "body": [
+      "[(ngModel)]=\"${1:property}\"$0"
+    ],
+    "description": "Angular two-way data binding [(ngModel)]"
+  },
+  "Angular [ngClass]": {
+    "prefix": [
+      "[ngClass]",
+      "a-ngClass"
+    ],
+    "body": [
+      "[ngClass]=\"{ '${1:className}': ${2:condition} }\"$0"
+    ],
+    "description": "Angular [ngClass] class binding"
+  },
+  "Angular [ngStyle]": {
+    "prefix": [
+      "[ngStyle]",
+      "a-ngStyle"
+    ],
+    "body": [
+      "[ngStyle]=\"{ '${1:color}': ${2:value} }\"$0"
+    ],
+    "description": "Angular [ngStyle] style binding"
+  },
+  "Angular ng-container": {
+    "prefix": [
+      "ng-container",
+      "a-container"
+    ],
+    "body": [
+      "<ng-container>",
+      "  $0",
+      "</ng-container>"
+    ],
+    "description": "Angular <ng-container> grouping element"
+  },
+  "Angular ng-template": {
+    "prefix": [
+      "ng-template",
+      "a-template"
+    ],
+    "body": [
+      "<ng-template #${1:templateName}>",
+      "  $0",
+      "</ng-template>"
+    ],
+    "description": "Angular <ng-template> element"
+  },
+  "Angular ng-content": {
+    "prefix": [
+      "ng-content",
+      "a-content"
+    ],
+    "body": [
+      "<ng-content select=\"${1:[header]}\"></ng-content>$0"
+    ],
+    "description": "Angular <ng-content> projection tag"
+  },
+  "Angular router-outlet": {
+    "prefix": [
+      "router-outlet",
+      "a-router-outlet"
+    ],
+    "body": [
+      "<router-outlet></router-outlet>$0"
+    ],
+    "description": "Angular <router-outlet> component placeholder"
+  },
+  "Angular Control Flow @else": {
+    "prefix": [
+      "@else",
+      "a-else"
+    ],
+    "body": [
+      "@else {",
+      "  $0",
+      "}"
+    ],
+    "description": "@else block"
+  },
+  "Angular Control Flow @else if": {
+    "prefix": [
+      "@else-if",
+      "a-else-if"
+    ],
+    "body": [
+      "@else if (${1:condition}) {",
+      "  $0",
+      "}"
+    ],
+    "description": "@else if block"
+  },
+  "Angular Control Flow @for @empty": {
+    "prefix": [
+      "@for-empty",
+      "a-for-empty"
+    ],
+    "body": [
+      "@for (${1:item} of ${2:items()}; track ${3:item.id}) {",
+      "  $0",
+      "} @empty {",
+      "  <p>${4:No items.}</p>",
+      "}"
+    ],
+    "description": "@for with @empty fallback"
+  },
+  "Angular Control Flow @case": {
+    "prefix": [
+      "@case",
+      "a-case"
+    ],
+    "body": [
+      "@case (${1:value}) {",
+      "  $0",
+      "}"
+    ],
+    "description": "@case block"
+  },
+  "Angular Control Flow @defer full": {
+    "prefix": [
+      "@defer-full",
+      "a-defer-full"
+    ],
+    "body": [
+      "@defer (on ${1:viewport}) {",
+      "  $0",
+      "} @placeholder (minimum ${2:500ms}) {",
+      "  <p>${3:Placeholder}</p>",
+      "} @loading (after ${4:100ms}; minimum ${5:1s}) {",
+      "  <p>${6:Loading…}</p>",
+      "} @error {",
+      "  <p>${7:Failed to load.}</p>",
+      "}"
+    ],
+    "description": "@defer with placeholder, loading and error blocks"
+  },
+  "Angular routerLink": {
+    "prefix": [
+      "[routerLink]",
+      "a-router-link"
+    ],
+    "body": [
+      "<a [routerLink]=\"['/${1:path}']\" routerLinkActive=\"${2:active}\">${3:Link}</a>$0"
+    ],
+    "description": "Router link with active class"
+  },
+  "Angular Event Binding": {
+    "prefix": [
+      "(click)",
+      "a-click"
+    ],
+    "body": [
+      "(${1:click})=\"${2:onClick}(${3:\\$event})\"$0"
+    ],
+    "description": "Event binding"
+  },
+  "Angular Property Binding": {
+    "prefix": [
+      "[prop]",
+      "a-prop"
+    ],
+    "body": [
+      "[${1:property}]=\"${2:value}\"$0"
+    ],
+    "description": "Property binding"
+  },
+  "Angular formControlName": {
+    "prefix": [
+      "formControlName",
+      "a-form-control-name"
+    ],
+    "body": [
+      "formControlName=\"${1:name}\"$0"
+    ],
+    "description": "Reactive forms control binding"
+  },
+  "Angular Reactive Form": {
+    "prefix": [
+      "[formGroup]",
+      "a-form"
+    ],
+    "body": [
+      "<form [formGroup]=\"${1:form}\" (ngSubmit)=\"${2:onSubmit}()\">",
+      "  <input formControlName=\"${3:name}\" />",
+      "  <button type=\"submit\" [disabled]=\"${1:form}.invalid\">${4:Save}</button>$0",
+      "</form>"
+    ],
+    "description": "Reactive form with submit handler"
+  },
+  "Angular ngTemplateOutlet": {
+    "prefix": [
+      "*ngTemplateOutlet",
+      "a-template-outlet"
+    ],
+    "body": [
+      "<ng-container *ngTemplateOutlet=\"${1:template}; context: { \\$implicit: ${2:value} }\" />$0"
+    ],
+    "description": "Render a template with context"
+  },
+  "Angular Interpolation": {
+    "prefix": [
+      "{{",
+      "a-interpolation"
+    ],
+    "body": [
+      "{{ ${1:value} }}$0"
+    ],
+    "description": "Interpolation"
+  },
+  "Angular Pipe": {
+    "prefix": [
+      "a-pipe-use"
+    ],
+    "body": [
+      "{{ ${1:value} | ${2:async} }}$0"
+    ],
+    "description": "Interpolation through a pipe"
+  }
+}

@@ -178,6 +178,13 @@ pub fn run(path: PathBuf) -> Result<()> {
                         );
                         None
                     }
+                    Some("saveFailed") => {
+                        emit(
+                            &output,
+                            json!({"event":"saveError","message":message["message"]}),
+                        );
+                        None
+                    }
                     Some("exit") => {
                         emit(&output, json!({"event":"exit"}));
                         None

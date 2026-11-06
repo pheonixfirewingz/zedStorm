@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::time::SystemTime;
 
 use crate::dictionary::Dictionary;
 use crate::lsp::{CodeAction, Diagnostic, Position, Range, TextEdit, WorkspaceEdit};
@@ -8,12 +10,22 @@ use crate::tokenizer::tokenize_document;
 pub struct DiagnosticItem {
     pub range: Range,
     pub word: String,
-    pub suggestions: Vec<String>,
 }
+
+/// Suggestions scan the whole word list, so they are computed only when code actions are
+/// requested and remembered per word; the cache is cleared once it reaches this size.
+const SUGGESTION_CACHE_LIMIT: usize = 512;
+
+/// Editors slow down with very large diagnostic sets, and a document with this many unknown
+/// words is almost certainly generated or minified, so further typos are not reported.
+const MAX_DIAGNOSTICS_PER_DOCUMENT: usize = 1000;
 
 pub struct SpellChecker {
     dictionary: Dictionary,
     documents: HashMap<String, (String, Vec<DiagnosticItem>)>,
+    suggestions: HashMap<String, Vec<String>>,
+    // `None` records a dictionary file that did not exist when last checked.
+    loaded_dictionaries: HashMap<PathBuf, Option<SystemTime>>,
 }
 
 impl Default for SpellChecker {
@@ -27,6 +39,8 @@ impl SpellChecker {
         Self {
             dictionary: Dictionary::new(),
             documents: HashMap::new(),
+            suggestions: HashMap::new(),
+            loaded_dictionaries: HashMap::new(),
         }
     }
 
@@ -34,18 +48,35 @@ impl SpellChecker {
         self.dictionary.add_custom_word(word);
     }
 
+    /// Loads a dictionary file, and loads it again only when its modification time changes (or
+    /// it appears or disappears), so hand edits are picked up at the cost of one `metadata`
+    /// call per opened document. Words saved through the server are added directly.
+    pub fn load_dictionary_once(&mut self, path: PathBuf) {
+        let modified = std::fs::metadata(&path)
+            .and_then(|metadata| metadata.modified())
+            .ok();
+        if self.loaded_dictionaries.get(&path) == Some(&modified) {
+            return;
+        }
+        if modified.is_some() {
+            for word in crate::storage::load_words_from_file(&path) {
+                self.add_custom_word(&word);
+            }
+        }
+        self.loaded_dictionaries.insert(path, modified);
+    }
+
     pub fn ignore_word(&mut self, word: &str) {
         self.dictionary.ignore_word(word);
     }
 
     pub fn recheck_all_documents(&mut self) -> Vec<(String, Vec<Diagnostic>)> {
-        let doc_uris: Vec<String> = self.documents.keys().cloned().collect();
-        let mut results = Vec::new();
-        for uri in doc_uris {
-            if let Some((text, _)) = self.documents.get(&uri).cloned() {
-                let diagnostics = self.check_document(&uri, &text);
-                results.push((uri, diagnostics));
-            }
+        let documents = std::mem::take(&mut self.documents);
+        let mut results = Vec::with_capacity(documents.len());
+        for (uri, (text, _)) in documents {
+            let (diagnostics, items) = self.diagnose(&text);
+            self.documents.insert(uri.clone(), (text, items));
+            results.push((uri, diagnostics));
         }
         results
     }
@@ -55,15 +86,27 @@ impl SpellChecker {
     }
 
     pub fn check_document(&mut self, uri: &str, text: &str) -> Vec<Diagnostic> {
+        let (diagnostics, items) = self.diagnose(text);
+        self.documents.insert(uri.to_string(), (text.to_string(), items));
+        diagnostics
+    }
+
+    fn diagnose(&self, text: &str) -> (Vec<Diagnostic>, Vec<DiagnosticItem>) {
         let tokens = tokenize_document(text);
         let mut diagnostics = Vec::new();
         let mut items = Vec::new();
 
         for token in tokens {
-            let is_typo = token.is_forced_typo || !self.dictionary.is_valid(&token.text);
+            if diagnostics.len() >= MAX_DIAGNOSTICS_PER_DOCUMENT {
+                break;
+            }
+            let is_typo = if token.is_forced_typo {
+                !self.dictionary.is_user_word(&token.text)
+            } else {
+                !self.dictionary.is_valid(&token.text)
+            };
 
             if is_typo {
-                let suggestions = self.dictionary.suggest(&token.text);
                 let range = Range {
                     start: Position {
                         line: token.line,
@@ -75,8 +118,8 @@ impl SpellChecker {
                     },
                 };
 
-                let message = if let Some(first) = suggestions.first() {
-                    format!("Typo: In word '{}'. Did you mean '{}'?", token.text, first)
+                let message = if let Some(fix) = self.dictionary.known_fix(&token.text) {
+                    format!("Typo: In word '{}'. Did you mean '{}'?", token.text, fix)
                 } else {
                     format!("Typo: In word '{}'.", token.text)
                 };
@@ -86,107 +129,124 @@ impl SpellChecker {
                     severity: 2, // Warning
                     source: "english-spell-checker".to_string(),
                     message,
-                    data: Some(suggestions.clone()),
+                    data: None,
                 });
 
                 items.push(DiagnosticItem {
                     range,
                     word: token.text,
-                    suggestions,
                 });
             }
         }
 
-        self.documents.insert(uri.to_string(), (text.to_string(), items));
-        diagnostics
+        (diagnostics, items)
     }
 
-    pub fn get_code_actions(&self, uri: &str, cursor_range: &Range) -> Vec<CodeAction> {
+    fn suggestions_for(&mut self, word: &str) -> Vec<String> {
+        if let Some(suggestions) = self.suggestions.get(word) {
+            return suggestions.clone();
+        }
+        let suggestions = self.dictionary.suggest(word);
+        if self.suggestions.len() >= SUGGESTION_CACHE_LIMIT {
+            self.suggestions.clear();
+        }
+        self.suggestions.insert(word.to_string(), suggestions.clone());
+        suggestions
+    }
+
+    pub fn get_code_actions(&mut self, uri: &str, cursor_range: &Range) -> Vec<CodeAction> {
         use crate::lsp::Command;
         let mut actions = Vec::new();
         let Some((_, items)) = self.documents.get(uri) else {
             return actions;
         };
+        let overlapping: Vec<DiagnosticItem> = items
+            .iter()
+            .filter(|item| ranges_overlap(&item.range, cursor_range))
+            .cloned()
+            .collect();
+        if overlapping.is_empty() {
+            return actions;
+        }
 
-        for item in items {
-            if ranges_overlap(&item.range, cursor_range) {
-                // Quick fix suggestions (like WebStorm: Change to '<suggestion>')
-                for (idx, suggestion) in item.suggestions.iter().enumerate() {
-                    let mut changes = HashMap::new();
-                    changes.insert(
-                        uri.to_string(),
-                        vec![TextEdit {
-                            range: item.range.clone(),
-                            new_text: suggestion.clone(),
-                        }],
-                    );
+        for item in &overlapping {
+            let suggestions = self.suggestions_for(&item.word);
+            // Quick fix suggestions (like WebStorm: Change to '<suggestion>')
+            for (index, suggestion) in suggestions.iter().enumerate() {
+                let mut changes = HashMap::new();
+                changes.insert(
+                    uri.to_string(),
+                    vec![TextEdit {
+                        range: item.range.clone(),
+                        new_text: suggestion.clone(),
+                    }],
+                );
 
-                    actions.push(CodeAction {
-                        title: format!("Change to '{}'", suggestion),
-                        kind: "quickfix".to_string(),
-                        is_preferred: Some(idx == 0),
-                        edit: Some(WorkspaceEdit { changes }),
-                        command: None,
-                    });
-                }
-
-                // WebStorm-style Dictionary options:
-                // 1. Save to dictionary (persists to file in the companion binary location)
                 actions.push(CodeAction {
-                    title: format!("Save '{}' to dictionary", item.word),
+                    title: format!("Change to '{}'", suggestion),
                     kind: "quickfix".to_string(),
-                    is_preferred: Some(false),
-                    edit: None,
-                    command: Some(Command {
-                        title: format!("Save '{}' to dictionary", item.word),
-                        command: "english-spell-checker.saveToDictionary".to_string(),
-                        arguments: Some(vec![serde_json::Value::String(item.word.clone())]),
-                    }),
-                });
-
-                // 2. Save to project dictionary (.zed/dictionary.txt)
-                actions.push(CodeAction {
-                    title: format!("Save '{}' to project", item.word),
-                    kind: "quickfix".to_string(),
-                    is_preferred: Some(false),
-                    edit: None,
-                    command: Some(Command {
-                        title: format!("Save '{}' to project", item.word),
-                        command: "english-spell-checker.saveToProject".to_string(),
-                        arguments: Some(vec![
-                            serde_json::Value::String(item.word.clone()),
-                            serde_json::Value::String(uri.to_string()),
-                        ]),
-                    }),
-                });
-
-                // 3. Ignore word for session
-                actions.push(CodeAction {
-                    title: format!("Ignore '{}'", item.word),
-                    kind: "quickfix".to_string(),
-                    is_preferred: Some(false),
-                    edit: None,
-                    command: Some(Command {
-                        title: format!("Ignore '{}'", item.word),
-                        command: "english-spell-checker.ignoreWord".to_string(),
-                        arguments: Some(vec![serde_json::Value::String(item.word.clone())]),
-                    }),
-                });
-
-                // 4. Open dictionary file in editor (GUI flow to view/manage dictionary words)
-                actions.push(CodeAction {
-                    title: "Open dictionary...".to_string(),
-                    kind: "quickfix".to_string(),
-                    is_preferred: Some(false),
-                    edit: None,
-                    command: Some(Command {
-                        title: "Open dictionary...".to_string(),
-                        command: "english-spell-checker.openDictionary".to_string(),
-                        arguments: None,
-                    }),
+                    is_preferred: Some(index == 0),
+                    edit: Some(WorkspaceEdit { changes }),
+                    command: None,
                 });
             }
+
+            // WebStorm-style Dictionary options:
+            // 1. Save to dictionary (persists to file in the companion binary location)
+            actions.push(CodeAction {
+                title: format!("Save '{}' to dictionary", item.word),
+                kind: "quickfix".to_string(),
+                is_preferred: Some(false),
+                edit: None,
+                command: Some(Command {
+                    title: format!("Save '{}' to dictionary", item.word),
+                    command: "english-spell-checker.saveToDictionary".to_string(),
+                    arguments: Some(vec![serde_json::Value::String(item.word.clone())]),
+                }),
+            });
+
+            // 2. Save to project dictionary (.zed/dictionary.txt)
+            actions.push(CodeAction {
+                title: format!("Save '{}' to project", item.word),
+                kind: "quickfix".to_string(),
+                is_preferred: Some(false),
+                edit: None,
+                command: Some(Command {
+                    title: format!("Save '{}' to project", item.word),
+                    command: "english-spell-checker.saveToProject".to_string(),
+                    arguments: Some(vec![
+                        serde_json::Value::String(item.word.clone()),
+                        serde_json::Value::String(uri.to_string()),
+                    ]),
+                }),
+            });
+
+            // 3. Ignore word for session
+            actions.push(CodeAction {
+                title: format!("Ignore '{}'", item.word),
+                kind: "quickfix".to_string(),
+                is_preferred: Some(false),
+                edit: None,
+                command: Some(Command {
+                    title: format!("Ignore '{}'", item.word),
+                    command: "english-spell-checker.ignoreWord".to_string(),
+                    arguments: Some(vec![serde_json::Value::String(item.word.clone())]),
+                }),
+            });
         }
+
+        // 4. Open dictionary file in editor (GUI flow to view/manage dictionary words)
+        actions.push(CodeAction {
+            title: "Open dictionary...".to_string(),
+            kind: "quickfix".to_string(),
+            is_preferred: Some(false),
+            edit: None,
+            command: Some(Command {
+                title: "Open dictionary...".to_string(),
+                command: "english-spell-checker.openDictionary".to_string(),
+                arguments: None,
+            }),
+        });
 
         actions
     }
@@ -220,6 +280,14 @@ mod tests {
         let actions = checker.get_code_actions("file:///test.rs", &diags[0].range);
         assert!(!actions.is_empty());
         assert_eq!(actions[0].title, "Change to 'receive'");
+    }
+
+    #[test]
+    fn test_ignoring_word_clears_contextual_typo() {
+        let mut checker = SpellChecker::new();
+        assert_eq!(checker.check_document("file:///test.rs", "dose not").len(), 1);
+        checker.ignore_word("dose");
+        assert!(checker.check_document("file:///test.rs", "dose not").is_empty());
     }
 
     #[test]

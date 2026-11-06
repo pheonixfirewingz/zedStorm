@@ -212,6 +212,55 @@ pub trait KeyValueStoreDelegate: Send + Sync + 'static {
     fn insert(&self, key: String, docs: String) -> Task<Result<()>>;
 }
 
+/// Strips the leading slash WASI puts on Windows drive paths (`/C:/dir`), which std would
+/// otherwise treat as a relative path. Text that is not of the form `/X:/` or `/X:\` is
+/// returned unchanged.
+pub fn strip_wasi_drive_prefix(text: &str) -> &str {
+    match text.as_bytes() {
+        [b'/', drive, b':', b'/' | b'\\', ..] if drive.is_ascii_alphabetic() => &text[1..],
+        _ => text,
+    }
+}
+
+/// Resolves a path returned by an extension to a path on the host.
+///
+/// Relative paths prefer the installed extension directory, where companion binaries ship in
+/// `bin/`, over the working directory. Extensions built against older layouts return absolute
+/// paths into the `zedstorm-tools` directory, which is no longer populated, so a missing path of
+/// that shape falls back to the file of the same name inside the installed `bin/` directory.
+pub fn resolve_extension_path(
+    path: &Path,
+    extension_dir: Option<&Path>,
+    work_dir: &Path,
+) -> PathBuf {
+    let path = match path.to_str() {
+        Some(text) if cfg!(windows) => Path::new(strip_wasi_drive_prefix(text)),
+        _ => path,
+    };
+    let resolved = if path.is_relative() {
+        extension_dir
+            .map(|extension_dir| extension_dir.join(path))
+            .filter(|candidate| candidate.exists())
+            .unwrap_or_else(|| work_dir.join(path))
+    } else {
+        path.to_path_buf()
+    };
+    if path.is_absolute()
+        && !resolved.exists()
+        && path
+            .components()
+            .any(|component| component.as_os_str() == "zedstorm-tools")
+        && let Some(extension_dir) = extension_dir
+        && let Some(file_name) = path.file_name()
+    {
+        let bundled = extension_dir.join("bin").join(file_name);
+        if bundled.is_file() {
+            return util::normalize_path(&bundled);
+        }
+    }
+    util::normalize_path(&resolved)
+}
+
 #[async_trait]
 pub trait Extension: Send + Sync + 'static {
     async fn render_diagram(
@@ -245,15 +294,7 @@ pub trait Extension: Send + Sync + 'static {
 
     /// Returns a path relative to this extension's working or installed directory.
     fn path_from_extension(&self, path: &Path) -> PathBuf {
-        if path.is_relative() {
-            if let Some(ext_dir) = self.extension_dir() {
-                let candidate = ext_dir.join(path);
-                if candidate.exists() {
-                    return path::normalize_path(&candidate);
-                }
-            }
-        }
-        path::normalize_path(&self.work_dir().join(path))
+        resolve_extension_path(path, self.extension_dir().as_deref(), &self.work_dir())
     }
 
     async fn language_server_command(
@@ -408,4 +449,63 @@ pub fn parse_wasm_extension_version(extension_id: &str, wasm_bytes: &[u8]) -> Re
     }
 
     version.ok_or_else(|| anyhow!("extension {extension_id} does not specify an api version"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_extension_path() -> anyhow::Result<()> {
+        let root = tempfile::tempdir()?;
+        let extension_dir = root.path().join("installed").join("drawio");
+        let work_dir = root.path().join("work").join("drawio");
+        std::fs::create_dir_all(extension_dir.join("bin"))?;
+        std::fs::create_dir_all(&work_dir)?;
+        let binary = extension_dir.join("bin").join("zed-diagrams");
+        std::fs::write(&binary, "")?;
+        let expected = util::normalize_path(&binary);
+
+        assert_eq!(
+            resolve_extension_path(Path::new("bin/zed-diagrams"), Some(&extension_dir), &work_dir),
+            expected
+        );
+
+        let stale_tools_path = root.path().join("zedstorm-tools").join("bin").join("zed-diagrams");
+        assert_eq!(
+            resolve_extension_path(
+                &stale_tools_path,
+                Some(&extension_dir),
+                &work_dir
+            ),
+            expected
+        );
+
+        #[cfg(windows)]
+        assert_eq!(
+            resolve_extension_path(
+                Path::new(&format!("/{}", binary.to_string_lossy().replace('\\', "/"))),
+                Some(&extension_dir),
+                &work_dir
+            ),
+            expected
+        );
+
+        assert_eq!(
+            resolve_extension_path(Path::new("bin/missing"), Some(&extension_dir), &work_dir),
+            util::normalize_path(&work_dir.join("bin").join("missing"))
+        );
+
+        let unrelated_missing = root.path().join("elsewhere").join("zed-diagrams");
+        assert_eq!(
+            resolve_extension_path(&unrelated_missing, Some(&extension_dir), &work_dir),
+            util::normalize_path(&unrelated_missing)
+        );
+
+        assert_eq!(strip_wasi_drive_prefix("/C:/dir"), "C:/dir");
+        assert_eq!(strip_wasi_drive_prefix("/C:\\dir"), "C:\\dir");
+        assert_eq!(strip_wasi_drive_prefix("/C:dir"), "/C:dir");
+        assert_eq!(strip_wasi_drive_prefix("/usr/bin"), "/usr/bin");
+        Ok(())
+    }
 }

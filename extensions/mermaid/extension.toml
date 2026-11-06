@@ -1,7 +1,7 @@
 id = "mermaid"
 name = "Mermaid"
 description = "Render Mermaid diagrams in Markdown previews and chat."
-version = "0.1.0"
+version = "0.1.1"
 schema_version = 1
 authors = ["ZedStorm contributors"]
 repository = "https://github.com/pheonixfirewingz/zedStorm"

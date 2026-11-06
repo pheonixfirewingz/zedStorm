@@ -32,19 +32,8 @@ impl zed::Extension for PlcNextExtension {
             BINARY_NAME.to_string()
         };
 
-        // 1. Check local extension bin/ directory (e.g. during development)
-        if let Ok(current_dir) = env::current_dir() {
-            let local_bin = current_dir.join("bin").join(&binary_file_name);
-            if local_bin.is_file() {
-                return Ok(TabRendererBackend::Command(Command {
-                    command: local_bin.to_string_lossy().to_string(),
-                    args: vec!["--embedded".to_string(), file_path.to_string()],
-                    env: worktree.shell_env(),
-                }));
-            }
-        }
-
-        // 2. Check managed tools directory (zedstorm-tools)
+        // The installed extension directory holds the companion binary shipped in the release;
+        // the work directory may hold a stale copy, so it is deliberately not consulted.
         let env_vars: Vec<(String, String)> = env::vars().collect();
         if let Ok(tools_dir) = tools_path::extension_directory(os, &env_vars) {
             let companion = tools_dir.join("bin").join(&binary_file_name);
@@ -57,7 +46,6 @@ impl zed::Extension for PlcNextExtension {
             }
         }
 
-        // 3. Check system PATH
         if let Some(path) = worktree.which(BINARY_NAME) {
             return Ok(TabRendererBackend::Command(Command {
                 command: path,
@@ -66,7 +54,7 @@ impl zed::Extension for PlcNextExtension {
             }));
         }
 
-        // Fallback: relative path in bin/
+        // The host resolves relative commands against the installed extension directory.
         Ok(TabRendererBackend::Command(Command {
             command: format!("bin/{binary_file_name}"),
             args: vec!["--embedded".to_string(), file_path.to_string()],

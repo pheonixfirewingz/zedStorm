@@ -13,6 +13,12 @@ use crate::model::{
     PouInfo, PouType, ProjectFileInfo, TaskInfo, TaskProgramRef, VariableInfo,
 };
 
+/// Largest single entry that is read into memory.
+const MAX_ENTRY_BYTES: u64 = 32 * 1024 * 1024;
+/// Largest total of entry content read into memory for one project.
+const MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_DIRECTORY_DEPTH: usize = 32;
+
 pub struct PlcNextParser;
 
 impl PlcNextParser {
@@ -39,15 +45,25 @@ impl PlcNextParser {
     }
 
     fn parse_from_directory(dir: &Path, project: &mut PlcNextProject) -> Result<()> {
+        let mut listing = Vec::new();
         let mut file_entries = BTreeMap::new();
-        Self::collect_files_recursive(dir, dir, &mut file_entries)?;
+        let mut total_read = 0;
+        Self::collect_files_recursive(
+            dir,
+            dir,
+            0,
+            &mut listing,
+            &mut file_entries,
+            &mut total_read,
+        )?;
+        listing.sort();
 
-        for (rel_path, content) in &file_entries {
+        for (rel_path, size_bytes) in listing {
             project.files.push(ProjectFileInfo {
-                path: rel_path.clone(),
-                size_bytes: content.len() as u64,
-                aspect: Self::determine_aspect(rel_path),
-                pou_name: Self::extract_pou_name_from_path(rel_path),
+                aspect: Self::determine_aspect(&rel_path),
+                pou_name: Self::extract_pou_name_from_path(&rel_path),
+                path: rel_path,
+                size_bytes,
             });
         }
 
@@ -55,24 +71,85 @@ impl PlcNextParser {
         Ok(())
     }
 
+    /// Whether `process_project_content` reads the entry's content; other entries are only listed.
+    fn is_parsed_entry(path: &str) -> bool {
+        let lower = path.to_lowercase();
+        [
+            "manifest.xml",
+            "structure.xml",
+            ".dt",
+            ".var",
+            ".st",
+            ".ld",
+            ".fbd",
+            ".html",
+            ".txt",
+            ".meta",
+        ]
+        .iter()
+        .any(|suffix| lower.ends_with(suffix))
+    }
+
+    /// Reads at most `MAX_ENTRY_BYTES` of an entry, or `None` (after logging) when the entry is
+    /// too large, the project-wide budget is spent, or reading fails.
+    fn read_capped(reader: impl Read, path: &str, total_read: &mut u64) -> Option<Vec<u8>> {
+        let mut content = Vec::new();
+        let mut limited = reader.take(MAX_ENTRY_BYTES + 1);
+        if let Err(error) = limited.read_to_end(&mut content) {
+            eprintln!("Skipping {path}: could not read it: {error}");
+            return None;
+        }
+        if content.len() as u64 > MAX_ENTRY_BYTES {
+            eprintln!("Skipping {path}: larger than {MAX_ENTRY_BYTES} bytes");
+            return None;
+        }
+        if total_read.saturating_add(content.len() as u64) > MAX_TOTAL_BYTES {
+            eprintln!("Skipping {path}: project content exceeds {MAX_TOTAL_BYTES} bytes");
+            return None;
+        }
+        *total_read += content.len() as u64;
+        Some(content)
+    }
+
     fn collect_files_recursive(
         base: &Path,
         current: &Path,
+        depth: usize,
+        listing: &mut Vec<(String, u64)>,
         files: &mut BTreeMap<String, Vec<u8>>,
+        total_read: &mut u64,
     ) -> Result<()> {
+        if depth > MAX_DIRECTORY_DEPTH {
+            eprintln!("Skipping {}: directory nesting is too deep", current.display());
+            return Ok(());
+        }
         if !current.exists() {
             return Ok(());
         }
         for entry in fs::read_dir(current)? {
             let entry = entry?;
             let path = entry.path();
-            if path.is_dir() {
-                Self::collect_files_recursive(base, &path, files)?;
-            } else if path.is_file() {
-                if let Ok(rel) = path.strip_prefix(base) {
-                    let rel_str = rel.to_string_lossy().replace('\\', "/");
-                    if let Ok(bytes) = fs::read(&path) {
-                        files.insert(rel_str, bytes);
+            let file_type = entry.file_type()?;
+            if file_type.is_dir() {
+                Self::collect_files_recursive(base, &path, depth + 1, listing, files, total_read)?;
+            } else if file_type.is_file()
+                && let Ok(rel) = path.strip_prefix(base)
+            {
+                let rel_str = rel.to_string_lossy().replace('\\', "/");
+                let size = entry.metadata()?.len();
+                listing.push((rel_str.clone(), size));
+                if Self::is_parsed_entry(&rel_str) {
+                    if size > MAX_ENTRY_BYTES {
+                        eprintln!("Skipping {rel_str}: larger than {MAX_ENTRY_BYTES} bytes");
+                        continue;
+                    }
+                    match File::open(&path) {
+                        Ok(file) => {
+                            if let Some(content) = Self::read_capped(file, &rel_str, total_read) {
+                                files.insert(rel_str, content);
+                            }
+                        }
+                        Err(error) => eprintln!("Skipping {rel_str}: could not open it: {error}"),
                     }
                 }
             }
@@ -88,25 +165,27 @@ impl PlcNextParser {
             .with_context(|| format!("Invalid ZIP/PLCnext archive: {}", archive_path.display()))?;
 
         let mut file_entries = BTreeMap::new();
+        let mut total_read = 0;
 
-        for i in 0..zip.len() {
-            let mut file = zip.by_index(i)?;
+        for index in 0..zip.len() {
+            let mut file = zip.by_index(index)?;
             let name = file.name().replace('\\', "/");
             if file.is_dir() {
                 continue;
             }
-            let mut buf = Vec::new();
-            let _ = file.read_to_end(&mut buf);
-            let size = buf.len() as u64;
 
             project.files.push(ProjectFileInfo {
                 path: name.clone(),
-                size_bytes: size,
+                size_bytes: file.size(),
                 aspect: Self::determine_aspect(&name),
                 pou_name: Self::extract_pou_name_from_path(&name),
             });
 
-            file_entries.insert(name, buf);
+            if Self::is_parsed_entry(&name)
+                && let Some(content) = Self::read_capped(&mut file, &name, &mut total_read)
+            {
+                file_entries.insert(name, content);
+            }
         }
 
         Self::process_project_content(&file_entries, project);
