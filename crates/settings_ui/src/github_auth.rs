@@ -192,6 +192,12 @@ fn ssh_command(program: &str) -> Result<Command> {
 }
 
 pub(crate) fn get_device_name() -> String {
+    // Called from `render`; the fallbacks read files and spawn a process.
+    static DEVICE_NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    DEVICE_NAME.get_or_init(detect_device_name).clone()
+}
+
+fn detect_device_name() -> String {
     if let Ok(hostname) = std::env::var("HOSTNAME") {
         let trimmed = hostname.trim();
         if !trimmed.is_empty() {

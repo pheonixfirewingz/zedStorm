@@ -69,6 +69,7 @@ pub struct CodexPanel {
     history_sender: Option<channel::Sender<super::chat_store::SavedChats>>,
     _history_error_task: Option<Task<()>>,
     history_writer_task: Option<Task<()>>,
+    history_save_task: Option<Task<()>>,
     context_bridge_task: Option<Task<()>>,
     context_bridge_directory: Option<PathBuf>,
     context_bridge_window: gpui::AnyWindowHandle,
@@ -181,6 +182,7 @@ impl CodexPanel {
             history_sender: None,
             _history_error_task: None,
             history_writer_task: None,
+            history_save_task: None,
             context_bridge_task,
             context_bridge_directory,
             context_bridge_window: window.window_handle(),
@@ -417,7 +419,7 @@ impl CodexPanel {
                         }
                     }
                     panel.schedule_sync_markdown(cx);
-                    panel.save_history();
+                    panel.schedule_save_history(cx);
                     cx.notify();
                 });
                 if let Err(error) = result {
@@ -493,7 +495,29 @@ impl CodexPanel {
         }
         if follow_output {
             self.scroll_handle.scroll_to_bottom();
+            self.schedule_save_history(cx);
+        }
+    }
+
+    fn schedule_save_history(&mut self, cx: &mut Context<Self>) {
+        // Each save clones every stored chat on the foreground thread, and streamed
+        // deltas arrive many times per second, so coalesce saves while a turn runs.
+        const HISTORY_SAVE_INTERVAL: Duration = Duration::from_secs(2);
+        if !self.session.busy {
+            self.history_save_task = None;
             self.save_history();
+            return;
+        }
+        if self.history_save_task.is_none() {
+            self.history_save_task = Some(cx.spawn(async move |panel, cx| {
+                cx.background_executor().timer(HISTORY_SAVE_INTERVAL).await;
+                panel
+                    .update(cx, |panel, _| {
+                        panel.history_save_task = None;
+                        panel.save_history();
+                    })
+                    .log_err();
+            }));
         }
     }
 

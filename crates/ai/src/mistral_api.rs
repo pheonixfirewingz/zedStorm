@@ -566,7 +566,7 @@ fn fallback_summary(messages: &[Value]) -> String {
         let content = content_text(&msg["content"]);
         if !content.is_empty() {
             let snippet = if content.len() > 200 {
-                format!("{}…", &content[..200])
+                format!("{}…", &content[..content.floor_char_boundary(200)])
             } else {
                 content
             };
@@ -606,7 +606,7 @@ async fn summarize_messages(
         }
         if !content.is_empty() {
             let truncated = if content.len() > 2000 {
-                format!("{}... [truncated]", &content[..2000])
+                format!("{}... [truncated]", &content[..content.floor_char_boundary(2000)])
             } else {
                 content
             };

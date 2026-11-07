@@ -239,7 +239,9 @@ impl RunPanel {
             if session.configuration_key.as_ref() == Some(key)
                 && matches!(session.state, SessionState::Starting | SessionState::Running)
             {
-                Self::terminate_session_process(session);
+                if let Some(termination) = Self::terminate_session_process(session, cx) {
+                    termination.detach();
+                }
                 session.state = SessionState::Stopped;
                 Self::append_raw_to_editor(
                     &session.editor,
@@ -255,7 +257,9 @@ impl RunPanel {
     pub fn stop_all(&mut self, cx: &mut Context<Self>) {
         for session in &mut self.sessions {
             if matches!(session.state, SessionState::Starting | SessionState::Running) {
-                Self::terminate_session_process(session);
+                if let Some(termination) = Self::terminate_session_process(session, cx) {
+                    termination.detach();
+                }
                 session.state = SessionState::Stopped;
                 Self::append_raw_to_editor(
                     &session.editor,
@@ -268,13 +272,17 @@ impl RunPanel {
         cx.notify();
     }
 
-    fn terminate_session_process(session: &mut RunSession) {
+    /// Killing a process tree can take hundreds of milliseconds (notably `taskkill /T`
+    /// on Windows), so it runs on a background thread. The returned task must be
+    /// awaited before relaunching so the old process releases ports and files first.
+    fn terminate_session_process(session: &mut RunSession, cx: &App) -> Option<Task<()>> {
         if let Some(task) = session.execution_task.take() {
             if session.child_pid.is_some() {
                 task.detach();
             }
         }
-        if let Some(pid) = session.child_pid.take() {
+        let pid = session.child_pid.take()?;
+        Some(cx.background_spawn(async move {
             #[cfg(unix)]
             {
                 std::process::Command::new("kill")
@@ -289,7 +297,7 @@ impl RunPanel {
                     .output()
                     .log_err();
             }
-        }
+        }))
     }
 
     pub fn launch(
@@ -315,7 +323,7 @@ impl RunPanel {
                 if let Some(idx) = existing_index {
                     // Stop existing instance and restart it in the same tab
                     let session = &mut self.sessions[idx];
-                    Self::terminate_session_process(session);
+                    let termination = Self::terminate_session_process(session, cx);
                     session.state = SessionState::Starting;
                     session.command = command.clone();
                     session.args = args.clone();
@@ -324,7 +332,7 @@ impl RunPanel {
                     session.configuration_snapshot = configuration.clone();
                     self.active_index = Some(idx);
                     Self::clear_editor(&session.editor, cx);
-                    self.spawn_process(idx, command, args, cwd, env, window, cx);
+                    self.spawn_process(idx, termination, command, args, cwd, env, window, cx);
                     cx.notify();
                     return;
                 }
@@ -378,13 +386,14 @@ impl RunPanel {
         let idx = self.sessions.len() - 1;
         self.active_index = Some(idx);
 
-        self.spawn_process(idx, command, args, cwd, env, window, cx);
+        self.spawn_process(idx, None, command, args, cwd, env, window, cx);
         cx.notify();
     }
 
     fn spawn_process(
         &mut self,
         session_idx: usize,
+        previous_termination: Option<Task<()>>,
         command_str: String,
         args: Vec<String>,
         cwd: PathBuf,
@@ -408,6 +417,9 @@ impl RunPanel {
         let session_id = session.id.clone();
 
         let task = cx.spawn_in(window, async move |run_panel, cx| {
+            if let Some(previous_termination) = previous_termination {
+                previous_termination.await;
+            }
             let spawn_result = async {
                 let mut std_cmd = run_command(&configuration, &command_str, &args)?;
                 if !env.contains_key("NO_COLOR")
@@ -693,21 +705,23 @@ impl RunPanel {
 
     pub fn rerun_session(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(session) = self.sessions.get_mut(index) {
-            Self::terminate_session_process(session);
+            let termination = Self::terminate_session_process(session, cx);
             let command = session.command.clone();
             let args = session.args.clone();
             let cwd = session.cwd.clone();
             let env = session.env.clone();
             session.state = SessionState::Starting;
             Self::clear_editor(&session.editor, cx);
-            self.spawn_process(index, command, args, cwd, env, window, cx);
+            self.spawn_process(index, termination, command, args, cwd, env, window, cx);
             cx.notify();
         }
     }
 
     pub fn stop_session(&mut self, index: usize, cx: &mut Context<Self>) {
         if let Some(session) = self.sessions.get_mut(index) {
-            Self::terminate_session_process(session);
+            if let Some(termination) = Self::terminate_session_process(session, cx) {
+                termination.detach();
+            }
             session.state = SessionState::Stopped;
             Self::append_raw_to_editor(
                 &session.editor,
@@ -722,7 +736,9 @@ impl RunPanel {
     pub fn close_session(&mut self, index: usize, cx: &mut Context<Self>) {
         if index < self.sessions.len() {
             let mut session = self.sessions.remove(index);
-            Self::terminate_session_process(&mut session);
+            if let Some(termination) = Self::terminate_session_process(&mut session, cx) {
+                termination.detach();
+            }
             if self.sessions.is_empty() {
                 self.active_index = None;
             } else if let Some(active) = self.active_index {
